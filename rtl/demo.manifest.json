@@ -1,0 +1,11 @@
+{
+  "name": "demo",
+  "sources": [
+    "rtl/demo.sv"
+  ],
+  "incdirs": [],
+  "defines": [],
+  "params": [],
+  "top": "top",
+  "blackboxes": []
+}

@@ -50,7 +50,7 @@ class Net:
 @dataclass(frozen=True)
 class Instance:
     name: str
-    module: str  # base module name (unmangled)
+    module: str | None = None  # base module name (unmangled); None => generate block
     params: tuple[Param, ...] = ()
     blackbox: bool = False
     src: str | None = None
@@ -58,7 +58,9 @@ class Instance:
 
 @dataclass(frozen=True)
 class Scope:
-    name: str  # module key as it appears in the netlist (may be $paramod-mangled)
+    name: str  # hierarchical scope path (e.g. top.u_core.g[0].u_alu_g); the
+    #            hand-written fixture is module-keyed instead (name == module)
+    module: str | None = None  # base module name; None => generate block scope
     blackbox: bool = False
     params: tuple[Param, ...] = ()
     ports: tuple[Port, ...] = ()
@@ -92,6 +94,7 @@ class BitLink:
 @dataclass(frozen=True)
 class NetConnectivity:
     net: str
+    scope: str = ""  # the scope (module name) this connectivity describes
     bits: tuple[BitLink, ...] = ()
 
 
@@ -205,6 +208,7 @@ def design_from_fixture(path: str | Path) -> Design:
         scopes.append(
             Scope(
                 name=name,
+                module=name,  # fixture is module-keyed: name == module
                 blackbox=bool(s.get("blackbox", False)),
                 params=tuple(
                     Param(name=p["name"], value=p.get("value", ""), default=p.get("default"), kind=p.get("kind", "parameter"))
