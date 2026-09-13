@@ -15,6 +15,9 @@ copy harness artifacts into this repo; cite them instead.
 
 - **Design**: Nextcloud note *"TREN — RTL explorer TUI (concept)"*,
   note id `1503454`, category `TREN`. Read it before proposing architecture.
+  **A mirror lives in this repo** at `docs/notes/TREN-concept.md` (plus the
+  backend- and TUI-exploration reports mirrored alongside); if Nextcloud is
+  unreachable, read the mirrors — but treat Nextcloud as canonical.
 - **Verified findings / verdicts**: sibling `tren_testing/report.md`
   (backends), `tren_testing/report-tui.md` (framework verdict + how TUIs
   work), and `tren_testing/{t1_yosys,t3_slang,tui_textual}/findings.md`

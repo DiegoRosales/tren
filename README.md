@@ -48,7 +48,11 @@ manifest.json        hand-checkable design manifest (sources/incdirs/top/…)
 ## Sources of truth
 
 - Design note: Nextcloud **"TREN — RTL explorer TUI (concept)"**, note id
-  `1503454` (cat `TREN`).
+  `1503454` (cat `TREN`). **Mirrored in this repo** for offline reading:
+  - `docs/notes/TREN-concept.md` — the concept/design note
+  - `docs/notes/TREN-backend-api-exploration.md` — yosys/slang/verilator report
+  - `docs/notes/TREN-tui-exploration.md` — framework verdict + how TUIs work
+  (Nextcloud stays canonical; each mirror carries its note id + etag.)
 - Verified exploration + reports: the sibling **`tren_testing`** directory
   (`report.md` for backends, `report-tui.md` for the framework verdict,
   `t1_yosys/` `t3_slang/` `tui_textual/` for reproductions).
