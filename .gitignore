@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+/.nix-shell*/
+/target/
+*.eggs/
+.DS_Store
