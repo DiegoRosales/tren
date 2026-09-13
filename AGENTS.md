@@ -71,6 +71,12 @@ Always run under the dev shell: `nix develop . -c <command>` — never bare
   (`test_drive.py`). Headless and CI-able by design.
 - Elaboration output is an on-disk cache keyed by
   `sha256(manifest + source mtimes)`; start instantly on cache hits.
+- **Never `export PYTHONPATH=src`** at the shell level for runtimes that
+  import textual — the dev shell exposes rich/textual through its own
+  `PYTHONPATH`, and replacing it breaks `import rich`/`import textual`. The
+  test files self-insert `src` via `sys.path.insert`; use
+  `PYTHONPATH=src:$PYTHONPATH` only when you must (e.g. `python -c` smoke
+  checks).
 
 ### Known gotchas (verified, keep for later)
 
