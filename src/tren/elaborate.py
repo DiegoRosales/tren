@@ -88,13 +88,18 @@ def parse_hier_line(line: str) -> dict[str, Any] | None:
 
 
 def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
-    """Scope tree + resolved params: ``slang-hier --params`` parsed."""
+    """Scope tree + resolved params: ``slang-hier --params`` parsed.
+
+    Sources/incdirs are passed as manifest-relative paths — the subprocess
+    runs with ``cwd=root``, so tool-reported src stays ``rtl/demo.sv:…``
+    (relative) rather than absolute.
+    """
     args = ["slang-hier", "--params"]
     for inc in manifest.incdirs:
-        args += ["-I", str(root / inc)]
+        args += ["-I", str(inc)]
     for name, value in manifest.defines:
         args += ["-D", f"{name}={value}" if value else name]
-    args += [str(root / s) for s in manifest.sources]
+    args += [str(s) for s in manifest.sources]
     nodes: list[dict[str, Any]] = []
     for line in _run(args, root).splitlines():
         node = parse_hier_line(line)
@@ -104,13 +109,13 @@ def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
 
 
 def run_yosys(manifest: Manifest, root: Path, out_json: str) -> None:
-    """Netlist for connectivity/boundaries/black-box ports."""
+    """Netlist for connectivity/boundaries/black-box ports (srcs relative)."""
     read_args: list[str] = []
     for name, value in manifest.defines:
         read_args.append(f"-D{name}={value}" if value else f"-D{name}")
     for inc in manifest.incdirs:
         read_args.append(f"-I{inc}")
-    sources = " ".join(read_args + [str(root / s) for s in manifest.sources])
+    sources = " ".join(read_args + [str(s) for s in manifest.sources])
     script = (
         f"read_verilog -sv {sources}; "
         f"hierarchy -top {manifest.top}; "
@@ -130,10 +135,10 @@ def run_slang_ast(manifest: Manifest, root: Path, out_json: str) -> dict:
         "--ast-json-detailed-types",
     ]
     for inc in manifest.incdirs:
-        args += ["-I", str(root / inc)]
+        args += ["-I", str(inc)]
     for name, value in manifest.defines:
         args += ["-D", f"{name}={value}" if value else name]
-    args += [str(root / s) for s in manifest.sources]
+    args += [str(s) for s in manifest.sources]
     _run(args, root)
     return json.loads(Path(out_json).read_text())
 
@@ -148,6 +153,14 @@ def _ast_src(node: dict) -> str | None:
     if not f:
         return None
     return f"{f}:{node.get('source_line')}:{node.get('source_column')}"
+
+
+def _src_line(src: str | None) -> int | None:
+    """Leading line number of a src string ('rtl/demo.sv:77.14-77.65')."""
+    if not src:
+        return None
+    m = re.search(r":(\d+)", src)
+    return int(m.group(1)) if m is not None else None
 
 
 def _range_width(rng: str) -> int | None:
@@ -401,22 +414,32 @@ def build_design(
                     src=gen.get("src"),
                 )
 
-    # --- instances: direct child scopes ------------------------------------
+    # --- instances: direct child scopes; src = instantiation site ----------
+    # The instance's src is the *instantiation in the parent* (the yosys cell
+    # src, e.g. rtl/demo.sv:77.14-77.65), not the child module's declaration —
+    # that is what the source pane focuses. Fall back to the child scope's own
+    # src when the cell src is unknown (generate-block children). Children are
+    # ordered by src line (source order), name as tiebreak.
     for path, scope in scopes.items():
-        children = sorted(q for q in scopes if _parent(q) == path)
-        scopes[path] = replace(
-            scope,
-            instances=tuple(
+        children = [q for q in scopes if _parent(q) == path]
+        key = base_to_key.get(scope.module) if scope.module else None
+        mod = netlist["modules"].get(key) or {} if key else {}
+        insts: list[Instance] = []
+        for q in children:
+            name = q.rsplit(".", 1)[1]
+            cell = (mod.get("cells") or {}).get(name) or {}
+            cell_src = (cell.get("attributes") or {}).get("src")
+            insts.append(
                 Instance(
-                    name=q.rsplit(".", 1)[1],
+                    name=name,
                     module=scopes[q].module,
                     params=scopes[q].params,
                     blackbox=scopes[q].blackbox,
-                    src=scopes[q].src,
+                    src=cell_src or scopes[q].src,
                 )
-                for q in children
-            ),
-        )
+            )
+        insts.sort(key=lambda i: (_src_line(i.src) or 10**9, i.name))
+        scopes[path] = replace(scope, instances=tuple(insts))
 
     return Design(
         top=manifest.top,

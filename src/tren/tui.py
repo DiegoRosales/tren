@@ -1,22 +1,25 @@
-"""tren — 3-pane textual spike, now driven by the IR (tren.ir.Design).
+"""tren — 3-pane textual spike, driven by the IR (tren.ir.Design).
 
-Left:    scope tree (filesystem-like hierarchy)
-Center:  source of the module you're sitting on, with the focused range
-         (rtl_focus) highlighted
+Left:    scope tree (filesystem-like hierarchy; generate scopes nested)
+Center:  source of the module you're sitting on — the *actual RTL file*
+         loaded at the scope's src (file:line already in IR), with the
+         focused range highlighted. Semantics: the module's *instantiation
+         in its parent* (its src), else the module declaration; falls back
+         to the inline rtl snippet when no file src exists (fixture).
 Right:   the module's I/O (ports)
 
-Data loads through the IR module (tren.ir.design_from_fixture) — the
-hand-written demo-tree.json fixture path first; a real manifest can be
-elaborated via ``--manifest``. The tree/source/ports all read Design/Scope/
-Instance/Port objects, never raw JSON.
+Auto-follow: on scope change the focus band is kept in view
+(src_offset = focus_start - rows/2, clamped). `e` opens the editor (stub)
+at the focused line.
 
-Keys: j/k move, l open/expand, h up, 1/2/3 pane select, y yank, q quit.
-Headless Pilot test:  python test_drive.py
+Keys: j/k move, l open/expand, h up, 1/2/3 pane select, y yank, e editor,
+q quit. Headless Pilot tests:  python test_drive.py [--manifest …]
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 from rich.text import Text as RichText
@@ -34,6 +37,26 @@ FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.
 
 def load_design(fixture: Path | None = None) -> Design:
     return design_from_fixture(fixture or FIXTURE)
+
+
+def _scope_parent(path: str) -> str | None:
+    parts = path.rsplit(".", 1)
+    return parts[0] if len(parts) == 2 else None
+
+
+def _parse_src(src: str | None) -> tuple[str, int, int] | None:
+    """'rtl/demo.sv:77.14-77.65' -> ('rtl/demo.sv', 77, 77)."""
+    if not src:
+        return None
+    file, _, rest = src.rpartition(":")
+    if not file:
+        return None
+    m = re.match(r"(\d+)(?:\.\d+)?(?:-(\d+)(?:\.\d+)?)?$", rest)
+    if m is None:
+        return None
+    lo = int(m.group(1))
+    hi = int(m.group(2) or lo)
+    return file, lo, hi
 
 
 class SourcePane(Static):
@@ -55,17 +78,23 @@ class TrenApp(App[None]):
         Binding("l", "open_member", "enter", priority=True),
         Binding("h", "up_scope", "back", priority=True),
         Binding("y", "yank", "yank", priority=True),
+        Binding("e", "open_editor", "editor", priority=True),
         Binding("q", "quit", "quit", priority=True),
     ]
 
-    def __init__(self, design: Design) -> None:
+    def __init__(self, design: Design, root: Path | None = None) -> None:
         super().__init__()
         self.design = design
+        self.root = Path.cwd() if root is None else Path(root)
         self.yanked: list[str] = []
         self.active = "tree"  # which pane j/k/l/h/y act on: tree | source | ports
         self.src_offset = 0
         self.port_index = 0
         self.pane_ports: list[Port] = []
+        self._scopes = {s.name: s for s in design.scopes}
+        self._focus: tuple[str, int, int] | None = None
+        self._file_cache: dict[str, list[str]] = {}
+        self.editor_target: str | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -80,43 +109,52 @@ class TrenApp(App[None]):
         self._ports_widget = self.query_one("#ports")
         self._index = -1
         self._current_node = None
-        # three columns: tree / source / ports
+        # three columns: tree / source / ports; panes fill the viewport so
+        # size.height is stable (not content-driven) for auto-follow
         for selector, width in (("#tree", "32%"), ("#source", "48%"), ("#ports", "20%")):
-            self.query_one(selector).styles.width = width
+            widget = self.query_one(selector)
+            widget.styles.width = width
+            widget.styles.height = "1fr"
 
-        tree = self._tree_widget
-        for scope in self.design.scopes:  # fixture/module order: top first
-            scope_node = tree.root.add(
-                f"{scope.name}/", data={"kind": "scope", "scope": scope}
-            )
-            for inst in scope.instances:
-                marker = "!" if inst.blackbox else ""
-                inst_node = scope_node.add(
-                    f"{inst.name}/{marker}",
-                    data={"kind": "instance", "instance": inst},
-                )
-                inst_scope = self.design.scope(inst.module) if inst.module else None
-                if inst_scope is not None:
-                    for port in inst_scope.ports:
-                        inst_node.add_leaf(
-                            f"port {port.name}  {port.direction}[{port.width}]",
-                            data={"kind": "port", "port": port},
-                        )
-                    for net in inst_scope.nets:
-                        inst_node.add_leaf(
-                            f"net {net.name}  [{net.width}]",
-                            data={"kind": "net", "net": net},
-                        )
-            for port in scope.ports:
-                scope_node.add_leaf(
-                    f"port {port.name}  {port.direction}[{port.width}]",
-                    data={"kind": "port", "port": port},
-                )
-            for net in scope.nets:
-                scope_node.add_leaf(
-                    f"net {net.name}  [{net.width}]", data={"kind": "net", "net": net}
-                )
+        roots = [s for s in self.design.scopes if _scope_parent(s.name) not in self._scopes]
+        for scope in roots:
+            self._add_scope_node(self._tree_widget.root, scope)
         self._render_panes()
+
+    # ---- tree construction ------------------------------------------------
+
+    def _add_scope_node(
+        self, parent: Tree.Node, scope: Scope, label: str | None = None
+    ) -> Tree.Node:
+        node = parent.add(label or f"{scope.name}/", data={"kind": "scope", "scope": scope})
+        for inst in scope.instances:
+            child = self._scopes.get(f"{scope.name}.{inst.name}")
+            if child is not None:
+                # the instance is a real sub-scope (elaborated IR): nest it
+                marker = "!" if inst.blackbox else ""
+                self._add_scope_node(node, child, f"{inst.name}/{marker}")
+            else:
+                # fixture shape: the instance's module scope supplies ports
+                inst_node = node.add(
+                    f"{inst.name}/", data={"kind": "instance", "instance": inst}
+                )
+                inst_scope = self._scopes.get(inst.module) if inst.module else None
+                if inst_scope is not None:
+                    self._add_ports_nets(inst_node, inst_scope)
+        self._add_ports_nets(node, scope)
+        return node
+
+    def _add_ports_nets(self, node: Tree.Node, scope: Scope) -> None:
+        for port in scope.ports:
+            node.add_leaf(
+                f"port {port.name}  {port.direction}[{port.width}]",
+                data={"kind": "port", "port": port},
+            )
+        for net in scope.nets:
+            node.add_leaf(
+                f"net {net.name}  [{net.width}]",
+                data={"kind": "net", "net": net},
+            )
 
     # ---- model accessors -------------------------------------------------
 
@@ -141,9 +179,51 @@ class TrenApp(App[None]):
                 return data["scope"]
             inst = data.get("instance")
             if inst is not None and inst.module is not None:
-                return self.design.scope(inst.module)
+                return self._scopes.get(inst.module)
             node = node.parent
         return None
+
+    def _focus_for(self, node: Tree.Node | None) -> tuple[str, int, int] | None:
+        """Source focus of a node: the module's instantiation in its parent.
+
+        An instance node carries its own src (the instantiation site). A
+        sub-scope node focuses its instantiation in the parent (the parent's
+        instance of it); a root scope focuses its module declaration.
+        """
+        node = node or self._current_node
+        while node is not None and node.data is not None:
+            data = node.data
+            if data.get("kind") == "instance":
+                return _parse_src(data["instance"].src)
+            if data.get("kind") == "scope":
+                scope = data["scope"]
+                parent = _scope_parent(scope.name)
+                if parent in self._scopes:
+                    for inst in self._scopes[parent].instances:
+                        if f"{parent}.{inst.name}" == scope.name:
+                            return _parse_src(inst.src)
+                return _parse_src(scope.src)
+            node = node.parent
+        return None
+
+    def _file_lines(self, file: str) -> list[str]:
+        if file not in self._file_cache:
+            p = Path(file)
+            if not p.is_absolute():
+                p = self.root / file
+            try:
+                self._file_cache[file] = p.read_text().splitlines()
+            except OSError:
+                self._file_cache[file] = []
+        return self._file_cache[file]
+
+    def _follow(self, focus: tuple[str, int, int]) -> None:
+        # floor the viewport: early renders report a tiny/zero height
+        rows = max(10, self._source_widget.size.height or 30)
+        file, lo, _ = focus
+        lines = self._file_lines(file)
+        max_offset = max(0, len(lines) - rows)
+        self.src_offset = max(0, min(lo - rows // 2, max_offset))
 
     def _select(self, index: int) -> None:
         nodes = self._visible()
@@ -157,11 +237,26 @@ class TrenApp(App[None]):
         self._tree().scroll_to_node(node)
         self._render_panes()
 
-    def _render_panes(self) -> None:
-        scope = self._scope_data(self._current_node)
-        # center: instantiation/source text with focused range highlighted
+    def _render_source(
+        self, focus: tuple[str, int, int] | None, scope: Scope | None
+    ) -> RichText:
         src = RichText()
-        if scope is not None:
+        if focus is not None:
+            file, lo, hi = focus
+            lines = self._file_lines(file)
+            if not lines:
+                src.append(f"(cannot read {file})\n", style="dim italic")
+                return src
+            src.append(f"· {file}  lines {lo}-{hi}\n", style="dim")
+            view = lines[self.src_offset :]
+            if self.src_offset:
+                src.append("…… (↑ scroll to see earlier lines)\n", style="dim italic")
+            for i, line in enumerate(view):
+                abs_i = self.src_offset + i + 1
+                style = "bold #ffa62b" if lo <= abs_i <= hi else "dim white"
+                src.append(f"{line}\n", style=style)
+        elif scope is not None:
+            # fixture fallback: inline rtl snippet with the rtl_focus band
             rtl = scope.rtl
             lo, hi = scope.rtl_focus
             view = rtl[self.src_offset :]
@@ -171,7 +266,16 @@ class TrenApp(App[None]):
                 abs_i = i + 1 + self.src_offset
                 style = "bold #ffa62b" if lo <= abs_i <= hi else "dim white"
                 src.append(f"{line}\n", style=style)
-        self._source_widget.update(src)
+        return src
+
+    def _render_panes(self) -> None:
+        scope = self._scope_data(self._current_node)
+        focus = self._focus_for(self._current_node)
+        if focus != self._focus:
+            self._focus = focus
+            if focus is not None:
+                self._follow(focus)
+        self._source_widget.update(self._render_source(focus, scope))
         # right: I/O list with selection
         ports = RichText()
         self.pane_ports = list(scope.ports) if scope is not None else []
@@ -255,6 +359,12 @@ class TrenApp(App[None]):
         if node is None:
             return
         self.yanked.append(node.label.plain)
+        self.bell()
+
+    def action_open_editor(self) -> None:
+        """Editor jump (stub): record the focused file:line target."""
+        focus = self._focus_for(self._current_node)
+        self.editor_target = f"{focus[0]}:{focus[1]}" if focus is not None else None
         self.bell()
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:

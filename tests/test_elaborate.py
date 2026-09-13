@@ -180,10 +180,11 @@ class DemoAcceptanceTests(unittest.TestCase):
         self.assertTrue(sram.blackbox)
         self.assertEqual([p.name for p in sram.ports], ["addr", "wdata", "we", "rdata"])
 
-        # hierarchy wiring: u_core's children include generate + black box
+        # hierarchy wiring: u_core's children include generate + black box,
+        # ordered by source line (u_alu0 @56, g @58, u_sram @67)
         self.assertEqual(
             [i.name for i in core.instances],
-            ["g[0]", "g[1]", "u_alu0", "u_sram"],
+            ["u_alu0", "g[0]", "g[1]", "u_sram"],
         )
 
         # boundaries reach the generate child instance
