@@ -100,6 +100,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
     app = TrenApp(design, root=root)
     async with app.run_test(size=(110, 32)) as pilot:
         source: Static = app.query_one("#source")
+        ports: Static = app.query_one("#ports")
 
         # top/ -> real file lines of the top module declaration
         await pilot.press("j")
@@ -134,6 +135,61 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("h")
         assert "u_core" in app._current_node.label.plain, f"after h: {app._current_node}"
         assert app._focus == ("rtl/demo.sv", 77, 77), "focus should return to u_core"
+
+        # ---- card 213: d/L trace with hierarchy crossing ------------------
+        # walk from top.out to its $xor driver and back; dump shows the path
+        app._select_path("top", "out")
+        await pilot.press("d")
+        modal = app._modal
+        assert modal is not None, "d should open the trace modal"
+        assert "drivers of top.out" in str(modal.query_one("#trace-title").content)
+        assert app._trace == [("top", "out")], f"trace: {app._trace}"
+        assert [r["label"] for r in modal.rows] == ["u_core.alu_result  → core"]
+
+        await pilot.press("enter")  # cross the boundary into u_core.alu_result
+        assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], f"trace: {app._trace}"
+        labels = [r["label"] for r in modal.rows]
+        assert any("$xor" in l for l in labels), f"no $xor driver: {labels}"
+
+        await pilot.press(";")  # dump the trace path
+        assert app.trace_dump == "top.out ▶ top.u_core.alu_result", app.trace_dump
+
+        await pilot.press("backspace")  # pop back to top.out
+        assert app._trace == [("top", "out")], f"trace after pop: {app._trace}"
+        await pilot.press("escape")
+        assert app._modal is None, "escape should close the trace modal"
+
+        # ---- card 212: black boxes + user cuts ----------------------------
+        # sram_stub renders as an opaque scope: marker + its ports
+        app._select_path("top.u_core.u_sram")
+        ports_text = str(ports.content)
+        assert "BLACK BOX" in ports_text, f"no black box marker: {ports_text!r}"
+        assert "rdata" in ports_text, "black box ports missing"
+
+        # X toggles a user cut on core (opaque and back)
+        app._select_path("top.u_core")
+        await pilot.press("X")
+        assert "top.u_core" in app._user_cut, "X should cut core"
+        assert "USER CUT" in str(ports.content), "cut marker missing"
+        await pilot.press("X")
+        assert "top.u_core" not in app._user_cut, "X should un-cut core"
+
+        # trace stops at a black box with a reason: loads of core.x -/>
+        # u_sram.addr is a box, enter must not descend
+        app._select_path("top.u_core", "x")
+        await pilot.press("L")
+        modal = app._modal
+        assert modal is not None and app._trace_dir == "loads"
+        sram_idx = next(i for i, r in enumerate(modal.rows) if "u_sram" in r["label"])
+        assert modal.rows[sram_idx]["kind"] == "box", modal.rows[sram_idx]
+        assert "black box" in modal.rows[sram_idx]["label"]
+        for _ in range(sram_idx):
+            await pilot.press("down")  # arrow keys reach the modal list
+        assert modal.listwidget.index == sram_idx, f"index {modal.listwidget.index}"
+        n_before = len(app._trace)
+        await pilot.press("enter")
+        assert len(app._trace) == n_before, "trace must stop at a black box"
+        await pilot.press("escape")
 
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)

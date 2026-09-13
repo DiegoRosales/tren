@@ -25,8 +25,9 @@ from pathlib import Path
 from rich.text import Text as RichText
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
-from textual.widgets import Footer, Static, Tree
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
+from textual.widgets import Footer, Label, ListItem, ListView, Static, Tree
 
 from .elaborate import elaborate
 from .ir import Design, Scope, design_from_fixture
@@ -67,6 +68,65 @@ class PortsPane(Static):
     """Right: I/O list of the current module."""
 
 
+class TraceScreen(ModalScreen[None]):
+    """Drivers/loads of the trace head: enter descends, backspace pops.
+
+    Enter is handled via ListView.Selected (ListView owns the enter key).
+    List navigation uses arrow keys: the App's j/k bindings are
+    priority=True and would shadow same-letter modal bindings (verified).
+    """
+
+    BINDINGS = [
+        Binding("backspace", "pop_trace", "back", show=False),
+        Binding("escape", "dismiss", "close", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("", id="trace-title")
+            yield ListView()
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._app = self.app  # type: ignore[assignment]
+        self._app._modal = self  # type: ignore[attr-defined]
+        self.listwidget = self.query_one(ListView)
+        self.rows: list[dict] = []
+        self._refresh()
+
+    def on_unmount(self) -> None:
+        self._app._modal = None  # type: ignore[attr-defined]
+
+    def _refresh(self) -> None:
+        app = self._app
+        scope, net = app._trace[-1]
+        self.query_one("#trace-title", Label).update(
+            f"{app._trace_dir} of {scope}.{net}"
+        )
+        self.rows = app._trace_rows()
+        self.listwidget.clear()
+        self.listwidget.extend(ListItem(Static(r["label"])) for r in self.rows)
+        if self.rows:
+            self.listwidget.index = 0
+        self.listwidget.focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        app = self._app
+        idx = event.index if event.index is not None else self.listwidget.index
+        if idx is not None and 0 <= idx < len(self.rows):
+            if app._trace_descend(self.rows[idx]):
+                self._refresh()
+                return
+        app.bell()
+
+    def action_pop_trace(self) -> None:
+        app = self._app
+        if app._trace_pop():
+            self._refresh()
+        else:
+            app.bell()
+
+
 class TrenApp(App[None]):
     TITLE = "tren (textual)"
     BINDINGS = [
@@ -78,6 +138,10 @@ class TrenApp(App[None]):
         Binding("l", "open_member", "enter", priority=True),
         Binding("h", "up_scope", "back", priority=True),
         Binding("y", "yank", "yank", priority=True),
+        Binding("d", "trace_drivers", "drivers", priority=True),
+        Binding("L", "trace_loads", "loads", priority=True),
+        Binding("X", "toggle_cut", "cut", priority=True),
+        Binding(";", "dump_trace", "dump", priority=True),
         Binding("e", "open_editor", "editor", priority=True),
         Binding("q", "quit", "quit", priority=True),
     ]
@@ -95,6 +159,13 @@ class TrenApp(App[None]):
         self._focus: tuple[str, int, int] | None = None
         self._file_cache: dict[str, list[str]] = {}
         self.editor_target: str | None = None
+        # trace stack (scope_path, net_name); d/L populates it; ; dumps
+        self._trace: list[tuple[str, str]] = []
+        self._trace_dir = "drivers"
+        self._modal: "TraceScreen | None" = None
+        self.trace_dump: str = ""
+        # user cuts (X): scope paths made opaque at runtime
+        self._user_cut: set[str] = set()
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -126,7 +197,10 @@ class TrenApp(App[None]):
     def _add_scope_node(
         self, parent: Tree.Node, scope: Scope, label: str | None = None
     ) -> Tree.Node:
-        node = parent.add(label or f"{scope.name}/", data={"kind": "scope", "scope": scope})
+        base_label = label or f"{scope.name}/"
+        node = parent.add(
+            base_label, data={"kind": "scope", "scope": scope, "label": base_label}
+        )
         for inst in scope.instances:
             child = self._scopes.get(f"{scope.name}.{inst.name}")
             if child is not None:
@@ -287,6 +361,14 @@ class TrenApp(App[None]):
                 color = f"bold {base}" if n == self.port_index else base
                 ports.append(f"{sel}{p.name}", style=color)
                 ports.append(f"  {direction}[{p.width}]\n", style="dim white")
+        # black-box / user-cut provenance header on the I/O pane
+        if scope is not None:
+            header = RichText()
+            if scope.blackbox:
+                header.append("▊ BLACK BOX\n", style="bold yellow")
+            if scope.name in self._user_cut:
+                header.append("✂ USER CUT\n", style="bold red")
+            ports = header + ports
         self._ports_widget.update(ports)
         # active-pane cue
         for pid, widget in (
@@ -296,6 +378,155 @@ class TrenApp(App[None]):
         ):
             background = "#262626" if pid == self.active else "#121212"
             widget.styles.background = background
+
+    # ---- trace (drivers/loads, hierarchy crossing) ------------------------
+
+    def _selection_net(self) -> tuple[str, str] | None:
+        """(scope_path, net_name) of the current tree selection, else None."""
+        node = self._current_node
+        while node is not None and node.data is not None:
+            data = node.data
+            if data.get("kind") == "net":
+                scope = self._scope_data(node)
+                if scope is not None:
+                    return scope.name, data["net"].name
+                return None
+            node = node.parent
+        return None
+
+    def _trace_rows(self) -> list[dict]:
+        """Driver/load rows of the trace head for the modal."""
+        scope_path, net_name = self._trace[-1]
+        scope = self._scopes.get(scope_path)
+        if scope is None:
+            return []
+        conn = next(
+            (c for c in self.design.connectivity if c.scope == scope.module and c.net == net_name),
+            None,
+        )
+        if conn is None:
+            return []
+        pairs: list[tuple[str, str]] = []
+        for bit in conn.bits:
+            eps = bit.drivers if self._trace_dir == "drivers" else bit.loads
+            pairs.extend((e.cell, e.port) for e in eps)
+        seen: set[tuple[str, str]] = set()
+        rows: list[dict] = []
+        for cell, port in pairs:
+            if (cell, port) in seen:
+                continue
+            seen.add((cell, port))
+            child = f"{scope_path}.{cell}"
+            row = {"cell": cell, "port": port, "kind": "leaf", "label": f"{cell}.{port}"}
+            if child in self._scopes:
+                child_scope = self._scopes[child]
+                if child_scope.blackbox:
+                    row["kind"] = "box"
+                    row["label"] = f"{cell}.{port}  ⛔ black box ({child_scope.module})"
+                elif child in self._user_cut:
+                    row["kind"] = "box"
+                    row["label"] = f"{cell}.{port}  ⛔ user cut"
+                else:
+                    row["kind"] = "boundary"
+                    row["child"] = child
+                    row["label"] = f"{cell}.{port}  → {child_scope.module}"
+            rows.append(row)
+        return rows
+
+    def _trace_descend(self, row: dict) -> bool:
+        """Cross a boundary driver/load into the child scope's port net."""
+        if row.get("kind") != "boundary":
+            return False
+        child, net_name = row["child"], row["port"]
+        self._trace.append((child, net_name))
+        self._select_path(child, net_name)
+        return True
+
+    def _trace_pop(self) -> bool:
+        if len(self._trace) <= 1:
+            return False
+        self._trace.pop()
+        self._select_path(*self._trace[-1])
+        return True
+
+    def _find_scope_node(self, path: str) -> Tree.Node | None:
+        stack = list(self._tree().root.children)
+        while stack:
+            n = stack.pop()
+            d = n.data
+            if d is not None and d.get("kind") == "scope" and d["scope"].name == path:
+                return n
+            stack.extend(n.children)
+        return None
+
+    def _find_net_leaf(self, scope_node: Tree.Node, net_name: str) -> Tree.Node | None:
+        stack = list(scope_node.children)
+        while stack:
+            n = stack.pop()
+            d = n.data
+            if d is not None and d.get("kind") == "net" and d["net"].name == net_name:
+                return n
+            stack.extend(n.children)
+        return None
+
+    def _expand_to(self, node: Tree.Node) -> None:
+        chain: list[Tree.Node] = []
+        n = node
+        while n is not self._tree().root:
+            chain.append(n)
+            n = n.parent
+        for n in reversed(chain):
+            n.expand()
+
+    def _select_path(self, scope_path: str, net_name: str | None = None) -> None:
+        scope_node = self._find_scope_node(scope_path)
+        if scope_node is None:
+            return
+        self._expand_to(scope_node)
+        if net_name is not None:
+            leaf = self._find_net_leaf(scope_node, net_name)
+            if leaf is not None:
+                self._expand_to(leaf)
+                self._select(self._visible().index(leaf))
+                return
+        self._select(self._visible().index(scope_node))
+
+    def _open_trace(self, direction: str) -> None:
+        if self._modal is not None:
+            self.bell()
+            return
+        sel = self._selection_net()
+        if sel is None:
+            self.bell()
+            return
+        self._trace = [sel]
+        self._trace_dir = direction
+        self.push_screen(TraceScreen())
+
+    def action_trace_drivers(self) -> None:
+        self._open_trace("drivers")
+
+    def action_trace_loads(self) -> None:
+        self._open_trace("loads")
+
+    def action_dump_trace(self) -> None:
+        self.trace_dump = " ▶ ".join(f"{s}.{n}" for s, n in self._trace)
+        self.bell()
+
+    def action_toggle_cut(self) -> None:
+        scope = self._scope_data(self._current_node)
+        if scope is None:
+            self.bell()
+            return
+        if scope.name in self._user_cut:
+            self._user_cut.discard(scope.name)
+        else:
+            self._user_cut.add(scope.name)
+        node = self._find_scope_node(scope.name)
+        if node is not None:
+            base = node.data["label"] if node.data is not None else f"{scope.name}/"
+            node.label = base + ("✂" if scope.name in self._user_cut else "")
+        self._render_panes()
 
     # ---- actions ----------------------------------------------------------
 
