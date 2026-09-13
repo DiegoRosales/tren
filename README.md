@@ -15,9 +15,19 @@ revisited when a real 100k-instance IR shows the ceiling matters.
 
 ```sh
 nix develop .                                # python + textual + yosys + slang
+nix develop . -c bash -c "PYTHONPATH=src python -m tren.spike"                    # spike: drivers/loads of one net
+nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"     # unit tests
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c textual run src.tren.tui    # the TUI (once it exists)
 ```
+
+The spike (`python -m tren.spike rtl/demo.sv`) runs yosys, builds the bit map
+and prints drivers/loads of `top.out`, descending across the core boundary
+down to the `$xor` that computes it — every row carries its `src` attribute.
+Use `--keep` to keep the generated netlist under `.cache/tren/` for
+inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.69 —
+the concatenation collapses to pure net aliasing, so `o` shows no driver
+(its bit list literally overlays `hi` and `lo`); the loads are all there.
 
 ## Layout (intended)
 
