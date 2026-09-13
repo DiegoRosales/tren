@@ -6,3 +6,4 @@ __pycache__/
 *.eggs/
 .DS_Store
 .cache/
+/out/
