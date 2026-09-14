@@ -19,7 +19,10 @@ q quit. Headless Pilot tests:  python test_drive.py [--manifest …]
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import shlex
+import subprocess
 from pathlib import Path
 
 from rich.text import Text as RichText
@@ -30,6 +33,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Footer, Label, ListItem, ListView, Static, Tree
 
 from .elaborate import elaborate
+from .formats import BY_NAME, DEFAULT, PathFormat, render as render_format
 from .ir import Design, Scope, design_from_fixture
 from .manifest import Manifest
 
@@ -138,6 +142,7 @@ class TrenApp(App[None]):
         Binding("l", "open_member", "enter", priority=True),
         Binding("h", "up_scope", "back", priority=True),
         Binding("y", "yank", "yank", priority=True),
+        Binding("Y", "cycle_format", "fmt", priority=True),
         Binding("d", "trace_drivers", "drivers", priority=True),
         Binding("L", "trace_loads", "loads", priority=True),
         Binding("X", "toggle_cut", "cut", priority=True),
@@ -151,6 +156,8 @@ class TrenApp(App[None]):
         self.design = design
         self.root = Path.cwd() if root is None else Path(root)
         self.yanked: list[str] = []
+        self.yank_format: PathFormat = DEFAULT
+        self.osc_events: list[str] = []
         self.active = "tree"  # which pane j/k/l/h/y act on: tree | source | ports
         self.src_offset = 0
         self.port_index = 0
@@ -169,6 +176,10 @@ class TrenApp(App[None]):
 
     def compose(self) -> ComposeResult:
         with Horizontal():
+            # auto_expand=False: textual's expand-on-select is an *async
+            # message handler that toggles* — a key burst (autorepeat /
+            # scripted paste) re-orders it against our visible-walk. TREN
+            # expands deterministically in _select instead.
             yield Tree("design", data=None, id="tree")
             yield SourcePane("", id="source")
             yield PortsPane("", id="ports")
@@ -176,6 +187,11 @@ class TrenApp(App[None]):
 
     def on_mount(self) -> None:
         self._tree_widget = self.query_one("#tree")
+        # textual's select-time auto-expand runs in an async handler that
+        # *toggles*: under a key burst it re-orders against our visible-walk
+        # (and pre-expanding here would make it collapse). Disable it and
+        # expand deterministically in _select.
+        self._tree_widget.auto_expand = False
         self._source_widget = self.query_one("#source")
         self._ports_widget = self.query_one("#ports")
         self._index = -1
@@ -308,6 +324,10 @@ class TrenApp(App[None]):
         self._index = index
         self._current_node = node
         self._tree().select_node(node)
+        # auto_expand=False is set in compose (async toggle handler races key
+        # bursts), so expansion is deterministic here: selecting always
+        # shows the node's children, like textual's own auto-expand.
+        self._expand_to(node)
         self._tree().scroll_to_node(node)
         self._render_panes()
 
@@ -580,23 +600,88 @@ class TrenApp(App[None]):
         except ValueError:
             pass
 
-    def action_yank(self) -> None:
-        if self.active == "ports" and self.pane_ports:
-            port = self.pane_ports[self.port_index]
-            self.yanked.append(f"{port.name} ({port.direction})")
-            self.bell()
-            return
+    def _selection_parts(self) -> tuple[list[str], str | None]:
+        """(scope chain segments, element) of the current selection.
+
+        Scope nodes yank their own path; instance/port/net nodes yank the
+        chain of the scope they sit under plus their own name.
+        """
         node = getattr(self, "_current_node", None)
         if node is None:
-            return
-        self.yanked.append(node.label.plain)
+            return [], None
+        while node is not None and node.data is not None:
+            data = node.data
+            if data.get("kind") == "scope":
+                return data["scope"].name.split("."), None
+            if data.get("kind") == "instance":
+                parent = self._scope_data(node)
+                chain = parent.name.split(".") if parent is not None else []
+                return chain + [data["instance"].name], None
+            if data.get("kind") == "net":
+                return self._selection_scope_chain(node), data["net"].name
+            if data.get("kind") == "port":
+                return self._selection_scope_chain(node), data["port"].name
+            node = node.parent
+        return [], None
+
+    def _selection_scope_chain(self, node) -> list[str]:
+        scope = self._scope_data(node)
+        return scope.name.split(".") if scope is not None else []
+
+    def _write_osc(self, payload: str) -> None:
+        self.osc_events.append(payload)
+        # textual 8.2.8 ships App.copy_to_clipboard — the raw OSC 52 escape
+        # written straight through the driver (self.console is a _NullFile
+        # sink and must NOT be used; verified). The tren_testing finding that
+        # "textual has no clipboard API" predates this method.
+        self.copy_to_clipboard(payload)
+
+    def action_cycle_format(self) -> None:
+        names = list(BY_NAME)
+        idx = (names.index(self.yank_format.name) + 1) % len(names)
+        self.yank_format = BY_NAME[names[idx]]
+        self.notify(f"yank format: {self.yank_format.name}")
+        self.bell()
+
+    def action_yank(self) -> None:
+        """Yank the selection through the current format via OSC 52."""
+        if self.active == "ports" and self.pane_ports:
+            port = self.pane_ports[self.port_index]
+            scope = self._scope_data(self._current_node)
+            chain = scope.name.split(".") if scope is not None else []
+            payload = render_format(self.yank_format, chain, port.name)
+        else:
+            chain, element = self._selection_parts()
+            payload = render_format(self.yank_format, chain, element)
+        self.yanked.append(payload)
+        self._write_osc(payload)
         self.bell()
 
     def action_open_editor(self) -> None:
-        """Editor jump (stub): record the focused file:line target."""
+        """Open $EDITOR at the focused line (suspend; record only headless)."""
         focus = self._focus_for(self._current_node)
         self.editor_target = f"{focus[0]}:{focus[1]}" if focus is not None else None
-        self.bell()
+        if focus is None:
+            return
+        driver = getattr(self, "_driver", None)
+        can_suspend = driver is not None and getattr(driver, "can_suspend", False)
+        if not can_suspend:
+            return  # Pilot run: only the target is test-relevant
+        editor = (
+            os.environ.get("TREN_EDITOR")
+            or os.environ.get("EDITOR")
+            or os.environ.get("VISUAL")
+            or ""
+        ).strip()
+        if not editor:
+            self.bell()
+            return
+        file, line, _ = focus
+        try:
+            with self.suspend():
+                subprocess.call([*shlex.split(editor), f"+{line}", file])
+        except Exception:
+            self.bell()
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         self._current_node = event.node

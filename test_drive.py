@@ -191,6 +191,37 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert len(app._trace) == n_before, "trace must stop at a black box"
         await pilot.press("escape")
 
+        # ---- card 214: yank formats + OSC 52 + editor jump ----------------
+        # current selection after the box-stop section: core's `x` net
+        parts = app._selection_parts()
+        assert parts == (["top", "u_core"], "x"), f"parts: {parts}"
+
+        # y yanks through the default (sv) format via OSC 52
+        await pilot.press("y")
+        assert app.yanked[-1] == "top.u_core.x", app.yanked[-1]
+        assert app.osc_events[-1] == "top.u_core.x", app.osc_events[-1]
+
+        # Y cycles the format registry (sv -> vivado); top excluded, Tcl-safe
+        await pilot.press("Y")
+        assert app.yank_format.name == "vivado", app.yank_format.name
+        await pilot.press("y")
+        assert app.yanked[-1] == "u_core/x", app.yanked[-1]
+
+        # array segments re-render through the format (g[0] -> Tcl-escaped)
+        app._select_path("top.u_core.g[0].u_alu_g", "result")
+        await pilot.press("y")
+        assert app.yanked[-1] == r"u_core/g\[0\]/u_alu_g/result", app.yanked[-1]
+
+        # cycle back (vivado -> yosys -> vcd -> sv) and yank a port from the
+        # ports pane: chain + port name
+        for _ in range(3):
+            await pilot.press("Y")
+        assert app.yank_format.name == "sv"
+        await pilot.press("3")
+        await pilot.press("y")
+        assert app.yanked[-1] == "top.u_core.g[0].u_alu_g.a", app.yanked[-1]
+        await pilot.press("1")
+
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)
         (out / "shot-real.svg").write_text(app.export_screenshot())

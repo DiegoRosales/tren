@@ -38,6 +38,7 @@
 
               jq
               ripgrep
+              tmux # real-terminal OSC 52 round-trip (card 214 acceptance, tools/osc52_roundtrip.sh)
 
               # tren CLI entry point (python -m tren; PYTHONPATH resolves to
               # the repo's src/ from the invocation directory, overridable)

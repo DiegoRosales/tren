@@ -86,6 +86,16 @@ Always run under the dev shell: `nix develop . -c <command>` — never bare
   binding `priority=True` wins over a focused widget; `export_screenshot()`
   returns **SVG**; rich style modifiers go first (`"bold #a6c9ff"` not
   `"#a6c9ff,bold"`).
+- textual 8.2 **does** ship a clipboard API: `App.copy_to_clipboard(text)`
+  writes the raw OSC 52 escape (`\x1b]52;c;<b64>\a`) straight through the
+  driver. `App.console` is a rich Console bound to `_NullFile()` — never use
+  it as an output sink. (Correction: the tui_textual finding "textual has no
+  clipboard API" predates this method.)
+- textual 8.2 `Tree.auto_expand` runs in an async `@on(NodeSelected)`
+  handler that **toggles** — under a key burst (autorepeat / scripted paste)
+  it re-orders against the app's own visible-walk, and pre-expanding the node
+  makes the handler collapse it. Set `tree.auto_expand = False` (it is a var,
+  not a ctor kwarg) and expand deterministically in `_select`.
 - yosys 0.69 JSON: `write_json` needs `proc`; `opt` is destructive; generate
   instances appear as `g[i].u_alu_g`-style cell names; body-less modules
   serialize `ports` + `blackbox=1`.

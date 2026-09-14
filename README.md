@@ -5,7 +5,10 @@
 A terminal RTL browser that treats a design hierarchy like a filesystem.
 Three panes: **scope tree** | **focused RTL source** | **module I/O**.
 `1`/`2`/`3` select the pane; `j`/`k` move, `l`/`h` descend/ascend, `y` yanks
-a hierarchical path, `e` jumps to the declaration in `$EDITOR`.
+the selection through the current path format as a raw OSC 52 clipboard write,
+`Y` cycles the format (SV hierarchical / Vivado `get_pins` / yosys `select` /
+VCD dot-path), `e` jumps to the declaration in `$EDITOR` (`+line file` style,
+suspending the app).
 
 Status: **spike phase, built on textual 8.2**. The backend pair is verified
 and pinned (see *Sources of truth*): yosys `write_json` for bit-level
@@ -22,6 +25,7 @@ nix develop . -c tren elaborate rtl/manifest.json      # elaborate a manifest (y
 nix develop . -c bash -c "PYTHONPATH=src python -m tren.spike"                    # spike: drivers/loads of one net
 nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"     # unit tests
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
+nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
 nix develop . -c textual run src.tren.tui    # the TUI (once it exists)
 ```
 
