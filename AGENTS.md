@@ -110,6 +110,20 @@ source for the pinned nixpkgs rev).
   binding `priority=True` wins over a focused widget; `export_screenshot()`
   returns **SVG**; rich style modifiers go first (`"bold #a6c9ff"` not
   `"#a6c9ff,bold"`).
+- textual 8.2 `Tree` caches rendered line **strips** in `_line_cache`, keyed
+  on `(line, hover, width, _updates, pseudo-classes, node updates)` — the
+  widget background is *not* in the key. Restyling a Tree
+  (`styles.background = …`) leaves every line carrying a node painted at the
+  old colour; only the blank region below repaints. Call
+  `_clear_line_cache()` + `refresh()` (`_invalidate()` also resets nodes and
+  re-layouts — heavier than a repaint needs).
+- textual `can_focus = False` does **not** blur a widget that is already
+  focused. On a real terminal textual has auto-focused the Tree by the time
+  `on_mount` runs, so the tree stays focused and picks up
+  `Tree:focus { background-tint: $foreground 5% }` (~4% lighter than every
+  other pane). Headless Pilot reports `focused=None`, so the drives cannot
+  see any of this — call `self.set_focus(None)` explicitly and gate on
+  `make pane-cue`.
 - textual 8.2 **does** ship a clipboard API: `App.copy_to_clipboard(text)`
   writes the raw OSC 52 escape (`\x1b]52;c;<b64>\a`) straight through the
   driver. `App.console` is a rich Console bound to `_NullFile()` — never use

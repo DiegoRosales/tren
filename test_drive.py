@@ -17,11 +17,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
+from textual.color import Color  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 
 from tren.elaborate import elaborate  # noqa: E402
 from tren.manifest import Manifest  # noqa: E402
-from tren.tui import TrenApp, load_design  # noqa: E402
+from tren.tui import PANE_BG_ACTIVE, PANE_BG_IDLE, TrenApp, load_design  # noqa: E402
 
 
 async def drive_fixture() -> None:
@@ -100,6 +101,27 @@ async def drive_fixture() -> None:
 
         await pilot.press("1")
         assert app.active == "tree", "pressing 1 should reactivate the tree pane"
+
+        # card 245: the active-pane cue must be symmetric — exactly one pane
+        # lifted to PANE_BG_ACTIVE, the other two at PANE_BG_IDLE. Pilot can
+        # only assert the style value; that the *tree* actually repaints is a
+        # real-terminal check (tools/pane_cue_capture.sh), because textual's
+        # Tree caches rendered lines and used to keep the old background.
+        panes = {"1": "tree", "2": "source", "3": "ports"}
+        widgets = {"tree": tree, "source": source, "ports": ports}
+        for key, expected_active in panes.items():
+            await pilot.press(key)
+            for name, widget in widgets.items():
+                want = PANE_BG_ACTIVE if name == expected_active else PANE_BG_IDLE
+                got = widget.styles.background
+                assert got == Color.parse(want), (
+                    f"pane {key} active: {name} background is {got}, expected {want}"
+                )
+        # the tree must be blurred: focused, it picks up textual's
+        # `Tree:focus { background-tint: ... }` and reads as highlighted even
+        # when idle (only visible on a real terminal — headless never focuses it)
+        assert not tree.has_focus, "the tree must not hold focus"
+        await pilot.press("1")
 
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)

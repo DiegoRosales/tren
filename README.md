@@ -28,6 +28,7 @@ nix develop . -c bash -c "PYTHONPATH=src python -m tren.spike"                  
 nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"     # unit tests
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
+nix develop . -c bash tools/pane_cue_capture.sh   # real-terminal render check of the active-pane cue (tmux, private server)
 nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR, card 215)
 nix develop .#xilinx                        # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
 nix develop . -c make run                   # start the TUI (keys: see 'User guide' below)
@@ -54,6 +55,9 @@ nix develop . -c python -m tren.tui                                     # vendor
 The screen is three panes — **tree** (the scope hierarchy, like a filesystem)
 | **source** (the focused module's RTL) | **I/O** (parameters + ports). `q`
 quits.
+
+The pane `1`/`2`/`3` selected — the one `j`/`k`/`y` act on — is lifted out of
+the background; the other two stay dark. Exactly one pane is ever lit.
 
 ### Keys
 
@@ -123,8 +127,10 @@ stops at it with the reason shown — and `X` again restores it.
 
 `make check` runs the unit suite plus both Pilot drives — the same gates the
 CI workflow runs. `make test` / `make drive` / `make drive-real` run them
-individually; `make roundtrip` verifies the OSC 52 + editor path against a
-real terminal on a private tmux server.
+individually; `make roundtrip` verifies the OSC 52 + editor path and
+`make pane-cue` the rendered active-pane highlight, both against a real
+terminal on a private tmux server (Pilot asserts style *values*, not what the
+terminal paints — see `docs/verification.md`).
 
 ### Reading Vitis HLS RTL output (no Xilinx needed)
 

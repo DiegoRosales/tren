@@ -11,7 +11,7 @@ HLS_EXAMPLES_PATH := test/hls_examples
 .DEFAULT_GOAL := help
 
 .PHONY: help run run-fixture import elaborate test drive drive-real roundtrip \
-        profile check hls-import hls-elaborate hls-run
+        pane-cue profile check hls-import hls-elaborate hls-run
 
 help:
 	@echo "TREN examples that work (stock checkout, nix-only):"
@@ -24,6 +24,7 @@ help:
 	@echo "  make drive          headless Pilot drive, fixture mode"
 	@echo "  make drive-real     headless Pilot drive, real IR + trace/black-box flows"
 	@echo "  make roundtrip      real-terminal OSC 52 + editor round trip (private tmux server)"
+	@echo "  make pane-cue       real-terminal render check of the active-pane cue (private tmux server)"
 	@echo "  make profile        lazy-load + cache profile on a synthetic 1100-scope IR"
 	@echo "  make check          unit + both drives (what CI runs)"
 	@echo
@@ -65,6 +66,9 @@ drive-real:
 
 roundtrip:
 	$(NIX) bash tools/osc52_roundtrip.sh
+
+pane-cue:
+	$(NIX) bash tools/pane_cue_capture.sh
 
 profile:
 	$(NIX) python tools/profile_1k_scopes.py

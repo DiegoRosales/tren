@@ -20,7 +20,7 @@ The two rules that shape everything here (AGENTS.md §4):
 | 1. Unit tests | pure logic: parsers, IR model, yank formats, importer grammar, bit-key handling | `tests/*.py` · `make test` | ✔ |
 | 2. Elaboration acceptance | yosys + slang-hier + slang against the real pinned tools | `tests/test_elaborate.py` | ✔ (skips w/o tools) |
 | 3. Headless UI drives | the real TUI driven by textual Pilot | `test_drive.py` · `make drive` / `drive-real` | ✔ |
-| 4. Real-terminal round trip | OSC 52 bytes + `$EDITOR` invocation on a real terminal | `tools/osc52_roundtrip.sh` · `make roundtrip` | ✖ (needs tmux/pty) |
+| 4. Real-terminal round trip | OSC 52 bytes + `$EDITOR` invocation, and the rendered active-pane cue, on a real terminal | `tools/osc52_roundtrip.sh` · `make roundtrip` · `tools/pane_cue_capture.sh` · `make pane-cue` | ✖ (needs tmux/pty) |
 | 5. Scale / cache profile | lazy-load materialisation + elaboration cache | `tools/profile_1k_scopes.py` · `make profile` | ✖ |
 | 6. Importers on real artefacts | manifests read real Vivado/HLS RTL workspaces | `make import` / `make hls-*` (manual) | ✖ (reference workspaces live outside CI) |
 
@@ -81,11 +81,14 @@ Both assert **observable app state** (labels, focus, traces, yanked strings)
 rather than screenshots, so they are deterministic and CI-safe. Their blind
 spot: they don't prove *rendering* — see layer 4.
 
-### Layer 4 — real-terminal round trip (`make roundtrip`)
+### Layer 4 — real terminal (`make roundtrip`, `make pane-cue`)
 
-Brings up the TUI on a real ptty inside a **private** tmux server
-(`-L trenosc214`, never touching the user's tmux), pipe-panes the raw output
-bytes, and asserts:
+Two tools, both on a real ptty inside a **private** tmux server (never
+touching the user's tmux).
+
+#### `make roundtrip` (`-L trenosc214`)
+
+Pipe-panes the raw output bytes and asserts:
 
 - the OSC 52 clipboard sequence actually leaves the process and encodes the
   expected yank path (`top.u_core`);
@@ -95,8 +98,25 @@ Why pipe-pane instead of `set-clipboard`/`show-buffer`: a client-less tmux
 server relays OSC 52 to nothing (no attached `Ms`-capable terminal), so the
 buffer stays empty; `pipe-pane` captures what a terminal really receives.
 
+#### `make pane-cue` (`-L trencue245`)
+
+`capture-pane -e` after each of `1`/`2`/`3`, decoding the SGR stream to the
+background colour in effect at a column inside each pane. Asserts exactly one
+pane at `PANE_BG_ACTIVE` and the other two idle, **on rows carrying tree
+nodes** — the two bugs it pins both hid on precisely those rows while
+`widget.styles.background` read correct:
+
+- textual 8.2 `Tree` caches rendered line *strips* keyed on
+  (line, cursor, hover, width, updates, pseudo-classes); the background is not
+  in the key, so a cue change repainted only the blank region below the nodes;
+- `can_focus = False` does not blur an already-focused widget, and a real
+  terminal has auto-focused the Tree before `on_mount` runs — a focused Tree
+  picks up `Tree:focus { background-tint: $foreground 5% }` and reads as
+  highlighted even when idle.
+
 This layer is what caught the render-only bugs (tree root never expanded;
-tree auto-focus swallowing Enter) that layers 1–3 could not.
+tree auto-focus swallowing Enter; the stale/tinted pane cue above) that layers
+1–3 could not.
 
 ### Layer 5 — scale / cache profile (`make profile`)
 
@@ -151,7 +171,9 @@ ceremony:
 
 - **layer 4**: the tree root was never expanded — a real terminal rendered a
   bare `design` line while every drive passed; the same layer caught the
-  Tree auto-focus swallowing Enter.
+  Tree auto-focus swallowing Enter, and the active-pane cue leaving the tree
+  column lit (stale `Tree` line cache + a `Tree:focus` background-tint that
+  headless Pilot cannot even produce, since it never focuses the Tree).
 - **layer 2**: slang 11 erroring on a single `.f`-style construct it
   rejects, and (as a negative result) not exposing parameter defaults, which
   drove the source-text `_decl_default` extraction.
@@ -166,6 +188,7 @@ ceremony:
 |---|---|---|
 | pure logic / IR | unit test | `make test` |
 | binding / navigation / pane | update Pilot drives, user guide, AGENTS gotchas | `make check` + `make roundtrip` (tree/OSC) |
+| pane styling / anything the Tree renders | assert the style in the drives **and** capture a real terminal | `make check` + `make pane-cue` |
 | elaborator / CLI / importers | extend acceptance, re-run on demo + an HLS block | `make check` + `make hls-elaborate BLOCK=…` |
 | backend flag / format claim | **verify against the tool first** (AGENTS §4) | run tool, then encode as test |
 | flake / tool versions | re-verify everything | full `make check` + update cache/version notes |

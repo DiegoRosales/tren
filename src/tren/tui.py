@@ -41,6 +41,10 @@ from .manifest import Manifest
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.json"
 
+# active-pane cue: the pane 1/2/3 acts on is lifted out of the background
+PANE_BG_ACTIVE = "#262626"
+PANE_BG_IDLE = "#121212"
+
 
 def load_design(fixture: Path | None = None) -> Design:
     return design_from_fixture(fixture or FIXTURE)
@@ -164,6 +168,7 @@ class TrenApp(App[None]):
         self.yank_format: PathFormat = DEFAULT
         self.osc_events: list[str] = []
         self.active = "tree"  # which pane j/k/l/h/y act on: tree | source | ports
+        self._cue: str | None = None  # pane the background cue is painted for
         self.src_offset = 0
         self.port_index = 0
         self.pane_ports: list[Port] = []
@@ -199,6 +204,15 @@ class TrenApp(App[None]):
         # d/L modal focuses its ListView and keeps Enter for boundary
         # crossing).
         self._tree_widget.can_focus = False
+        # ...but can_focus=False does NOT blur a widget that is already
+        # focused, and on a real terminal textual has auto-focused the Tree by
+        # the time on_mount runs — verified with tmux: has_focus=True,
+        # can_focus=False, pseudo-classes carrying `focus`. Headless Pilot
+        # reports focused=None, so the drives (layer 3) cannot see this. The
+        # visible symptom was `Tree:focus { background-tint: $foreground 5% }`
+        # lifting the whole tree column ~4% above the other panes, so an idle
+        # tree still read as highlighted. Blur explicitly.
+        self.set_focus(None)
         # textual's select-time auto-expand runs in an async handler that
         # *toggles*: under a key burst it re-orders against our visible-walk
         # (and pre-expanding here would make it collapse). Disable it and
@@ -439,14 +453,29 @@ class TrenApp(App[None]):
                 header.append("✂ USER CUT\n", style="bold red")
             ports = header + ports
         self._ports_widget.update(ports)
-        # active-pane cue
+        self._render_pane_cue()
+
+    def _render_pane_cue(self) -> None:
+        """Repaint the active-pane background cue (no-op unless it changed)."""
+        if self._cue == self.active:
+            return
+        self._cue = self.active
         for pid, widget in (
             ("tree", self._tree_widget),
             ("source", self._source_widget),
             ("ports", self._ports_widget),
         ):
-            background = "#262626" if pid == self.active else "#121212"
-            widget.styles.background = background
+            widget.styles.background = PANE_BG_ACTIVE if pid == self.active else PANE_BG_IDLE
+        # textual 8.2 Tree caches rendered line *strips* keyed on
+        # (line, cursor, hover, width, ...) — the background is not part of the
+        # key, so a cue change repainted only the blank region below the nodes
+        # and every line carrying a node kept the old (active) background. Drop
+        # the cache so the tree re-renders at the new background; the Static
+        # panes need no equivalent. `_invalidate()` would also do this but
+        # resets the node tree and re-layouts, which is not needed for a
+        # repaint.
+        self._tree_widget._clear_line_cache()
+        self._tree_widget.refresh()
 
     # ---- trace (drivers/loads, hierarchy crossing) ------------------------
 
