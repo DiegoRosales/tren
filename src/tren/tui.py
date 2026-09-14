@@ -218,6 +218,11 @@ class TrenApp(App[None]):
         roots = [s for s in self.design.scopes if _scope_parent(s.name) not in self._scopes]
         for scope in roots:
             self._add_scope_node(self._tree_widget.root, scope)
+        # textual only renders children of expanded nodes. The root is never
+        # expanded by scripts and our _visible() walk reads root.children
+        # directly (root.is_expanded ignored), so app state stayed right but
+        # a real terminal showed nothing under the bare "design" line.
+        self._tree_widget.root.expand()
         self._render_panes()
 
     # ---- tree construction ------------------------------------------------
