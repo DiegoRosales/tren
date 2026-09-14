@@ -26,9 +26,10 @@ from typing import Any, Union, get_args, get_origin, get_type_hints
 @dataclass(frozen=True)
 class Port:
     name: str
-    direction: str  # "in" | "out"
+    direction: str  # "in" | "out" | "inout"
     width: int
     src: str | None = None
+    type: str | None = None  # source-faithful type string from slang, e.g. "logic [31:0]"
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,20 @@ class Param:
     value: str = ""
     default: str | None = None
     kind: str = "parameter"  # parameter | localparam
+
+    @property
+    def overridden(self) -> bool:
+        """The instance resolves to something other than the declared default.
+
+        Only meaningful for ``parameter`` (a ``localparam`` cannot be
+        overridden); compares the source-text default with the resolved
+        value as strings (e.g. "8" vs "32'd32").
+        """
+        return (
+            self.kind == "parameter"
+            and self.default is not None
+            and str(self.value) != str(self.default)
+        )
 
 
 @dataclass(frozen=True)

@@ -18,6 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tren.cache import IrCache  # noqa: E402
 from tren.elaborate import (  # noqa: E402
+    _decl_default,
+    _src_pos,
+    _type_string,
     build_design,
     elaborate,
     parse_hier_line,
@@ -142,6 +145,39 @@ class BuildDesignUnitTests(unittest.TestCase):
         self.assertEqual(a, b)
 
 
+class SlangOverlayUnitTests(unittest.TestCase):
+    """Pure-function tests for the slang decl overlay (card 219)."""
+
+    def test_src_pos(self) -> None:
+        self.assertEqual(_src_pos("rtl/demo.sv:45:38"), ("rtl/demo.sv", 45, 38))
+        self.assertIsNone(_src_pos(None))
+        self.assertIsNone(_src_pos("rtl/demo.sv:45"))
+        self.assertIsNone(_src_pos("rtl/demo.sv:xx:38"))
+
+    def test_type_string(self) -> None:
+        packed = {"kind": "PackedArrayType", "range": "[31:0]",
+                  "elementType": {"name": "logic", "kind": "ScalarType"}}
+        self.assertEqual(_type_string(packed), "logic [31:0]")
+        self.assertEqual(_type_string({"kind": "ScalarType", "name": "logic"}), "logic")
+        self.assertEqual(_type_string({"kind": "PredefinedIntegerType", "name": "int"}), "int")
+        self.assertIsNone(_type_string(None))
+        self.assertIsNone(_type_string({"kind": "WeirdKind"}))
+
+    def test_decl_default(self) -> None:
+        lines = [
+            "module core #(parameter int unsigned W = 8)",
+            "",
+            "  localparam logic [3:0] OP = 3;",
+            "  parameter int unsigned wider = 2*W;",
+        ]
+        self.assertEqual(_decl_default(lines, "rtl/demo.sv:1:38"), "8")
+        self.assertEqual(_decl_default(lines, "rtl/demo.sv:3:27"), "3")
+        self.assertEqual(_decl_default(lines, "rtl/demo.sv:4:30"), "2*W")
+        self.assertEqual(_decl_default(lines, "rtl/demo.sv:1:5"), "8")  # fallback: whole-line '='
+        self.assertIsNone(_decl_default([], "rtl/demo.sv:1:38"))
+        self.assertIsNone(_decl_default(lines, None))
+
+
 @unittest.skipUnless(
     shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
     "requires the nix dev shell (yosys/slang on PATH)",
@@ -157,6 +193,8 @@ class DemoAcceptanceTests(unittest.TestCase):
     def test_acceptance_criteria(self) -> None:
         design = elaborate(self.manifest, REPO, cache=None)
         self.assertEqual(design.top, "top")
+        top = design.scope("top")
+        assert top is not None
 
         # generate scopes g[0]/g[1
         self.assertIsNotNone(design.scope("top.u_core.g[0]"))
@@ -173,6 +211,25 @@ class DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual(by_name["W"].value, "32'd32")
         self.assertEqual(by_name["W"].kind, "parameter")
         self.assertEqual(by_name["OP"].kind, "localparam")
+
+        # card 219: declared defaults + override at full fidelity
+        self.assertEqual(by_name["W"].default, "8")
+        self.assertTrue(by_name["W"].overridden, "W resolves 32 vs default 8")
+        self.assertEqual(by_name["OP"].default, "3")
+        self.assertFalse(by_name["OP"].overridden, "localparams cannot be overridden")
+        alu0 = design.scope("top.u_core.u_alu0")
+        assert alu0 is not None
+        alu_w = {p.name: p for p in alu0.params}["W"]
+        self.assertEqual((alu_w.value, alu_w.default), ("32'd32", "8"))
+        self.assertTrue(alu_w.overridden)
+
+        # card 219: source-faithful port types from slang --ast-json
+        self.assertEqual(
+            [(p.name, p.type) for p in top.ports],
+            [("hi", "logic [31:0]"), ("lo", "logic [31:0]"), ("out", "logic [31:0]")],
+        )
+        op = {p.name: p for p in alu0.ports}["op"]
+        self.assertEqual(op.type, "logic [3:0]")
 
         # black-box sram_stub with ports
         sram = design.scope("top.u_core.u_sram")

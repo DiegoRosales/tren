@@ -168,6 +168,13 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
 
         # X toggles a user cut on core (opaque and back)
         app._select_path("top.u_core")
+        # card 219: I/O pane shows the slang overlay — resolved value,
+        # declared default, override marker and the source-faithful type
+        ports_text = str(ports.content)
+        assert "W = 32'd32" in ports_text, f"params missing: {ports_text!r}"
+        assert "[default 8]" in ports_text, f"default missing: {ports_text!r}"
+        assert "✎" in ports_text, f"override marker missing: {ports_text!r}"
+        assert "logic [31:0]" in ports_text, f"port type missing: {ports_text!r}"
         await pilot.press("X")
         assert "top.u_core" in app._user_cut, "X should cut core"
         assert "USER CUT" in str(ports.content), "cut marker missing"

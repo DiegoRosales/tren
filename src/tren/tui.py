@@ -398,13 +398,22 @@ class TrenApp(App[None]):
         ports = RichText()
         self.pane_ports = list(scope.ports) if scope is not None else []
         if scope is not None:
+            # params first: resolved value, declared default, override mark
+            for p in scope.params:
+                over = p.overridden
+                ports.append(f"  {'✎' if over else '·'} {p.name} = {p.value}",
+                             style=("bold #ffa62b" if over else "#a6c9ff"))
+                if p.default is not None:
+                    ports.append(f"  [default {p.default}]", style="dim white")
+                ports.append("\n", style="")
             for n, p in enumerate(self.pane_ports):
                 direction = p.direction
                 base = "#7adf77" if direction == "out" else "#a6c9ff"
                 sel = "▸ " if n == self.port_index else "  "
                 color = f"bold {base}" if n == self.port_index else base
                 ports.append(f"{sel}{p.name}", style=color)
-                ports.append(f"  {direction}[{p.width}]\n", style="dim white")
+                type_str = f"  {p.type}" if p.type else ""
+                ports.append(f"{type_str}  {direction}[{p.width}]\n", style="dim white")
         # black-box / user-cut provenance header on the I/O pane
         if scope is not None:
             header = RichText()

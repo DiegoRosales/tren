@@ -155,6 +155,74 @@ def _ast_src(node: dict) -> str | None:
     return f"{f}:{node.get('source_line')}:{node.get('source_column')}"
 
 
+def _src_pos(src: str | None) -> tuple[str, int, int] | None:
+    """'rtl/demo.sv:45:38' -> ('rtl/demo.sv', 45, 38)."""
+    if not src:
+        return None
+    parts = src.rsplit(":", 2)
+    if len(parts) != 3:
+        return None
+    file, line, col = parts
+    if not file or not line.isdigit() or not col.isdigit():
+        return None
+    return file, int(line), int(col)
+
+
+def _type_string(node: dict | None) -> str | None:
+    """Source-faithful type string from a slang --ast-json type node.
+
+    PackedArrayType -> 'logic [31:0]', ScalarType -> 'logic', integer/other
+    typedefs -> their name. Unknown shapes yield None (degrade gracefully).
+    """
+    if not isinstance(node, dict):
+        return None
+    kind = node.get("kind")
+    if kind == "PackedArrayType":
+        el = node.get("elementType") or {}
+        base = el.get("name") if isinstance(el, dict) else None
+        return f"{base or 'logic'} {node.get('range') or ''}".strip()
+    if kind in ("ScalarType", "PredefinedIntegerType", "FloatingPointType",
+                "EnumType", "StringType", "BooleanType", "PredefinedRealType"):
+        return node.get("name")
+    return None
+
+
+def _decl_default(lines: list[str], src: str | None) -> str | None:
+    """Source-text default of a parameter at its declaration span.
+
+    slang's --ast-json resolves the parameter *value* but does not expose the
+    declared default (verified sv-lang 11: only resolved value + the
+    per-instance initializer exist). TREN reads the default where it is
+    written: the same source line as the declaration, the text after the
+    first '=' up to the next terminator (',', ';', ')') or end of line.
+    """
+    pos = _src_pos(src)
+    if pos is None or not lines:
+        return None
+    _, line, col = pos
+    if not 1 <= line <= len(lines):
+        return None
+    text = lines[line - 1]
+    after = text[max(0, col - 1):] if col else text
+    eq = after.find("=")
+    if eq >= 0:
+        rest = after[eq + 1:]
+    else:
+        # the AST column can land just past the initialiser on a single-line
+        # declaration; fall back to the whole line when that still finds one
+        eq = text.find("=")
+        if eq < 0:
+            return None
+        rest = text[eq + 1:]
+    end = len(rest)
+    for i, ch in enumerate(rest):
+        if ch in ",;()":
+            end = i
+            break
+    tok = rest[:end].strip()
+    return tok or None
+
+
 def _src_line(src: str | None) -> int | None:
     """Leading line number of a src string ('rtl/demo.sv:77.14-77.65')."""
     if not src:
@@ -186,15 +254,35 @@ def _body_module(instance: dict) -> str | None:
     return None
 
 
-def _parse_ast_decls(ast: dict) -> tuple[dict[str, Any], dict[str, Any]]:
+def _parse_ast_decls(
+    ast: dict, root: Path | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return (module_decls, generate_info).
 
-    module_decls[module] = {"params": {name: {value, isLocal, src}},
-                            "ports": {name: {direction, width, src}}}
+    module_decls[module] = {"params": {name: {value, default, isLocal, src}},
+                            "ports": {name: {direction, width, type, src}}}
     generate_info[module][name] = {"count": N, "src": ...}
+
+    ``root`` anchors the AST's relative source paths when reading declared
+    parameter defaults from the source text (slang does not expose them).
     """
     decls: dict[str, dict[str, Any]] = {}
     generates: dict[str, dict[str, Any]] = {}
+    src_cache: dict[str, list[str]] = {}
+
+    def lines_for(src: str | None) -> list[str]:
+        if not src:
+            return []
+        file = src.rsplit(":", 2)[0]
+        if file not in src_cache:
+            try:
+                p = Path(file)
+                if not p.is_absolute() and root is not None:
+                    p = root / file
+                src_cache[file] = p.read_text().splitlines()
+            except OSError:
+                src_cache[file] = []
+        return src_cache[file]
 
     def decl(module: str) -> dict[str, Any]:
         return decls.setdefault(
@@ -205,10 +293,12 @@ def _parse_ast_decls(ast: dict) -> tuple[dict[str, Any], dict[str, Any]]:
         for m in members or []:
             kind = m.get("kind")
             if kind in ("Parameter", "LocalParameter"):
+                src = _ast_src(m)
                 decl(module)["params"][m["name"]] = {
                     "value": m.get("value", ""),
+                    "default": _decl_default(lines_for(src), src),
                     "isLocal": bool(m.get("isLocal")),
-                    "src": _ast_src(m),
+                    "src": src,
                 }
             elif kind == "Port":
                 direction = {
@@ -219,6 +309,7 @@ def _parse_ast_decls(ast: dict) -> tuple[dict[str, Any], dict[str, Any]]:
                 decl(module)["ports"][m["name"]] = {
                     "direction": direction,
                     "width": _type_width(m.get("type")),
+                    "type": _type_string(m.get("type")),
                     "src": _ast_src(m),
                 }
             elif kind == "Instance":
@@ -237,14 +328,14 @@ def _parse_ast_decls(ast: dict) -> tuple[dict[str, Any], dict[str, Any]]:
             elif kind == "GenerateBlock":
                 visit_members(m.get("members"), module)
 
-    root = next(
+    root_instance = next(
         (m for m in (ast.get("design") or {}).get("members") or [] if m.get("kind") == "Instance"),
         None,
     )
-    if root is not None:
-        body = root.get("body")
+    if root_instance is not None:
+        body = root_instance.get("body")
         if isinstance(body, dict):
-            visit_members(body.get("members"), root.get("name"))
+            visit_members(body.get("members"), root_instance.get("name"))
     return decls, generates
 
 
@@ -266,9 +357,15 @@ def _ports_for(mod: dict, decl: dict[str, Any] | None) -> tuple[Port, ...]:
             "output": "out",
             "inout": "inout",
         }.get(p.get("direction"), "in")
-        src = (decl_ports.get(name) or {}).get("src")
+        decl_port = decl_ports.get(name) or {}
         ports.append(
-            Port(name=name, direction=direction, width=len(p.get("bits") or []), src=src)
+            Port(
+                name=name,
+                direction=direction,
+                width=len(p.get("bits") or []),
+                src=decl_port.get("src"),
+                type=decl_port.get("type"),
+            )
         )
     return tuple(ports)  # source (declaration) order; yosys JSON is stable
 
@@ -296,8 +393,16 @@ def _params_for(
     decl_params = (decl or {}).get("params") or {}
     params = []
     for name, value in (node.get("params") or {}).items():
-        kind = "localparam" if (decl_params.get(name) or {}).get("isLocal") else "parameter"
-        params.append(Param(name=name, value=value, kind=kind))
+        d = decl_params.get(name) or {}
+        kind = "localparam" if d.get("isLocal") else "parameter"
+        params.append(
+            Param(
+                name=name,
+                value=value,
+                default=d.get("default"),
+                kind=kind,
+            )
+        )
     return tuple(params)
 
 
@@ -475,7 +580,7 @@ def elaborate(
         ast_path = str(Path(td) / "ast.json")
         run_slang_ast(manifest, root, ast_path)
         ast = json.loads(Path(ast_path).read_text())
-    design = build_design(manifest, hier_nodes, netlist, _parse_ast_decls(ast), root)
+    design = build_design(manifest, hier_nodes, netlist, _parse_ast_decls(ast, root=root), root)
     if cache is not None:
         cache.put(manifest, design)
     return design
