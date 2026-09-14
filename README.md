@@ -29,7 +29,7 @@ nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
 nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR, card 215)
 nix develop .#xilinx                        # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
-nix develop . -c textual run src.tren.tui    # the TUI (once it exists)
+nix develop . -c make run                   # start the TUI (keys: see 'User guide' below)
 ```
 
 The spike (`python -m tren.spike rtl/demo.sv`) runs yosys, builds the bit map
@@ -39,6 +39,86 @@ Use `--keep` to keep the generated netlist under `.cache/tren/` for
 inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.69 —
 the concatenation collapses to pure net aliasing, so `o` shows no driver
 (its bit list literally overlays `hi` and `lo`); the loads are all there.
+
+## User guide
+
+### Starting the TUI
+
+```sh
+nix develop . -c python -m tren.tui --manifest rtl/demo.manifest.json   # real elaboration
+nix develop . -c python -m tren.tui                                     # vendored demo fixture
+# or: nix develop . -c make run
+```
+
+The screen is three panes — **tree** (the scope hierarchy, like a filesystem)
+| **source** (the focused module's RTL) | **I/O** (parameters + ports). `q`
+quits.
+
+### Keys
+
+All bindings work from any pane unless noted; `x` below means the active
+pane.
+
+| Key | Effect |
+|---|---|
+| `1` `2` `3` | select the tree / source / I/O pane |
+| `j` `k` | move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port |
+| `l` | tree: expand/collapse the highlighted scope (toggle) |
+| `h` | tree: move up to the parent node |
+| `y` | yank the selection through the current path format (raw OSC 52 → the terminal's clipboard) |
+| `Y` | cycle the yank format: `sv` → `vivado` → `yosys` → `vcd` |
+| `d` `L` | trace **drivers** / **loads** of the selected net (opens the trace modal) |
+| `X` | cut/restore the highlighted scope (treat it as a black box) |
+| `;` | dump the current trace path as text |
+| `e` | open `$EDITOR` at the focused `file:line` (app suspends and returns) |
+| `q` | quit |
+
+In the **trace modal**: `enter` crosses a boundary into the child scope,
+`backspace` pops the trace stack, `escape` closes it.
+
+### Navigating
+
+`j`/`k` move through the tree; selecting a scope expands it (its children
+become visible; deeper scopes, ports and nets appear as descendants). The
+center pane follows the selection and shows the **real RTL file** at the
+module's *instantiation in its parent* (or its declaration at the top), with
+the focused range highlighted and kept in view — `e` opens the editor at
+exactly that line.
+
+### Yanking paths
+
+`y` writes the path of the current selection to the clipboard as a raw OSC 52
+sequence (works in any terminal that relays it, e.g. tmux with
+`set-clipboard`, most terminals). The formats are declarative (see
+`tren/formats.py`), one per target tool:
+
+| Format | Selection `top.u_core.g[0].u_alu_g.result` |
+|---|---|
+| `sv` | `top.u_core.g[0].u_alu_g.result` |
+| `vivado` | `u_core/g\[0\]/u_alu_g/result` — top excluded, `/`, Tcl-escaped brackets |
+| `yosys` | `top/u_core/g[0]/u_alu_g/result` |
+| `vcd` | `top.u_core.g[0].u_alu_g.result` |
+
+### Tracing drivers/loads
+
+Select a net to the tree, then `d` (drivers) or `L` (loads). The modal lists
+the touching cells; `enter` on a boundary row crosses **positionally** into
+the child scope's net (bits are module-local — matching by ID across a
+boundary is wrong by design). `;` dumps the breadcrumb, e.g.
+`top.out ▶ top.u_core.alu_result`.
+
+### Black boxes and cuts
+
+Body-less modules (`sram_stub`-style) render as opaque scopes with their
+ports and a `!` marker. `X` adds an explicit cut to any scope — the trace
+stops at it with the reason shown — and `X` again restores it.
+
+### Headless / CI
+
+`make check` runs the unit suite plus both Pilot drives — the same gates the
+CI workflow runs. `make test` / `make drive` / `make drive-real` run them
+individually; `make roundtrip` verifies the OSC 52 + editor path against a
+real terminal on a private tmux server.
 
 ## Importers
 

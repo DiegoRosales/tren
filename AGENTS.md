@@ -69,6 +69,12 @@ source for the pinned nixpkgs rev).
 
 ## 4. Working conventions
 
+- **The user guide lives in `README.md` (§ User guide). Keep it in sync in
+  the same change as any binding / CLI / behaviour edit** — the keymap table,
+  yank formats, trace/black-box semantics and the make targets are all
+  documented there and verified by the Pilot drives; after editing it, run
+  `make check` (unit + both drives) and, if a key/OSC path changed,
+  `make roundtrip`.
 - **Verify against the installed tool; never assert flags/formats from
   memory.** This project has burned real time on exactly that.
 - **Distinguish verified from assumed**; carry the ⚠ convention from the
