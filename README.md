@@ -21,6 +21,7 @@ revisited when a real 100k-instance IR shows the ceiling matters.
 ```sh
 nix develop .                                # python + textual + yosys + slang
 nix develop . -c tren import rtl             # -> rtl/manifest.json (first importer: .f filelist / dir scan)
+nix develop . -c tren import rtl/some.xpr    # Vivado project.xpr (auto-detected)
 nix develop . -c tren elaborate rtl/manifest.json      # elaborate a manifest (yosys + slang-hier + slang -> IR)
 nix develop . -c bash -c "PYTHONPATH=src python -m tren.spike"                    # spike: drivers/loads of one net
 nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"     # unit tests
@@ -38,13 +39,30 @@ inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.69 —
 the concatenation collapses to pure net aliasing, so `o` shows no driver
 (its bit list literally overlays `hi` and `lo`); the loads are all there.
 
-## Layout (intended)
+## Importers
+
+Manifest producers — bootstrap, not a dependency (`tren import`).
+
+- **Plain filelist** (`.f`, slang `-F` grammar) or a bare source directory.
+- **Vivado** (`project.xpr`, auto-detected): parse `<FileSets>` DesignSrcs
+  (+`TopModule`) and resolve Vivado's `$PSRCDIR`-style variables; complete
+  the sources with a directory scan because batch/HLS projects carry the RTL
+  outside the FileSets. `.vh` files are `\`include`\`-only (excluded),
+  generated-dir duplicates are dropped, and non-Verilog FileSet entries
+  (`.bd`) warn. Verified against a Vitis HLS 2025.2 export: yosys
+  `read_verilog` parses the generated Verilog-2005 cleanly; `slang-hier`
+  additionally needs Vivado's `vivado_interfaces.svh` interface library for
+  the block-level `bd_0_sv.sv`, which the workspace does not ship — pass
+  `--top fft_wrapper` (or add the lib dir) to elaborate the HLS core.
+
+## Layout
 
 ```
 src/tren/            package
   ir.py              widget-agnostic IR (scopes, nets, params, bit map)
   elaborate.py       yosys + slang-hier/slang --ast-json -> IR (+ cache)
-  importer.py        manifest producer (plain .f filelist; dir/single-file shortcut)
+  importer.py        manifest producers (.f filelist; dir/single file; Vivado via vivado.py)
+  vivado.py          Vivado project.xpr parser (FileSets, TopModule, $PSRCDIR vars)
   formats.py         yank format registry + templates
   tui.py             the textual app (implements the screen + keys only)
   __main__.py        subcommand front door (tren import / tren elaborate)

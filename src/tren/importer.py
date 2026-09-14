@@ -23,6 +23,7 @@ CLI (from the repo root, inside the nix dev shell):
     nix develop . -c tren import rtl                    # -> rtl/manifest.json
     nix develop . -c tren import rtl/sources.f --name demo
     nix develop . -c tren import rtl/demo.sv
+    nix develop . -c tren import <vivado-project.xpr>   # Vivado (auto-detected)
 """
 
 from __future__ import annotations
@@ -33,8 +34,20 @@ import sys
 from pathlib import Path
 
 from .manifest import Manifest
+from .vivado import parse_vivado, to_manifest_layout
 
 _SOURCE_SUFFIXES = (".sv", ".v")
+_FORMATS = ("auto", "f", "vivado")
+
+
+def detect_format(target: str | Path) -> str:
+    """Pick an importer for a target: Vivado .xpr, else the plain filelist."""
+    target = Path(target)
+    if target.is_dir() and (target / "project.xpr").is_file():
+        return "vivado"
+    if target.is_file() and target.suffix == ".xpr":
+        return "vivado"
+    return "f"
 
 
 def _strip_comment(line: str) -> str:
@@ -148,17 +161,26 @@ def import_manifest(
     *,
     root: str | Path | None = None,
     name: str | None = None,
-    top: str = "top",
+    top: str | None = None,
+    fmt: str = "auto",
     warnings_out: list[str] | None = None,
 ) -> Manifest:
     """Emit a Manifest for a filelist, a single source, or a directory.
 
     ``root`` (default: the invocation cwd) is the anchor every stored path is
-    relative to — the same anchor the elaborator resolves against.
+    relative to — the same anchor the elaborator resolves against. ``fmt``
+    selects the importer: ``auto`` detects a Vivado ``project.xpr``,
+    otherwise the plain filelist/dir importer is used.
     """
     target = Path(target)
     root = Path.cwd() if root is None else Path(root)
     warnings = [] if warnings_out is None else warnings_out
+
+    fmt = fmt if fmt and fmt != "auto" else detect_format(target)
+    if fmt == "vivado":
+        return _import_vivado(target, root, name=name, top=top, warnings_out=warnings)
+    if fmt != "f":
+        raise ValueError(f"unknown importer format: {fmt!r} (choose from {_FORMATS})")
 
     if target.is_file():
         if target.suffix == ".f":
@@ -197,7 +219,27 @@ def import_manifest(
         sources=tuple(_store(s, anchor, root) for s in sources),
         incdirs=tuple(_store(i, anchor, root) for i in incdirs),
         defines=tuple(defines),
-        top=top,
+        top=top or "top",
+    )
+
+
+def _import_vivado(
+    target: Path,
+    root: Path,
+    *,
+    name: str | None = None,
+    top: str | None = None,
+    warnings_out: list[str] | None = None,
+) -> Manifest:
+    warnings = [] if warnings_out is None else warnings_out
+    proj = parse_vivado(
+        target, name=name, top=top, warnings_out=warnings
+    )
+    sources, parsed_top = to_manifest_layout(proj, root)
+    return Manifest(
+        name=proj.name,
+        sources=sources,
+        top=parsed_top or "top",
     )
 
 
@@ -208,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "target",
         type=Path,
-        help=".f filelist, .sv file, or directory of sources",
+        help=".f filelist, .sv file, source directory, or Vivado project",
     )
     parser.add_argument(
         "--out", type=Path, default=None,
@@ -218,13 +260,24 @@ def main(argv: list[str] | None = None) -> int:
         "--name", default=None, help="design name (default: target name)"
     )
     parser.add_argument(
-        "--top", default="top", help="top module to elaborate (default: top)"
+        "--top", default=None,
+        help="top module (default: 'top', or the Vivado TopModule / recorded top)",
+    )
+    parser.add_argument(
+        "--format", choices=_FORMATS, default="auto",
+        help="importer: auto detects a Vivado project.xpr, else plain filelist "
+        "(default: auto)",
     )
     args = parser.parse_args(argv)
 
+    effective = args.format if args.format != "auto" else detect_format(args.target)
     warnings: list[str] = []
     manifest = import_manifest(
-        args.target, name=args.name, top=args.top, warnings_out=warnings
+        args.target,
+        name=args.name,
+        top=args.top,
+        fmt=effective,
+        warnings_out=warnings,
     )
     base = args.target.parent if args.target.is_file() else args.target
     out = args.out if args.out is not None else base / "manifest.json"
@@ -234,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"wrote manifest for {len(manifest.sources)} source(s) to {out}\n"
-        f"  name={manifest.name} top={manifest.top}"
+        f"  name={manifest.name} top={manifest.top} format={effective}"
     )
     for inc in manifest.incdirs:
         print(f"  incdir {inc}")
