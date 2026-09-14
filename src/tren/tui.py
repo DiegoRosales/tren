@@ -32,6 +32,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Label, ListItem, ListView, Static, Tree
 
+from .cache import IrCache
 from .elaborate import elaborate
 from .formats import BY_NAME, DEFAULT, PathFormat, render as render_format
 from .ir import Design, Scope, design_from_fixture
@@ -209,30 +210,50 @@ class TrenApp(App[None]):
         self._render_panes()
 
     # ---- tree construction ------------------------------------------------
+        # Scopes are populated LAZILY: a node is a stub with allow_expand=True
+        # until _ensure_children runs (on select/expand/visible-walk). Only the
+        # handful of roots exist at mount — the graph is never materialized.
 
     def _add_scope_node(
         self, parent: Tree.Node, scope: Scope, label: str | None = None
     ) -> Tree.Node:
         base_label = label or f"{scope.name}/"
-        node = parent.add(
-            base_label, data={"kind": "scope", "scope": scope, "label": base_label}
+        return parent.add(
+            base_label,
+            data={"kind": "scope", "scope": scope, "label": base_label},
+            allow_expand=True,
         )
-        for inst in scope.instances:
-            child = self._scopes.get(f"{scope.name}.{inst.name}")
-            if child is not None:
-                # the instance is a real sub-scope (elaborated IR): nest it
-                marker = "!" if inst.blackbox else ""
-                self._add_scope_node(node, child, f"{inst.name}/{marker}")
-            else:
-                # fixture shape: the instance's module scope supplies ports
-                inst_node = node.add(
-                    f"{inst.name}/", data={"kind": "instance", "instance": inst}
-                )
-                inst_scope = self._scopes.get(inst.module) if inst.module else None
-                if inst_scope is not None:
-                    self._add_ports_nets(inst_node, inst_scope)
-        self._add_ports_nets(node, scope)
-        return node
+
+    def _ensure_children(self, node: Tree.Node) -> None:
+        """Build a node's children idempotently (lazy populate on demand)."""
+        data = node.data
+        if data is None or node.children:
+            return
+        kind = data.get("kind")
+        if kind == "scope":
+            scope = data["scope"]
+            for inst in scope.instances:
+                child = self._scopes.get(f"{scope.name}.{inst.name}")
+                if child is not None:
+                    # the instance is a real sub-scope (elaborated IR): nest it
+                    marker = "!" if inst.blackbox else ""
+                    self._add_scope_node(node, child, f"{inst.name}/{marker}")
+                else:
+                    # fixture shape: the instance's module scope supplies ports
+                    inst_node = node.add(
+                        f"{inst.name}/",
+                        data={"kind": "instance", "instance": inst},
+                        allow_expand=True,
+                    )
+                    inst_scope = self._scopes.get(inst.module) if inst.module else None
+                    if inst_scope is not None:
+                        self._add_ports_nets(inst_node, inst_scope)
+            self._add_ports_nets(node, scope)
+        elif kind == "instance":
+            inst = data.get("instance")
+            inst_scope = self._scopes.get(inst.module) if inst else None
+            if inst_scope is not None:
+                self._add_ports_nets(node, inst_scope)
 
     def _add_ports_nets(self, node: Tree.Node, scope: Scope) -> None:
         for port in scope.ports:
@@ -256,6 +277,7 @@ class TrenApp(App[None]):
             for child in node.children:
                 yield child
                 if child.is_expanded:
+                    self._ensure_children(child)  # lazy: materialize on demand
                     yield from walk(child)
 
         return list(walk(self._tree().root))
@@ -324,10 +346,12 @@ class TrenApp(App[None]):
         self._index = index
         self._current_node = node
         self._tree().select_node(node)
-        # auto_expand=False is set in compose (async toggle handler races key
+        # auto_expand=False is set in on_mount (async toggle handler races key
         # bursts), so expansion is deterministic here: selecting always
-        # shows the node's children, like textual's own auto-expand.
+        # shows the node's children, like textual's own auto-expand. Populate
+        # the now-visible children synchronously so a key burst sees them.
         self._expand_to(node)
+        self._ensure_children(node)
         self._tree().scroll_to_node(node)
         self._render_panes()
 
@@ -470,16 +494,32 @@ class TrenApp(App[None]):
         return True
 
     def _find_scope_node(self, path: str) -> Tree.Node | None:
-        stack = list(self._tree().root.children)
-        while stack:
-            n = stack.pop()
-            d = n.data
-            if d is not None and d.get("kind") == "scope" and d["scope"].name == path:
-                return n
-            stack.extend(n.children)
-        return None
+        """Descend by path segments so only the touched lineage materializes."""
+        parts = path.split(".")
+        node = self._tree().root
+        for i in range(1, len(parts) + 1):
+            prefix = ".".join(parts[:i])
+            self._ensure_children(node)
+            match = None
+            for child in node.children:
+                data = child.data
+                if (
+                    data is not None
+                    and data.get("kind") == "scope"
+                    and data["scope"].name == prefix
+                ):
+                    match = child
+                    break
+            if match is None:
+                return None
+            node = match
+        return node
+
+    def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
+        self._ensure_children(event.node)
 
     def _find_net_leaf(self, scope_node: Tree.Node, net_name: str) -> Tree.Node | None:
+        self._ensure_children(scope_node)  # final node of the descend above is unbuilt
         stack = list(scope_node.children)
         while stack:
             n = stack.pop()
@@ -695,9 +735,20 @@ if __name__ == "__main__":
         type=Path,
         help="elaborate this manifest instead of the demo fixture",
     )
+    parser.add_argument(
+        "--cache",
+        type=Path,
+        default=Path(".cache/tren"),
+        help="IR cache directory (reused across runs; second start is instant)",
+    )
     args = parser.parse_args()
     if args.manifest is not None:
-        design = elaborate(Manifest.read(args.manifest), Path.cwd())
+        root = Path.cwd()
+        design = elaborate(
+            Manifest.read(args.manifest),
+            root,
+            cache=IrCache(args.cache, root=root),
+        )
     else:
         design = load_design()
     TrenApp(design).run()

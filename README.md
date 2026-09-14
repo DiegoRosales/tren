@@ -26,6 +26,7 @@ nix develop . -c bash -c "PYTHONPATH=src python -m tren.spike"                  
 nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"     # unit tests
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
+nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR, card 215)
 nix develop . -c textual run src.tren.tui    # the TUI (once it exists)
 ```
 
