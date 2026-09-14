@@ -1,27 +1,72 @@
-# TREN — Vitis HLS example build flow.
+# TREN — runnable examples + Vitis HLS example build flow.
 #
-# The flow mirrors ipyfuse's test/hls_examples: each block under
-# test/hls_examples/hls/<block> is a Vitis HLS project directory with
-# config.tcl (sources), directives.tcl, and a committed rtl_output/ snapshot
-# (the impl/verilog export) so `tren import` works in a fresh clone without a
-# Xilinx install. Rebuilding requires a Vitis/HLS installation:
-#
-#   make setup_xilinx                  # XILINX_VITIS=/path/to/Vitis/v2025.2  -> writes .xilinx_env
-#   make fft_wrapper_HLS               # rebuild + export one block (vitis_hls -f run_hls.tcl <block>)
-#   make hls_examples                  # rebuild everything
-#
-# The Xilinx tools run under the flake's #xilinx FHS sandbox (Xilinx binaries
-# expect a conventional /usr/lib layout that NixOS lacks). The sandbox shell
-# is interactive-only (nix develop -c does not reach it), so:
-#
-#   nix develop .#xilinx                 # enter the FHS sandbox
-#   make setup_xilinx                    # XILINX_VITIS=/path/to/Vitis
-#   make fft_wrapper_HLS                 # vitis_hls run_hls.tcl
-#   exit
-#
-# .xilinx_env is gitignored (machine-specific settings64.sh path);
-# rtl_output/ snapshots are committed so a fresh clone imports without a
-# Xilinx install.
+# Everything in `make help` WORKS on a stock checkout, with nothing but the
+# nix flake (every command runs under `nix develop . -c ...`, no host tools).
+# The Vitis HLS section at the bottom additionally needs a Xilinx/Vitis
+# install and the flake's `#xilinx` FHS sandbox.
+
+NIX := nix develop . -c
+
+.DEFAULT_GOAL := help
+
+.PHONY: help run run-fixture import elaborate test drive drive-real roundtrip \
+        profile check
+
+help:
+	@echo "TREN examples that work (stock checkout, nix-only):"
+	@echo
+	@echo "  make run            TUI on the real demo IR (rtl/demo.manifest.json)"
+	@echo "  make run-fixture    TUI on the vendored demo fixture"
+	@echo "  make import         regenerate rtl/manifest.json from rtl/ (dir scan)"
+	@echo "  make elaborate      elaborate the demo manifest -> IR summary (cached)"
+	@echo "  make test           unit tests"
+	@echo "  make drive          headless Pilot drive, fixture mode"
+	@echo "  make drive-real     headless Pilot drive, real IR + trace/black-box flows"
+	@echo "  make roundtrip      real-terminal OSC 52 + editor round trip (private tmux server)"
+	@echo "  make profile        lazy-load + cache profile on a synthetic 1100-scope IR"
+	@echo "  make check          unit + both drives (what CI runs)"
+	@echo
+	@echo "Vitis HLS flow (needs a Xilinx install + 'nix develop .#xilinx'):"
+	@echo "  make setup_xilinx   XILINX_VITIS=/path/to/Vitis"
+	@echo "  make <block>_HLS    vitis_hls -f run_hls.tcl <block>   e.g. make fft_wrapper_HLS"
+	@echo "  make hls_examples   rebuild every block"
+	@echo
+
+# --- interactive TUI (q quits) --------------------------------------------
+
+run:
+	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui --manifest rtl/demo.manifest.json'
+
+run-fixture:
+	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui'
+
+# --- examples (all verified, non-interactive) -----------------------------
+
+import:
+	$(NIX) tren import rtl --out rtl/manifest.json
+
+elaborate:
+	$(NIX) tren elaborate rtl/demo.manifest.json
+
+test:
+	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m unittest discover -s tests'
+
+drive:
+	$(NIX) python test_drive.py
+
+drive-real:
+	$(NIX) python test_drive.py --manifest rtl/demo.manifest.json
+
+roundtrip:
+	$(NIX) bash tools/osc52_roundtrip.sh
+
+profile:
+	$(NIX) python tools/profile_1k_scopes.py
+
+check: test drive drive-real
+
+# --- Vitis HLS example build flow (port from ipyfuse; needs a Xilinx
+#      install — run inside `nix develop .#xilinx`) ------------------------
 
 HLS_EXAMPLES_PATH := test/hls_examples
 
@@ -36,12 +81,9 @@ BLOCK_LIST += dma_codec_mux_wrapper
 
 HLS_LIST := $(foreach BLOCK,$(BLOCK_LIST),$(BLOCK)_HLS)
 
-## Evaluated on every make invocation, including targets that have nothing to
-## do with Xilinx. .xilinx_env is gitignored, so it is absent in CI and in a
-## fresh clone -- swallow the error rather than printing "cat: .xilinx_env: No
-## such file or directory" ahead of every target. An empty value is the
-## expected "not configured" state; the %_HLS rule below checks for it and
-## prints a useful message.
+## Evaluated on every make invocation. .xilinx_env is gitignored, so it is
+## absent in a fresh clone -- swallow the error; an empty value is the
+## expected "not configured" state, and %_HLS checks for it.
 XILINX_ENV := $(shell cat .xilinx_env 2>/dev/null)
 
 %_HLS:
@@ -67,5 +109,3 @@ ifeq ($(strip $(XILINX_VITIS)),)
 else
 	echo "$(XILINX_VITIS)/settings64.sh" > .xilinx_env
 endif
-
-.PHONY: hls_examples setup_xilinx
