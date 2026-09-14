@@ -362,12 +362,10 @@ class TrenApp(App[None]):
         self._index = index
         self._current_node = node
         self._tree().select_node(node)
-        # auto_expand=False is set in on_mount (async toggle handler races key
-        # bursts), so expansion is deterministic here: selecting always
-        # shows the node's children, like textual's own auto-expand. Populate
-        # the now-visible children synchronously so a key burst sees them.
-        self._expand_to(node)
-        self._ensure_children(node)
+        # No auto-expand on move: j/k only walks the rows that are already
+        # visible; l (action_expand) is the only thing that unfolds a scope
+        # (file-manager model). Programmatic jumps (_select_path, ctrl+u)
+        # expand/populate explicitly where they need to.
         self._tree().scroll_to_node(node)
         self._render_panes()
 
@@ -655,6 +653,7 @@ class TrenApp(App[None]):
         if node is None:
             return
         self._expand_to(node)
+        self._ensure_children(node)  # lazy children must exist before render
         self._tree().scroll_to_node(node)
         self._render_panes()
 

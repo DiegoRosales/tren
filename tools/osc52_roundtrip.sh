@@ -40,7 +40,7 @@ tmux -L "$SOCK" send-keys -t "$SESS" \
   "cd '$REPO' && export PYTHONPATH=src EDITOR=$TMP/fake_editor.sh FAKE_EDITOR_LOG=$TMP/editor.log && python -m tren.tui --manifest rtl/demo.manifest.json" Enter
 
 sleep 6  # elaboration + textual startup
-tmux -L "$SOCK" send-keys -t "$SESS" j j y
+tmux -L "$SOCK" send-keys -t "$SESS" j l j y   # select top, l to unfold, j to u_core, y
 sleep 2
 
 PAYLOAD="$(python3 - "$TMP/pane.raw" <<'EOF'

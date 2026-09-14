@@ -38,8 +38,12 @@ async def drive_fixture() -> None:
         source_text = str(source.content)
         assert "module top" in source_text, "source pane did not focus top"
 
-        # selecting top auto-expanded it -> j descends into u_core instance
-        await pilot.press("j")
+        # j/k do not unfold: only l expands (file-manager model)
+        assert not app._current_node.is_expanded, "top must stay collapsed after j"
+
+        await pilot.press("l")
+        assert app._current_node.is_expanded, "l should expand top"
+        await pilot.press("j")  # -> u_core instance under top
         assert "u_core" in app._current_node.label.plain, f"cursor: {app._current_node}"
 
         # center must now show core's *instantiation* focused
@@ -52,7 +56,10 @@ async def drive_fixture() -> None:
         for expected in ("a", "alu_result"):
             assert expected in ports_text, f"ports pane missing {expected}: {ports_text!r}"
 
-        # l expands (no-op on the auto-expanded node), h collapses
+        # l/h: expand then collapse u_core (u_core is not expanded yet)
+        assert not app._current_node.is_expanded, "u_core should start collapsed"
+        await pilot.press("l")
+        assert app._current_node.is_expanded, "l should expand u_core"
         await pilot.press("h")
         assert not app._current_node.is_expanded, "h should collapse u_core"
         await pilot.press("l")
@@ -113,6 +120,13 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._focus[0] == "rtl/demo.sv", f"focus file: {app._focus}"
         assert "module top" in str(source.content), "top module not shown from real file"
 
+        # j does not unfold; l does (file-manager model)
+        await pilot.press("j")
+        assert "top/" in app._current_node.label.plain, "j must not auto-expand"
+
+        await pilot.press("l")
+        assert app._current_node.is_expanded, "l should expand top"
+
         # descend into u_core -> its *instantiation in top* is focused
         await pilot.press("j")
         assert "u_core" in app._current_node.label.plain, f"cursor: {app._current_node}"
@@ -124,7 +138,8 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app.src_offset + 1 <= 77 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
 
         # descend into u_alu0 (first child, source order) -> band follows to
-        # its instantiation line
+        await pilot.press("l")
+        assert app._current_node.is_expanded, "l should expand u_core"
         await pilot.press("j")
         assert "u_alu0" in app._current_node.label.plain, f"cursor: {app._current_node}"
         assert app._focus == ("rtl/demo.sv", 56, 56), f"u_alu0 focus: {app._focus}"

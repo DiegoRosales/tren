@@ -81,14 +81,14 @@ In the **trace modal**: `enter` crosses a boundary into the child scope,
 
 ### Navigating
 
-`j`/`k` move through the tree; selecting a scope expands it (its children
-become visible; deeper scopes, ports and nets appear as descendants). `l`
-re-expands a scope, `h` collapses it, `ctrl+u` jumps the cursor to the next
-upper level (even from a port/net leaf) and `enter` puts the highlighted
-module into the centre. The center pane shows the **real RTL file** at the
-module's *instantiation in its parent* (or its declaration at the top), with
-the focused range highlighted and kept in view — `e` opens the editor at
-exactly that line.
+`j`/`k` move through the tree **without unfolding** anything — only `l`
+expands the highlighted scope to reveal its children (file-manager model),
+and `h` collapses it again. `ctrl+u` jumps the cursor to the next upper
+level (even from a port/net leaf) and `enter` puts the highlighted module
+into the centre. The center pane shows the **real RTL file** at the module's
+*instantiation in its parent* (or its declaration at the top), with the
+focused range highlighted and kept in view — `e` opens the editor at exactly
+that line.
 
 ### Yanking paths
 
