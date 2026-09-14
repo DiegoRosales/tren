@@ -77,6 +77,11 @@ source for the pinned nixpkgs rev).
   documented there and verified by the Pilot drives; after editing it, run
   `make check` (unit + both drives) and, if a key/OSC path changed,
   `make roundtrip`.
+- **The verification strategy lives in `docs/verification.md`** — the layered
+  gates (unit → elaboration acceptance → Pilot drives → real-terminal round
+  trip → scale/cache profile → real-artefact importers), what each layer
+  cannot catch (e.g. Pilot asserts state, not rendered output), and the
+  change checklist. Consult it before deciding a change is "done".
 - **Verify against the installed tool; never assert flags/formats from
   memory.** This project has burned real time on exactly that.
 - **Distinguish verified from assumed**; carry the ⚠ convention from the

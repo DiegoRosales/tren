@@ -218,3 +218,6 @@ manifest.json        hand-checkable design manifest (sources/incdirs/top/…)
 - Task breakdown: Nextcloud Deck board **"TREN"**.
 - Pinned versions: Python 3.14 · textual 8.2.8 · rust 1.98 · ratatui 0.30.2 ·
   yosys 0.69 · sv-lang 11.0.
+- How TREN is verified: `docs/verification.md` — the layered strategy
+  (unit → elaboration acceptance → Pilot drives → real-terminal round trip →
+  scale/cache profile → real-artefact importers) and the change checklist.
