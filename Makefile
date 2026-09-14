@@ -11,11 +11,17 @@
 #   make hls_examples                  # rebuild everything
 #
 # The Xilinx tools run under the flake's #xilinx FHS sandbox (Xilinx binaries
-# expect a conventional /usr/lib layout that NixOS lacks):
+# expect a conventional /usr/lib layout that NixOS lacks). The sandbox shell
+# is interactive-only (nix develop -c does not reach it), so:
 #
-#   nix develop .#xilinx -c make fft_wrapper_HLS
+#   nix develop .#xilinx                 # enter the FHS sandbox
+#   make setup_xilinx                    # XILINX_VITIS=/path/to/Vitis
+#   make fft_wrapper_HLS                 # vitis_hls run_hls.tcl
+#   exit
 #
 # .xilinx_env is gitignored (machine-specific settings64.sh path);
+# rtl_output/ snapshots are committed so a fresh clone imports without a
+# Xilinx install.
 
 HLS_EXAMPLES_PATH := test/hls_examples
 

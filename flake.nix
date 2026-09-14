@@ -159,6 +159,7 @@
                     rpcsvc-proto
                     parted
                     git
+                    gnumake # the HLS Makefile flow runs inside the sandbox
                     clang-tools
                     openssl
                     curl

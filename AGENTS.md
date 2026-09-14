@@ -58,11 +58,14 @@ Always run under the dev shell: `nix develop . -c <command>` — never bare
 
 For anything touching Xilinx tooling (Vivado / Vitis HLS) use the `#xilinx`
 FHS sandbox — the tools need a conventional `/usr/lib` that NixOS lacks:
-`nix develop .#xilinx -c <cmd>` (x86_64-linux only). The HLS example
-build flow lives in the `Makefile` (mirrors ipyfuse): `make setup_xilinx`
-writes `.xilinx_env` from `$XILINX_VITIS`, `make <block>_HLS` re-synthesises
-one block under `test/hls_examples/hls/`. First `nix develop .#xilinx` has a
-long one-time build (systemd/gcc from source for the pinned nixpkgs rev).
+`nix develop .#xilinx` (x86_64-linux only) and work inside it. Note the env's
+runScript shell is interactive-only: `nix develop .#xilinx -c <cmd>` does NOT
+execute the command (verified on nix 2.x for buildFHSEnv .env outputs) — run
+the Makefile inside the shell instead. The HLS example build flow mirrors
+ipyfuse: `make setup_xilinx` writes `.xilinx_env` from `$XILINX_VITIS`,
+`make <block>_HLS` re-synthesises one block under `test/hls_examples/hls/`.
+First `nix develop .#xilinx` has a long one-time build (systemd/gcc from
+source for the pinned nixpkgs rev).
 
 ## 4. Working conventions
 

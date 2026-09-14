@@ -28,7 +28,7 @@ nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"  
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
 nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR, card 215)
-nix develop .#xilinx -c make fft_wrapper_HLS      # rebuild one Vitis HLS example (needs Xilinx install + setup_xilinx)
+nix develop .#xilinx                        # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
 nix develop . -c textual run src.tren.tui    # the TUI (once it exists)
 ```
 
@@ -68,11 +68,15 @@ so it works without a Xilinx install:
 
 Regenerating an example needs a Vitis/HLS install. Xilinx binaries expect a
 conventional `/usr/lib` layout that NixOS lacks, so the flake ships a
-`#xilinx` FHS sandbox (ported from ipyfuse) for x86_64-linux:
+`#xilinx` FHS sandbox (ported from ipyfuse) for x86_64-linux. The env's
+runScript shell is interactive-only (`nix develop -c` does not reach it), so
+enter it first, then run the Makefile:
 
-    nix develop .#xilinx -c make setup_xilinx     # XILINX_VITIS=/path/to/Vitis ./settings64.sh path -> .xilinx_env
-    nix develop .#xilinx -c make fft_wrapper_HLS  # vitis_hls -f run_hls.tcl fft_wrapper; regenerates rtl_output/
-    nix develop .#xilinx -c make hls_examples     # rebuild every block
+    nix develop .#xilinx                          # interactive FHS shell (first build is slow)
+    make setup_xilinx     # XILINX_VITIS=/path/to/Vitis ./settings64.sh path -> .xilinx_env
+    make fft_wrapper_HLS  # vitis_hls -f run_hls.tcl fft_wrapper; regenerates rtl_output/
+    make hls_examples     # rebuild every block
+    exit
 
 `.xilinx_env` and the per-block `solution_1/` synthesis workspace are
 gitignored; `rtl_output/` snapshots are committed.
