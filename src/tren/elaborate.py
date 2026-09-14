@@ -370,6 +370,19 @@ def _ports_for(mod: dict, decl: dict[str, Any] | None) -> tuple[Port, ...]:
     return tuple(ports)  # source (declaration) order; yosys JSON is stable
 
 
+def _bit_key(b: Any) -> int:
+    """Bit id for IR use. Yosys emits non-integer tokens ('0', 'x') for
+    constant / don't-care positions of a net — those carry no connectivity
+    and are represented as -1 (never a real node id, so they can never match
+    a cell connection in the hit map)."""
+    if isinstance(b, int):
+        return b
+    try:
+        return int(b)
+    except (TypeError, ValueError):
+        return -1
+
+
 def _nets_for(mod: dict) -> tuple[Net, ...]:
     nets: list[Net] = []
     for name, n in (mod.get("netnames") or {}).items():
@@ -380,7 +393,7 @@ def _nets_for(mod: dict) -> tuple[Net, ...]:
             Net(
                 name=name,
                 width=len(bits),
-                bits=tuple(int(b) for b in bits),
+                bits=tuple(_bit_key(b) for b in bits),
                 src=(n.get("attributes") or {}).get("src"),
             )
         )
@@ -427,7 +440,7 @@ def _build_connectivity(
             bits = n.get("bits") or []
             links: list[BitLink] = []
             for position, b in enumerate(bits):
-                rows = sorted(hits.get(int(b), []), key=lambda r: (r[0], r[1], r[2]))
+                rows = sorted(hits.get(_bit_key(b), []), key=lambda r: (r[0], r[1], r[2]))
                 drivers = tuple(Endpoint(cell=c, port=p, bit=pos) for (c, p, pos, o) in rows if o)
                 loads = tuple(Endpoint(cell=c, port=p, bit=pos) for (c, p, pos, o) in rows if not o)
                 links.append(BitLink(position=position, drivers=drivers, loads=loads))

@@ -6,11 +6,12 @@
 # install and the flake's `#xilinx` FHS sandbox.
 
 NIX := nix develop . -c
+HLS_EXAMPLES_PATH := test/hls_examples
 
 .DEFAULT_GOAL := help
 
 .PHONY: help run run-fixture import elaborate test drive drive-real roundtrip \
-        profile check
+        profile check hls-import hls-elaborate hls-run
 
 help:
 	@echo "TREN examples that work (stock checkout, nix-only):"
@@ -25,6 +26,11 @@ help:
 	@echo "  make roundtrip      real-terminal OSC 52 + editor round trip (private tmux server)"
 	@echo "  make profile        lazy-load + cache profile on a synthetic 1100-scope IR"
 	@echo "  make check          unit + both drives (what CI runs)"
+	@echo
+	@echo "  make hls-import     import the HLS RTL export: test/hls_examples/hls/<BLOCK>/rtl_output"
+	@echo "  make hls-elaborate  elaborate <BLOCK>'s HLS RTL into the IR (read-only, no Xilinx)"
+	@echo "  make hls-run        TUI on <BLOCK>'s HLS RTL"
+	@echo "                      (BLOCK defaults to fft_wrapper; e.g. make hls-elaborate BLOCK=test_adder_2p)"
 	@echo
 	@echo "Vitis HLS flow (needs a Xilinx install + 'nix develop .#xilinx'):"
 	@echo "  make setup_xilinx   XILINX_VITIS=/path/to/Vitis"
@@ -64,6 +70,25 @@ profile:
 	$(NIX) python tools/profile_1k_scopes.py
 
 check: test drive drive-real
+
+# --- HLS RTL-output examples ----------------------------------------------
+# Read-only reading of a committed rtl_output/ export (no Xilinx install
+# needed): import the Verilog set to a manifest, then elaborate or browse it.
+# Manifests land in .cache/hls (gitignored); BLOCK selects the example.
+
+HLS_RTL_DIR = $(HLS_EXAMPLES_PATH)/hls
+BLOCK ?= fft_wrapper
+HLS_RTL_MANIFEST = .cache/hls/$(BLOCK).json
+
+hls-import:
+	@mkdir -p .cache/hls
+	$(NIX) tren import $(HLS_RTL_DIR)/$(BLOCK)/rtl_output --top $(BLOCK) --out $(HLS_RTL_MANIFEST)
+
+hls-elaborate: hls-import
+	$(NIX) tren elaborate $(HLS_RTL_MANIFEST)
+
+hls-run: hls-import
+	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui --manifest $(HLS_RTL_MANIFEST)'
 
 # --- Vitis HLS example build flow (port from ipyfuse; needs a Xilinx
 #      install — run inside `nix develop .#xilinx`) ------------------------

@@ -120,6 +120,15 @@ CI workflow runs. `make test` / `make drive` / `make drive-real` run them
 individually; `make roundtrip` verifies the OSC 52 + editor path against a
 real terminal on a private tmux server.
 
+### Reading Vitis HLS RTL output (no Xilinx needed)
+
+The committed `test/hls_examples/hls/<block>/rtl_output` exports are read
+directly: `make hls-import`, `make hls-elaborate` and `make hls-run` import /
+elaborate / browse one block (`BLOCK` defaults to `fft_wrapper`). The
+elaborator handles the generated Verilog-2005 including yosys's constant / x
+bits. Example: `fft_wrapper` bundles 140 scopes, ~50k bit-links and 1763
+boundaries.
+
 ## Importers
 
 Manifest producers — bootstrap, not a dependency (`tren import`).

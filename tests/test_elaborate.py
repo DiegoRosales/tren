@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tren.cache import IrCache  # noqa: E402
 from tren.elaborate import (  # noqa: E402
+    _bit_key,
     _decl_default,
+    _nets_for,
     _src_pos,
     _type_string,
     build_design,
@@ -176,6 +178,24 @@ class SlangOverlayUnitTests(unittest.TestCase):
         self.assertEqual(_decl_default(lines, "rtl/demo.sv:1:5"), "8")  # fallback: whole-line '='
         self.assertIsNone(_decl_default([], "rtl/demo.sv:1:38"))
         self.assertIsNone(_decl_default(lines, None))
+
+
+class BitKeyTests(unittest.TestCase):
+    """Yosys JSON uses non-integer tokens for constant / don't-care bits."""
+
+    def test_bit_key(self) -> None:
+        self.assertEqual(_bit_key(3), 3)
+        self.assertEqual(_bit_key("0"), 0)
+        self.assertEqual(_bit_key("x"), -1)
+        self.assertEqual(_bit_key(None), -1)
+
+    def test_nets_for_tolerates_constant_bits(self) -> None:
+        mod = {"netnames": {"o": {"bits": [1, "0", "x"], "attributes": {"src": "f.sv:1"}}}}
+        nets = _nets_for(mod)
+        self.assertEqual(len(nets), 1)
+        net = nets[0]
+        self.assertEqual(net.width, 3)  # constant bits still occupy a slot
+        self.assertEqual(net.bits, (1, 0, -1))
 
 
 @unittest.skipUnless(
