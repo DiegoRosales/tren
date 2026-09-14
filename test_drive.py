@@ -52,9 +52,9 @@ async def drive_fixture() -> None:
         for expected in ("a", "alu_result"):
             assert expected in ports_text, f"ports pane missing {expected}: {ports_text!r}"
 
-        # l toggles: collapse then re-expand u_core
-        await pilot.press("l")
-        assert not app._current_node.is_expanded, "l should collapse u_core"
+        # l expands (no-op on the auto-expanded node), h collapses
+        await pilot.press("h")
+        assert not app._current_node.is_expanded, "h should collapse u_core"
         await pilot.press("l")
         assert app._current_node.is_expanded, "l should re-expand u_core"
 
@@ -68,9 +68,13 @@ async def drive_fixture() -> None:
         assert app.yanked, "yank recorded nothing"
         print("yanked:", app.yanked[-1])
 
-        # 'h' walks up a level to u_core
-        await pilot.press("h")
-        assert "u_core" in app._current_node.label.plain, f"after h: {app._current_node}"
+        # ctrl+u on the flattened fixture (module-keyed scopes) stays put
+        await pilot.press("ctrl+u")
+        assert "port" in app._current_node.label.plain, f"fixture ctrl+u should be a no-op: {app._current_node}"
+
+        # enter shows the highlighted module in the centre (fixture: inline RTL)
+        await pilot.press("enter")
+        assert "core #(32) u_core(" in str(source.content), "enter did not show core RTL"
 
         # pane selection: 2 routes j to source scroll, 3 to ports selection
         await pilot.press("2")
@@ -131,10 +135,15 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("e")
         assert app.editor_target == "rtl/demo.sv:56", f"editor target: {app.editor_target}"
 
-        # h walks back up to u_core
-        await pilot.press("h")
-        assert "u_core" in app._current_node.label.plain, f"after h: {app._current_node}"
+        # ctrl+u walks back up to core (the enclosing scope of u_alu0)
+        await pilot.press("ctrl+u")
+        assert "u_core" in app._current_node.label.plain, f"after ctrl+u: {app._current_node}"
         assert app._focus == ("rtl/demo.sv", 77, 77), "focus should return to u_core"
+
+        # enter shows the highlighted module in the centre with context
+        await pilot.press("enter")
+        rows = app._source_widget.size.height or 30
+        assert app.src_offset <= 77 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
 
         # ---- card 213: d/L trace with hierarchy crossing ------------------
         # walk from top.out to its $xor driver and back; dump shows the path
@@ -228,6 +237,32 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("y")
         assert app.yanked[-1] == "top.u_core.g[0].u_alu_g.a", app.yanked[-1]
         await pilot.press("1")
+
+        # ---- card 239: ctrl+u jumps to the next upper level ----------------
+        # from a deep generate-block scope, one ctrl+u lands on its parent
+        app._select_path("top.u_core.g[0].u_alu_g")
+        await pilot.press("ctrl+u")
+        assert "u_core" in app._current_node.label.plain, f"after ctrl+u: {app._current_node}"
+
+        # from a port/net leaf, ctrl+u lands on that scope's parent
+        app._select_path("top.u_core", "x")
+        await pilot.press("ctrl+u")
+        assert "top/" in app._current_node.label.plain, f"leaf ctrl+u: {app._current_node}"
+
+        # from a top-level scope it stays put (no wrap)
+        await pilot.press("ctrl+u")
+        assert app._current_node.data is not None
+        assert app._current_node.data.get("scope", {}).name == "top", \
+            f"top-level ctrl+u should not wrap: {app._current_node.data}"
+
+        # ---- card 238: enter shows the module; the d/L modal keeps Enter ----
+        app._select_path("top", "out")
+        await pilot.press("d")
+        modal = app._modal
+        assert modal is not None
+        await pilot.press("enter")  # must cross the boundary, not trigger focus_source
+        assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], f"trace: {app._trace}"
+        await pilot.press("escape")
 
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)

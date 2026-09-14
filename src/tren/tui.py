@@ -12,8 +12,9 @@ Auto-follow: on scope change the focus band is kept in view
 (src_offset = focus_start - rows/2, clamped). `e` opens the editor (stub)
 at the focused line.
 
-Keys: j/k move, l open/expand, h up, 1/2/3 pane select, y yank, e editor,
-q quit. Headless Pilot tests:  python test_drive.py [--manifest …]
+Keys: j/k move, l expand, h collapse, enter shows the module in the centre,
+ctrl+u jumps up a level, 1/2/3 pane select, y yank, e editor, q quit.
+Headless Pilot tests:  python test_drive.py [--manifest …]
 """
 
 from __future__ import annotations
@@ -140,8 +141,11 @@ class TrenApp(App[None]):
         Binding("3", "select_pane_ports", "ports", priority=True),
         Binding("j", "next_item", "down", priority=True),
         Binding("k", "prev_item", "up", priority=True),
-        Binding("l", "open_member", "enter", priority=True),
-        Binding("h", "up_scope", "back", priority=True),
+        Binding("l", "expand", "expand", priority=True),
+        Binding("h", "collapse", "collapse", priority=True),
+        Binding("enter", "focus_source", "show rtl"),  # NOT priority: the d/L
+        # modal's ListView owns Enter while the trace is open
+        Binding("ctrl+u", "go_up_level", "up level", priority=True),
         Binding("y", "yank", "yank", priority=True),
         Binding("Y", "cycle_format", "fmt", priority=True),
         Binding("d", "trace_drivers", "drivers", priority=True),
@@ -188,6 +192,13 @@ class TrenApp(App[None]):
 
     def on_mount(self) -> None:
         self._tree_widget = self.query_one("#tree")
+        # The tree is not focusable: textual auto-focuses the first focusable
+        # widget on mount, which would shadow the app-level (non-priority)
+        # Enter binding with the Tree's own. TREN drives all tree input via
+        # priority=True app bindings, so this loses nothing (falling: the
+        # d/L modal focuses its ListView and keeps Enter for boundary
+        # crossing).
+        self._tree_widget.can_focus = False
         # textual's select-time auto-expand runs in an async handler that
         # *toggles*: under a key burst it re-orders against our visible-walk
         # (and pre-expanding here would make it collapse). Disable it and
@@ -633,21 +644,63 @@ class TrenApp(App[None]):
         else:
             self._select(getattr(self, "_index", 1) - 1)
 
-    def action_open_member(self) -> None:
+    def action_expand(self) -> None:
+        """l: expand the highlighted scope (reveal its children)."""
         node = getattr(self, "_current_node", None)
         if node is None:
             return
-        node.toggle()
+        self._expand_to(node)
+        self._tree().scroll_to_node(node)
         self._render_panes()
 
-    def action_up_scope(self) -> None:
+    def action_collapse(self) -> None:
+        """h: collapse the highlighted scope (hide its children)."""
         node = getattr(self, "_current_node", None)
-        if node is None or node.parent is None:
+        if node is None:
             return
-        try:
-            self._select(self._visible().index(node.parent))
-        except ValueError:
-            pass
+        if node.is_expanded and node.children:
+            node.collapse()
+        self._render_panes()
+
+    def action_go_up_level(self) -> None:
+        """ctrl+u: jump to the next upper hierarchy level.
+
+        Selects the nearest strict *module* ancestor of the current scope:
+        from top.u_core.g[0].u_alu_g (a generate child) it lands on
+        top.u_core; from a port/net leaf, on that scope's parent; from a
+        top-level scope it stays put (no wrap). Flattened fixture scopes
+        (module-keyed, no hierarchical parents) are a no-op.
+        """
+        scope = self._scope_data(self._current_node)
+        if scope is None:
+            self.bell()
+            return
+        parts = scope.name.split(".")
+        for i in range(len(parts) - 1, 0, -1):
+            ancestor = ".".join(parts[:i])
+            s = self._scopes.get(ancestor)
+            if s is not None and s.module is not None:
+                node = self._find_scope_node(ancestor)
+                if node is not None:
+                    self._select(self._visible().index(node))
+                return
+        # no strict module ancestor (top-level scope): stay put
+
+    def action_focus_source(self) -> None:
+        """enter (tree pane): show the highlighted module in the centre RTL
+        pane, band centred with surrounding context. The d/L trace modal owns
+        Enter while open (this binding is deliberately not priority=True)."""
+        if self._modal is not None:
+            return
+        focus = self._focus_for(self._current_node)
+        scope = self._scope_data(self._current_node)
+        if focus is None and scope is None:
+            self.bell()
+            return
+        if focus is not None:
+            self._focus = focus
+            self._follow(focus)
+        self._render_panes()  # fixture scopes have no src: re-render the inline RTL
 
     def _selection_parts(self) -> tuple[list[str], str | None]:
         """(scope chain segments, element) of the current selection.

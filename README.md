@@ -4,11 +4,12 @@
 
 A terminal RTL browser that treats a design hierarchy like a filesystem.
 Three panes: **scope tree** | **focused RTL source** | **module I/O**.
-`1`/`2`/`3` select the pane; `j`/`k` move, `l`/`h` descend/ascend, `y` yanks
-the selection through the current path format as a raw OSC 52 clipboard write,
-`Y` cycles the format (SV hierarchical / Vivado `get_pins` / yosys `select` /
-VCD dot-path), `e` jumps to the declaration in `$EDITOR` (`+line file` style,
-suspending the app).
+`1`/`2`/`3` select the pane; `j`/`k` move, `l`/`h` expand/collapse the
+highlighted scope, `enter` shows that module in the centre RTL pane, `ctrl+u`
+jumps up a hierarchy level, `y` yanks the selection through the current path
+format as a raw OSC 52 clipboard write, `Y` cycles the format (SV
+hierarchical / Vivado `get_pins` / yosys `select` / VCD dot-path), `e` jumps
+to the declaration in `$EDITOR` (`+line file` style, suspending the app).
 
 Status: **spike phase, built on textual 8.2**. The backend pair is verified
 and pinned (see *Sources of truth*): yosys `write_json` for bit-level
@@ -63,8 +64,10 @@ pane.
 |---|---|
 | `1` `2` `3` | select the tree / source / I/O pane |
 | `j` `k` | move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port |
-| `l` | tree: expand/collapse the highlighted scope (toggle) |
-| `h` | tree: move up to the parent node |
+| `l` | tree: expand the highlighted scope (reveal its children) |
+| `h` | tree: collapse the highlighted scope (hide its children) |
+| `enter` | tree: show the highlighted module in the centre RTL pane, with context |
+| `ctrl+u` | tree: jump the cursor to the next upper hierarchy level (nearest enclosing scope) |
 | `y` | yank the selection through the current path format (raw OSC 52 → the terminal's clipboard) |
 | `Y` | cycle the yank format: `sv` → `vivado` → `yosys` → `vcd` |
 | `d` `L` | trace **drivers** / **loads** of the selected net (opens the trace modal) |
@@ -79,8 +82,10 @@ In the **trace modal**: `enter` crosses a boundary into the child scope,
 ### Navigating
 
 `j`/`k` move through the tree; selecting a scope expands it (its children
-become visible; deeper scopes, ports and nets appear as descendants). The
-center pane follows the selection and shows the **real RTL file** at the
+become visible; deeper scopes, ports and nets appear as descendants). `l`
+re-expands a scope, `h` collapses it, `ctrl+u` jumps the cursor to the next
+upper level (even from a port/net leaf) and `enter` puts the highlighted
+module into the centre. The center pane shows the **real RTL file** at the
 module's *instantiation in its parent* (or its declaration at the top), with
 the focused range highlighted and kept in view — `e` opens the editor at
 exactly that line.
