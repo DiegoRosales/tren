@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A newer push to the same branch makes the in-flight run obsolete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # The flake is the single source of truth for the toolchain: the Python
+      # 3.14 + textual env, yosys, sv-lang and verilator all come from
+      # nix develop, so there is no separate setup step per tool.
+      #
+      # No binary-cache action. magic-nix-cache-action was retired and now
+      # demands FlakeHub registration; cachix/flakehub want an account and a
+      # secret. Nothing here would use it anyway: nothing in this devShell is
+      # built from source -- python/textual/yosys/slang are prebuilt binaries
+      # fetched from cache.nixos.org, which nix-installer-action already
+      # configures. Only add a cache if the flake starts compiling itself.
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      # Pure-logic unit tests (bit map, IR round-trip, manifest/cache,
+      # elaborate parsers). The test files self-insert src/ into sys.path, so
+      # no PYTHONPATH export is needed (and replacing PYTHONPATH would break
+      # textual, which rides the dev shell's own path -- see AGENTS.md).
+      - name: Unit tests
+        run: nix develop .#default -c python -m unittest discover -s tests
+
+      # Headless Pilot drive on the hand-written fixture: 3-pane navigation,
+      # source spans, pane selection, yank.
+      - name: UI drive (fixture)
+        run: nix develop .#default -c python test_drive.py
+
+      # The real gate: elaborates rtl/demo.sv through slang-hier + yosys +
+      # slang --ast-json and drives the IR -- real-file source focus with
+      # auto-follow, d/L trace with hierarchy crossing, black boxes and user
+      # cuts. Possible on a stock runner because the RTL is tracked in git.
+      - name: UI drive (real IR)
+        run: nix develop .#default -c python test_drive.py --manifest rtl/demo.manifest.json
