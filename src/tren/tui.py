@@ -407,6 +407,8 @@ class TrenApp(App[None]):
             self._focus = focus
             if focus is not None:
                 self._follow(focus)
+            else:
+                self.src_offset = 0  # inline RTL view starts at the top
         self._source_widget.update(self._render_source(focus, scope))
         # right: I/O list with selection
         ports = RichText()
@@ -667,17 +669,32 @@ class TrenApp(App[None]):
         self._render_panes()
 
     def action_go_up_level(self) -> None:
-        """ctrl+u: jump to the next upper hierarchy level.
+        """ctrl+u: step up one *granularity* level, current scope first.
 
-        Selects the nearest strict *module* ancestor of the current scope:
-        from top.u_core.g[0].u_alu_g (a generate child) it lands on
-        top.u_core; from a port/net leaf, on that scope's parent; from a
-        top-level scope it stays put (no wrap). Flattened fixture scopes
-        (module-keyed, no hierarchical parents) are a no-op.
+        1. From a port/net leaf (or an instance's context), jumps to the
+           scope it belongs to — the current hierarchy's own definition —
+           NOT past it to the parent.
+        2. From a scope row, selects the nearest strict *module* ancestor
+           (a generate block is transparent): g[0].u_alu_g -> top.u_core.
+        From a top-level scope it stays put (no wrap). Flattened fixture
+        scopes (module-keyed) jump to the module's own node.
         """
         scope = self._scope_data(self._current_node)
         if scope is None:
             self.bell()
+            return
+        cur = self._current_node
+        at_scope = (
+            cur is not None
+            and cur.data is not None
+            and cur.data.get("kind") == "scope"
+            and cur.data.get("scope") is scope
+        )
+        if not at_scope:
+            # promoted from a leaf/instance: select the current hierarchy
+            node = self._find_scope_node(scope.name)
+            if node is not None:
+                self._select(self._visible().index(node))
             return
         parts = scope.name.split(".")
         for i in range(len(parts) - 1, 0, -1):

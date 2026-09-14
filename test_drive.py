@@ -75,13 +75,14 @@ async def drive_fixture() -> None:
         assert app.yanked, "yank recorded nothing"
         print("yanked:", app.yanked[-1])
 
-        # ctrl+u on the flattened fixture (module-keyed scopes) stays put
+        # ctrl+u from a port promotes to the current hierarchy's module node
         await pilot.press("ctrl+u")
-        assert "port" in app._current_node.label.plain, f"fixture ctrl+u should be a no-op: {app._current_node}"
+        assert "core/" in app._current_node.label.plain, \
+            f"fixture ctrl+u should select the module: {app._current_node}"
 
-        # enter shows the highlighted module in the centre (fixture: inline RTL)
+        # enter shows the highlighted module in the centre (cursor: core scope)
         await pilot.press("enter")
-        assert "core #(32) u_core(" in str(source.content), "enter did not show core RTL"
+        assert "core" in str(source.content).lower(), "enter did not show core RTL"
 
         # pane selection: 2 routes j to source scroll, 3 to ports selection
         await pilot.press("2")
@@ -259,10 +260,14 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("ctrl+u")
         assert "u_core" in app._current_node.label.plain, f"after ctrl+u: {app._current_node}"
 
-        # from a port/net leaf, ctrl+u lands on that scope's parent
+        # from a port/net leaf, ctrl+u lands on ITS scope (current hierarchy)
         app._select_path("top.u_core", "x")
         await pilot.press("ctrl+u")
-        assert "top/" in app._current_node.label.plain, f"leaf ctrl+u: {app._current_node}"
+        assert "u_core" in app._current_node.label.plain, f"leaf ctrl+u: {app._current_node}"
+
+        # pressing it again (now on the u_core module row) steps up to top
+        await pilot.press("ctrl+u")
+        assert "top/" in app._current_node.label.plain, f"second ctrl+u: {app._current_node}"
 
         # from a top-level scope it stays put (no wrap)
         await pilot.press("ctrl+u")

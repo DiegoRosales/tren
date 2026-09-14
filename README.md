@@ -67,7 +67,7 @@ pane.
 | `l` | tree: expand the highlighted scope (reveal its children) |
 | `h` | tree: collapse the highlighted scope (hide its children) |
 | `enter` | tree: show the highlighted module in the centre RTL pane, with context |
-| `ctrl+u` | tree: jump the cursor to the next upper hierarchy level (nearest enclosing scope) |
+| `ctrl+u` | tree: step up one level, current scope first — a port/net leaf jumps to its own module, a module row to its parent |
 | `y` | yank the selection through the current path format (raw OSC 52 → the terminal's clipboard) |
 | `Y` | cycle the yank format: `sv` → `vivado` → `yosys` → `vcd` |
 | `d` `L` | trace **drivers** / **loads** of the selected net (opens the trace modal) |
@@ -83,12 +83,13 @@ In the **trace modal**: `enter` crosses a boundary into the child scope,
 
 `j`/`k` move through the tree **without unfolding** anything — only `l`
 expands the highlighted scope to reveal its children (file-manager model),
-and `h` collapses it again. `ctrl+u` jumps the cursor to the next upper
-level (even from a port/net leaf) and `enter` puts the highlighted module
-into the centre. The center pane shows the **real RTL file** at the module's
-*instantiation in its parent* (or its declaration at the top), with the
-focused range highlighted and kept in view — `e` opens the editor at exactly
-that line.
+and `h` collapses it again. `ctrl+u` steps up one granularity level, current
+scope first: from a port/net leaf it jumps to that module's row (not past it
+to the parent); pressed again it moves up to the parent module. `enter` puts
+the highlighted module into the centre. The center pane shows the **real RTL
+file** at the module's *instantiation in its parent* (or its declaration at
+the top), with the focused range highlighted and kept in view — `e` opens
+the editor at exactly that line.
 
 ### Yanking paths
 
