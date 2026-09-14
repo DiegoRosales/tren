@@ -38,6 +38,17 @@
 
               jq
               ripgrep
+
+              # tren CLI entry point (python -m tren; PYTHONPATH resolves to
+              # the repo's src/ from the invocation directory, overridable)
+              (pkgs.writeShellScriptBin "tren" (
+                ''
+                  set -eu
+                  SRC="''${TREN_SRC:-$PWD/src}"
+                  export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
+                  exec ${pkgs.python3}/bin/python -m tren "$@"
+                ''
+              ))
             ];
 
           shellHook = ''

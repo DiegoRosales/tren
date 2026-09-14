@@ -17,6 +17,8 @@ revisited when a real 100k-instance IR shows the ceiling matters.
 
 ```sh
 nix develop .                                # python + textual + yosys + slang
+nix develop . -c tren import rtl             # -> rtl/manifest.json (first importer: .f filelist / dir scan)
+nix develop . -c tren elaborate rtl/manifest.json      # elaborate a manifest (yosys + slang-hier + slang -> IR)
 nix develop . -c bash -c "PYTHONPATH=src python -m tren.spike"                    # spike: drivers/loads of one net
 nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"     # unit tests
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
@@ -37,9 +39,10 @@ the concatenation collapses to pure net aliasing, so `o` shows no driver
 src/tren/            package
   ir.py              widget-agnostic IR (scopes, nets, params, bit map)
   elaborate.py       yosys + slang-hier/slang --ast-json -> IR (+ cache)
-  importers/         manifest producers (plain .f, verilator obj_dir, vivado…)
+  importer.py        manifest producer (plain .f filelist; dir/single-file shortcut)
   formats.py         yank format registry + templates
   tui.py             the textual app (implements the screen + keys only)
+  __main__.py        subcommand front door (tren import / tren elaborate)
 rtl/                 small SystemVerilog fixture for tests
 tests/               PILOT_WORKDIR for textual Pilot tests + unit tests
 manifest.json        hand-checkable design manifest (sources/incdirs/top/…)
