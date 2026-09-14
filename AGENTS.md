@@ -56,6 +56,14 @@ Always run under the dev shell: `nix develop . -c <command>` — never bare
 8.2.8 and provides yosys, sv-lang, rust, jq, rg. Version pins are recorded in
 `README.md`; bump them deliberately and re-verify the tests.
 
+For anything touching Xilinx tooling (Vivado / Vitis HLS) use the `#xilinx`
+FHS sandbox — the tools need a conventional `/usr/lib` that NixOS lacks:
+`nix develop .#xilinx -c <cmd>` (x86_64-linux only). The HLS example
+build flow lives in the `Makefile` (mirrors ipyfuse): `make setup_xilinx`
+writes `.xilinx_env` from `$XILINX_VITIS`, `make <block>_HLS` re-synthesises
+one block under `test/hls_examples/hls/`. First `nix develop .#xilinx` has a
+long one-time build (systemd/gcc from source for the pinned nixpkgs rev).
+
 ## 4. Working conventions
 
 - **Verify against the installed tool; never assert flags/formats from

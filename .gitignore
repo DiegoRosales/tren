@@ -7,3 +7,8 @@ __pycache__/
 .DS_Store
 .cache/
 /out/
+
+# Vitis HLS build flow (Makefile): machine-specific Xilinx install path and
+# the per-block synthesis workspace (rtl_output/ snapshots ARE committed)
+.xilinx_env
+/test/hls_examples/hls/*/*/solution_1

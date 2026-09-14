@@ -28,6 +28,7 @@ nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"  
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
 nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR, card 215)
+nix develop .#xilinx -c make fft_wrapper_HLS      # rebuild one Vitis HLS example (needs Xilinx install + setup_xilinx)
 nix develop . -c textual run src.tren.tui    # the TUI (once it exists)
 ```
 
@@ -54,6 +55,27 @@ Manifest producers — bootstrap, not a dependency (`tren import`).
   additionally needs Vivado's `vivado_interfaces.svh` interface library for
   the block-level `bd_0_sv.sv`, which the workspace does not ship — pass
   `--top fft_wrapper` (or add the lib dir) to elaborate the HLS core.
+
+## Vitis HLS examples and the #xilinx sandbox
+
+`test/hls_examples/` mirrors ipyfuse's structure: `cpp/` (the C/C++ sources),
+`dat/` (golden/input data), and `hls/<block>/{config.tcl,directives.tcl,
+rtl_output/}` plus a shared `hls/run_hls.tcl`. Each `rtl_output/` is a
+committed snapshot of the exported `impl/verilog` (RTL + `component.xml`),
+so it works without a Xilinx install:
+
+    nix develop . -c tren import test/hls_examples/hls/fft_wrapper/rtl_output --top fft_wrapper
+
+Regenerating an example needs a Vitis/HLS install. Xilinx binaries expect a
+conventional `/usr/lib` layout that NixOS lacks, so the flake ships a
+`#xilinx` FHS sandbox (ported from ipyfuse) for x86_64-linux:
+
+    nix develop .#xilinx -c make setup_xilinx     # XILINX_VITIS=/path/to/Vitis ./settings64.sh path -> .xilinx_env
+    nix develop .#xilinx -c make fft_wrapper_HLS  # vitis_hls -f run_hls.tcl fft_wrapper; regenerates rtl_output/
+    nix develop .#xilinx -c make hls_examples     # rebuild every block
+
+`.xilinx_env` and the per-block `solution_1/` synthesis workspace are
+gitignored; `rtl_output/` snapshots are committed.
 
 ## Layout
 
