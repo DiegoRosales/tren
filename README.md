@@ -1,5 +1,7 @@
 # TREN — TUI RTL Explorer & Navigator
 
+[![CI](https://github.com/DiegoRosales/tren/actions/workflows/ci.yml/badge.svg)](https://github.com/DiegoRosales/tren/actions/workflows/ci.yml)
+
 A terminal RTL browser that treats a design hierarchy like a filesystem.
 Three panes: **scope tree** | **focused RTL source** | **module I/O**.
 `1`/`2`/`3` select the pane; `j`/`k` move, `l`/`h` descend/ascend, `y` yanks
