@@ -59,6 +59,34 @@ quits.
 The pane `1`/`2`/`3` selected — the one `j`/`k`/`y` act on — is lifted out of
 the background; the other two stay dark. Exactly one pane is ever lit.
 
+The first run elaborates (yosys + slang) and caches the IR under
+`.cache/tren/`; later runs start instantly. The cache is keyed on the
+manifest, the sources' mtimes **and** the shape of the IR itself — so editing
+RTL *or* upgrading to a tren whose IR carries new fields re-elaborates once,
+instead of serving a blob that predates them.
+
+### The I/O pane
+
+Parameters first, then the ports:
+
+```
+✎ W = 32'd32  [default 8]
+· OP = 4'b11  [default 3]
+▸ a  logic [31:0]  in[32]
+  b  logic [31:0]  in[32]
+```
+
+A parameter shows the value **resolved for this instance** with its declared
+default beside it: `✎` marks one the instantiation overrides, `·` one that
+takes the default (a `localparam` can never be overridden). A port shows its
+type as written in the source — `logic [31:0]`, from slang — then direction
+and bit width.
+
+Types, defaults and declaration lines come from the slang overlay; widths and
+connectivity come from yosys. A port belonging to a module the slang pass
+never reached still shows the netlist's direction and width, just without a
+type.
+
 ### Keys
 
 All bindings work from any pane unless noted; `x` below means the active
@@ -217,7 +245,9 @@ manifest.json        hand-checkable design manifest (sources/incdirs/top/…)
 - **Screen**: tree | source (focused on the module's instantiation in its
   parent) | I/O; keys as above; OSC 52 yank.
 - **Scale**: lazy scope population on expand; never materialize the whole
-  graph; IR cache keyed by manifest + source mtimes.
+  graph; IR cache keyed by manifest + source mtimes **and the IR's own shape**
+  (`ir.schema_id()`), so a tren whose IR has changed rebuilds instead of
+  serving a blob that predates the new fields.
 
 ## Sources of truth
 

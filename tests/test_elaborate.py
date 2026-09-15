@@ -287,6 +287,31 @@ class DemoAcceptanceTests(unittest.TestCase):
             second = elaborate(self.manifest, REPO, cache=cache)
         self.assertEqual(first, second)
 
+    def test_overlay_survives_the_cache(self) -> None:
+        """Card 219 end-to-end: the overlay is only delivered if it survives
+        a cache hit. It did not — blobs written before `Port.type` existed kept
+        hitting, so the I/O pane showed no types on any warm cache."""
+        with tempfile.TemporaryDirectory(prefix="tren-elab-overlay-") as td:
+            cache = IrCache(Path(td) / "cache", root=REPO)
+            elaborate(self.manifest, REPO, cache=cache)
+            cached = elaborate(self.manifest, REPO, cache=cache)
+
+        top = cached.scope("top")
+        assert top is not None
+        self.assertEqual(
+            [(p.name, p.direction, p.type) for p in top.ports],
+            [
+                ("hi", "in", "logic [31:0]"),
+                ("lo", "in", "logic [31:0]"),
+                ("out", "out", "logic [31:0]"),
+            ],
+        )
+        core = cached.scope("top.u_core")
+        assert core is not None
+        w = {p.name: p for p in core.params}["W"]
+        self.assertEqual((w.value, w.default, w.kind), ("32'd32", "8", "parameter"))
+        self.assertTrue(w.overridden)
+
     def test_scopes_are_connected(self) -> None:
         design = elaborate(self.manifest, REPO, cache=None)
         by_scope = {c.scope: c for c in design.connectivity}

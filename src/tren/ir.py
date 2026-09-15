@@ -13,6 +13,7 @@ Design rules (from AGENTS.md):
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from pathlib import Path
@@ -152,6 +153,69 @@ class Design:
     @classmethod
     def read(cls, path: str | Path) -> Design:
         return cls.from_json(Path(path).read_text())
+
+
+# --------------------------------------------------------------------------
+# Schema identity (what makes a cached blob stale)
+# --------------------------------------------------------------------------
+
+SCHEMA_VERSION = 1
+"""Bump by hand when the *meaning* of an unchanged field changes.
+
+The structural fingerprint below catches added/renamed/retyped fields on its
+own. It cannot see a change in what a field already spelled the same way now
+holds — e.g. `Port.type` switching from 'logic [31:0]' to a canonical form.
+Those need a bump here.
+"""
+
+
+def _dataclasses_in(annotation: Any) -> list[type]:
+    """Dataclasses reachable from an annotation (`tuple[Scope, ...]` -> Scope)."""
+    if is_dataclass(annotation):
+        return [annotation]
+    found: list[type] = []
+    for arg in get_args(annotation):
+        found.extend(_dataclasses_in(arg))
+    return found
+
+
+def schema_id() -> str:
+    """Fingerprint of the IR's on-disk shape, for the cache key.
+
+    A cached blob is only reusable by the code that wrote it. Keying the cache
+    on the *inputs* alone (manifest + source mtimes) is not enough: grow the IR
+    a field and every blob in the wild keeps hitting, answering the new field
+    with None forever. That is not hypothetical — `Port.type` (the slang
+    overlay, card 219) landed exactly that way, and this repo's own
+    `.cache/tren` was still serving `type=None` for every port, so the I/O pane
+    showed no types on any machine with a warm cache.
+
+    Derived from the dataclass graph rooted at `Design` — every field name with
+    its annotation as written — so the common case (a new field) invalidates
+    itself with nothing to remember. `SCHEMA_VERSION` covers the rest.
+    """
+    return _fingerprint(Design)
+
+
+def _fingerprint(root: type) -> str:
+    """sha256 over a dataclass graph's field layout, depth-first from `root`."""
+    parts = [f"v{SCHEMA_VERSION}"]
+    seen: set[type] = set()
+
+    def visit(cls: type) -> None:
+        if cls in seen:
+            return
+        seen.add(cls)
+        hints = get_type_hints(cls)
+        for f in fields(cls):
+            # `from __future__ import annotations` keeps f.type as the source
+            # spelling; traversal uses the resolved hint.
+            parts.append(f"{cls.__name__}.{f.name}:{f.type}")
+            for nested in _dataclasses_in(hints[f.name]):
+                visit(nested)
+
+    visit(root)
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
 
 
 # --------------------------------------------------------------------------

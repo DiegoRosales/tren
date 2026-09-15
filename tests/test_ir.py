@@ -10,11 +10,14 @@ import shutil
 import sys
 import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tren.cache import IrCache, cache_key  # noqa: E402
+from tren import ir  # noqa: E402
+from tren.cache import IrCache, cache_key, inputs_key  # noqa: E402
 from tren.ir import (  # noqa: E402
     BitLink,
     BoundaryLink,
@@ -22,6 +25,7 @@ from tren.ir import (  # noqa: E402
     Endpoint,
     NetConnectivity,
     design_from_fixture,
+    schema_id,
 )
 from tren.manifest import Manifest  # noqa: E402
 
@@ -130,6 +134,111 @@ class CacheTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json")
         self.assertIsNone(self.cache.get(self.manifest))
+
+
+# Stand-ins for "the IR before and after a field lands", one nested level deep
+# so the fingerprint has to walk the graph to tell them apart. Module-level
+# because get_type_hints resolves annotations against module globals.
+@dataclass(frozen=True)
+class _Leaf:
+    name: str
+
+
+@dataclass(frozen=True)
+class _LeafPlus:
+    name: str
+    type: str | None = None  # the shape of the Port.type change
+
+
+@dataclass(frozen=True)
+class _Before:
+    leaves: tuple[_Leaf, ...] = ()
+
+
+@dataclass(frozen=True)
+class _After:
+    leaves: tuple[_LeafPlus, ...] = ()
+
+
+class SchemaInvalidationTests(unittest.TestCase):
+    """Card 219: a blob is only reusable by the code that wrote it.
+
+    `Port.type` reached the IR while caches in the wild kept answering
+    `type=None`, because the key knew the inputs but not the IR's own shape.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="tren-schema-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        (self.tmp / "rtl").mkdir()
+        (self.tmp / "rtl" / "demo.sv").write_text("module top; endmodule\n")
+        self.manifest = Manifest(name="demo", sources=("rtl/demo.sv",), top="top")
+        self.cache = IrCache(self.tmp / "cache", root=self.tmp)
+
+    # ---- the fingerprint itself -----------------------------------------
+
+    def test_a_new_field_changes_the_fingerprint(self) -> None:
+        self.assertNotEqual(ir._fingerprint(_Before), ir._fingerprint(_After))
+
+    def test_fingerprint_is_stable_and_reaches_nested_dataclasses(self) -> None:
+        self.assertEqual(schema_id(), schema_id())
+        # Port is only reachable through Design -> Scope -> Port; a change
+        # that deep must still be seen.
+        parts_seen = []
+        real = ir.fields
+
+        def spy(cls):  # noqa: ANN001 - test double
+            parts_seen.append(cls.__name__)
+            return real(cls)
+
+        with mock.patch.object(ir, "fields", spy):
+            schema_id()
+        self.assertIn("Port", parts_seen)
+
+    def test_manual_version_bump_invalidates(self) -> None:
+        """The escape hatch for changes the field layout cannot see."""
+        before = schema_id()
+        with mock.patch.object(ir, "SCHEMA_VERSION", ir.SCHEMA_VERSION + 1):
+            self.assertNotEqual(before, schema_id())
+
+    # ---- what that buys the cache ---------------------------------------
+
+    def test_blob_from_another_schema_is_a_miss(self) -> None:
+        self.cache.put(self.manifest, Design(top="top", created_by="old tren"))
+        self.assertIsNotNone(self.cache.get(self.manifest))
+        with mock.patch.object(ir, "SCHEMA_VERSION", ir.SCHEMA_VERSION + 1):
+            self.assertIsNone(
+                self.cache.get(self.manifest),
+                "a blob written by another IR must not be served",
+            )
+
+    def test_legacy_unsuffixed_blob_is_a_miss(self) -> None:
+        """Blobs predating the schema suffix are named `<inputs>.json`."""
+        legacy = self.cache.directory / f"{inputs_key(self.manifest, self.tmp)}.json"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        Design(top="top", created_by="pre-schema tren").write(legacy)
+        self.assertIsNone(self.cache.get(self.manifest))
+
+    def test_put_sweeps_superseded_blobs(self) -> None:
+        legacy = self.cache.directory / f"{inputs_key(self.manifest, self.tmp)}.json"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        Design(top="top", created_by="pre-schema tren").write(legacy)
+
+        current = self.cache.put(self.manifest, Design(top="top", created_by="now"))
+        self.assertTrue(current.exists())
+        self.assertFalse(legacy.exists(), "dead blobs must not accumulate per schema")
+
+    def test_sweep_leaves_other_manifests_alone(self) -> None:
+        (self.tmp / "rtl" / "other.sv").write_text("module other; endmodule\n")
+        other = Manifest(name="other", sources=("rtl/other.sv",), top="other")
+        kept = self.cache.put(other, Design(top="other"))
+
+        self.cache.put(self.manifest, Design(top="top"))
+        self.assertTrue(kept.exists(), "a sweep must not evict unrelated manifests")
+
+    def test_key_splits_into_inputs_and_schema(self) -> None:
+        key = cache_key(self.manifest, self.tmp)
+        self.assertEqual(key, f"{inputs_key(self.manifest, self.tmp)}-{schema_id()}")
 
 
 if __name__ == "__main__":

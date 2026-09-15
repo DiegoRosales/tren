@@ -349,15 +349,24 @@ def _is_blackbox(mod: dict) -> bool:
 
 
 def _ports_for(mod: dict, decl: dict[str, Any] | None) -> tuple[Port, ...]:
+    """Ports of one module: yosys for the bits, slang's declaration for the rest.
+
+    Direction comes from slang where it has an opinion (card 219 — the overlay
+    is the source-faithful layer, yosys is connectivity), falling back to the
+    netlist for modules the AST walk never reached. They agree on the demo;
+    the declaration is simply the one that stays right when they don't.
+
+    Width stays yosys's bit count: it is what the connectivity map indexes.
+    """
     ports: list[Port] = []
     decl_ports = (decl or {}).get("ports") or {}
     for name, p in (mod.get("ports") or {}).items():
-        direction = {
+        decl_port = decl_ports.get(name) or {}
+        direction = decl_port.get("direction") or {
             "input": "in",
             "output": "out",
             "inout": "inout",
         }.get(p.get("direction"), "in")
-        decl_port = decl_ports.get(name) or {}
         ports.append(
             Port(
                 name=name,

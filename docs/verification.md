@@ -153,7 +153,7 @@ constant/x-bit quirk now pinned by unit tests.
 | Layer | Cannot catch | Guarded by |
 |---|---|---|
 | 1 | tool-version drift; global refactors; real rendering | layers 2–4; search |
-| 2 | any TUI concern | layers 3–4 |
+| 2 | any TUI concern; **state written by an older tren** — every cache test builds its cache in a fresh `TemporaryDirectory`, so a blob from *previous code* was unreachable by construction | `ir.schema_id()` makes the IR shape part of the key; `SchemaInvalidationTests` writes blobs from "another schema" on purpose |
 | 3 | *rendered* terminal output; OSC semantics; autofocus/Enter routing to the real widget tree | SVG export is post-hoc; layer 4 exists for this |
 | 4 | scale; determinism across re-runs | layers 2, 5 |
 | 5 | correctness (numbers only) | layers 1–4 |
@@ -177,6 +177,12 @@ ceremony:
 - **layer 2**: slang 11 erroring on a single `.f`-style construct it
   rejects, and (as a negative result) not exposing parameter defaults, which
   drove the source-text `_decl_default` extraction.
+- **no layer at all**: the slang overlay reached the IR and was asserted at
+  layers 2 and 3, while the repo's own `.cache/tren` still answered every port
+  with `type=None` — a blob written before `Port.type` existed, kept alive by
+  a key that knew the inputs but not the IR. Found by reading the cache on
+  disk, not by a gate. Every layer tested the *code*; nothing tested what was
+  already on the machine.
 - **layer 1**: the yosys constant/`x`-bit token that only a real 140-scope
   HLS workload could produce.
 - **layer 6**: HLS-generated `.v` include-files (`.vh`) and `ipshared`
@@ -187,6 +193,7 @@ ceremony:
 | Change | To do | Gate |
 |---|---|---|
 | pure logic / IR | unit test | `make test` |
+| a new IR field | nothing to remember — `ir.schema_id()` invalidates caches from its layout. Changing what an *existing* field means is the exception: bump `ir.SCHEMA_VERSION` | `make test` |
 | binding / navigation / pane | update Pilot drives, user guide, AGENTS gotchas | `make check` + `make roundtrip` (tree/OSC) |
 | pane styling / anything the Tree renders | assert the style in the drives **and** capture a real terminal | `make check` + `make pane-cue` |
 | elaborator / CLI / importers | extend acceptance, re-run on demo + an HLS block | `make check` + `make hls-elaborate BLOCK=…` |
