@@ -95,6 +95,15 @@ file** at the module's *instantiation in its parent* (or its declaration at
 the top), with the focused range highlighted and kept in view — `e` opens
 the editor at exactly that line.
 
+Selecting a **port** or **net** leaf focuses that signal's own *declaration*
+line rather than the enclosing module — `port a` under `top/u_core` lands on
+`input logic [W-1:0] a,`, `net x` on `logic [W-1:0] x, y, rd, r0;`. A leaf
+whose backend carried no `src` falls back to the module-level focus, and a
+`src` naming a file that is not on disk (fixtures, moved sources) falls back
+to the inline RTL snippet. The focus band follows the selection; scrolling
+with `j`/`k` inside one scope is left alone, and only a new focus re-centres
+the pane.
+
 ### Yanking paths
 
 `y` writes the path of the current selection to the clipboard as a raw OSC 52

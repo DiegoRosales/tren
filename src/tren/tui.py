@@ -56,12 +56,26 @@ def _scope_parent(path: str) -> str | None:
 
 
 def _parse_src(src: str | None) -> tuple[str, int, int] | None:
-    """'rtl/demo.sv:77.14-77.65' -> ('rtl/demo.sv', 77, 77)."""
+    """'<file>:<span>' -> (file, first_line, last_line).
+
+    The two backends spell spans differently and both reach the IR:
+      yosys attributes  'rtl/demo.sv:77.14-77.65'  line.col[-line.col]
+      slang --ast-json  'rtl/demo.sv:46:25'        line:col
+    Read naively, the slang form yields the *column* as the line and leaves
+    the line glued to the file name, so ports (and generate scopes, whose
+    src also comes from slang) focused a bogus file at a bogus line.
+    """
     if not src:
         return None
     file, _, rest = src.rpartition(":")
     if not file:
         return None
+    if rest.isdigit():
+        # trailing field is a bare integer: either slang's 'file:line:col'
+        # (then what precedes it ends in ':line') or a plain 'file:line'
+        head, _, line = file.rpartition(":")
+        if head and line.isdigit():
+            return head, int(line), int(line)
     m = re.match(r"(\d+)(?:\.\d+)?(?:-(\d+)(?:\.\d+)?)?$", rest)
     if m is None:
         return None
@@ -174,6 +188,8 @@ class TrenApp(App[None]):
         self.pane_ports: list[Port] = []
         self._scopes = {s.name: s for s in design.scopes}
         self._focus: tuple[str, int, int] | None = None
+        # (focus, scope name) the source pane is currently scrolled for
+        self._render_target: tuple[tuple[str, int, int] | None, str | None] | None = None
         self._file_cache: dict[str, list[str]] = {}
         self.editor_target: str | None = None
         # trace stack (scope_path, net_name); d/L populates it; ; dumps
@@ -328,6 +344,11 @@ class TrenApp(App[None]):
     def _focus_for(self, node: Tree.Node | None) -> tuple[str, int, int] | None:
         """Source focus of a node: the module's instantiation in its parent.
 
+        A port or net leaf focuses its own *declaration* (cards 242/243):
+        Port.src comes from slang --ast-json, Net.src from the yosys netname
+        attributes. Either may be missing (black boxes, synthesised nets), in
+        which case the walk continues up and the module-level focus stands.
+
         An instance node carries its own src (the instantiation site). A
         sub-scope node focuses its instantiation in the parent (the parent's
         instance of it); a root scope focuses its module declaration.
@@ -335,6 +356,11 @@ class TrenApp(App[None]):
         node = node or self._current_node
         while node is not None and node.data is not None:
             data = node.data
+            kind = data.get("kind")
+            if kind in ("port", "net"):
+                declaration = _parse_src(data[kind].src)
+                if declaration is not None:
+                    return declaration
             if data.get("kind") == "instance":
                 return _parse_src(data["instance"].src)
             if data.get("kind") == "scope":
@@ -390,18 +416,24 @@ class TrenApp(App[None]):
         if focus is not None:
             file, lo, hi = focus
             lines = self._file_lines(file)
-            if not lines:
+            if lines:
+                src.append(f"· {file}  lines {lo}-{hi}\n", style="dim")
+                view = lines[self.src_offset :]
+                if self.src_offset:
+                    src.append("…… (↑ scroll to see earlier lines)\n", style="dim italic")
+                for i, line in enumerate(view):
+                    abs_i = self.src_offset + i + 1
+                    style = "bold #ffa62b" if lo <= abs_i <= hi else "dim white"
+                    src.append(f"{line}\n", style=style)
+                return src
+            if scope is None or not scope.rtl:
                 src.append(f"(cannot read {file})\n", style="dim italic")
                 return src
-            src.append(f"· {file}  lines {lo}-{hi}\n", style="dim")
-            view = lines[self.src_offset :]
-            if self.src_offset:
-                src.append("…… (↑ scroll to see earlier lines)\n", style="dim italic")
-            for i, line in enumerate(view):
-                abs_i = self.src_offset + i + 1
-                style = "bold #ffa62b" if lo <= abs_i <= hi else "dim white"
-                src.append(f"{line}\n", style=style)
-        elif scope is not None:
+            # the file is gone but the scope carries an inline snippet: prefer
+            # showing RTL over an error. Reachable since port/net leaves began
+            # resolving their own src (cards 242/243) — fixture nets carry a
+            # src pointing at a file that need not be checked out.
+        if scope is not None:
             # fixture fallback: inline rtl snippet with the rtl_focus band
             rtl = scope.rtl
             lo, hi = scope.rtl_focus
@@ -417,7 +449,15 @@ class TrenApp(App[None]):
     def _render_panes(self) -> None:
         scope = self._scope_data(self._current_node)
         focus = self._focus_for(self._current_node)
-        if focus != self._focus:
+        # What the centre pane is showing: a file span, or (fixture IR) the
+        # scope's inline snippet. Scroll position belongs to *that* target, so
+        # compare both — focus alone stays None across a move between two
+        # src-less scopes and used to carry the previous scope's scroll offset
+        # into an unrelated snippet. Within one target (j in the source pane)
+        # nothing is reset.
+        target = (focus, scope.name if scope is not None else None)
+        if target != self._render_target:
+            self._render_target = target
             self._focus = focus
             if focus is not None:
                 self._follow(focus)

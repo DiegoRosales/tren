@@ -13,6 +13,7 @@ line. Both modes regenerate out/shot.svg.
 
 import argparse
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
@@ -123,9 +124,65 @@ async def drive_fixture() -> None:
         assert not tree.has_focus, "the tree must not hold focus"
         await pilot.press("1")
 
+        # cards 242/243, the no-src fallback: fixture ports carry no src, so a
+        # port leaf resolves no declaration of its own and the enclosing
+        # scope's inline RTL keeps the pane (no error, no jump).
+        scrolled = app.src_offset  # the source pane was scrolled by `j` above
+        select_leaf(app, "core", "port", "a")
+        assert app._focus is None, f"a src-less port must not resolve a focus: {app._focus}"
+        text = str(source.content)
+        assert "cannot read" not in text, f"src-less port hit the error path: {text[:120]!r}"
+        assert ".alu_result(out)" in text, f"inline snippet not shown: {text[:120]!r}"
+        assert app.src_offset == scrolled, "a src-less leaf must not move the view"
+
+        # ...but moving to a *different* src-less scope starts at the top: the
+        # scroll belongs to the snippet, not to the pane.
+        app._select_path("alu")
+        assert app._focus is None, f"fixture scopes carry no file src: {app._focus}"
+        assert app.src_offset == 0, f"new snippet must start at the top: {app.src_offset}"
+
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)
         (out / "shot.svg").write_text(app.export_screenshot())
+
+
+def select_leaf(app: TrenApp, scope_path: str, kind: str, name: str) -> None:
+    """Select a port/net leaf under a scope.
+
+    The app's own `_select_path` resolves nets only (it exists for the trace
+    modal's boundary crossing), so the port half of card 242 needs this.
+    """
+    scope_node = app._find_scope_node(scope_path)
+    assert scope_node is not None, f"no scope node for {scope_path}"
+    app._expand_to(scope_node)
+    app._ensure_children(scope_node)
+    for child in scope_node.children:
+        data = child.data
+        if data is not None and data.get("kind") == kind and data[kind].name == name:
+            app._expand_to(child)
+            app._select(app._visible().index(child))
+            return
+    raise AssertionError(f"no {kind} leaf {name!r} under {scope_path}")
+
+
+async def drive_unreadable_src() -> None:
+    """Cards 242/243: a leaf src naming a file that is not on disk.
+
+    Fixture nets carry `src: rtl/demo.sv:NN`, which only resolves when the
+    repo is the working root. Rooted elsewhere the file is unreadable — the
+    source pane must still show the scope's inline RTL, not '(cannot read)'.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        app = TrenApp(load_design(), root=Path(tmp))
+        async with app.run_test(size=(110, 32)) as pilot:
+            source: Static = app.query_one("#source")
+            select_leaf(app, "core", "net", "x")
+            await pilot.pause()
+            assert app._focus == ("rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
+            text = str(source.content)
+            assert "cannot read" not in text, f"no inline fallback: {text[:120]!r}"
+            assert "core #(32) u_core(" in text, f"inline snippet not shown: {text[:120]!r}"
+            assert app.src_offset == 0, f"inline view must start at the top: {app.src_offset}"
 
 
 async def drive_real(root: Path, manifest_path: Path) -> None:
@@ -182,6 +239,37 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("enter")
         rows = app._source_widget.size.height or 30
         assert app.src_offset <= 77 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
+
+        # ---- cards 242/243: leaves focus their own DECLARATION -------------
+        # The two backends spell the span differently and both land here:
+        # Port.src is slang's file:line:col, Net.src the yosys file:l.c-l.c.
+        select_leaf(app, "top.u_core.u_alu0", "port", "op")
+        assert app._focus == ("rtl/demo.sv", 24, 24), f"port op focus: {app._focus}"
+        assert "input  logic [3:0]   op," in str(source.content), "op declaration not shown"
+        rows = app._source_widget.size.height or 30
+        assert app.src_offset + 1 <= 24 <= app.src_offset + rows, (
+            f"port declaration out of view: offset {app.src_offset}"
+        )
+
+        select_leaf(app, "top.u_core", "net", "x")
+        assert app._focus == ("rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
+        assert "logic [W-1:0] x, y, rd, r0;" in str(source.content), "net declaration not shown"
+        assert app.src_offset + 1 <= 50 <= app.src_offset + rows, (
+            f"net declaration out of view: offset {app.src_offset}"
+        )
+
+        # generate scopes carry a slang src too — same spelling, same trap
+        generate = app._find_scope_node("top.u_core.g[0]")
+        assert generate is not None, "no generate scope node"
+        app._expand_to(generate)
+        app._select(app._visible().index(generate))
+        assert app._focus == ("rtl/demo.sv", 58, 58), f"g[0] focus: {app._focus}"
+
+        # an output port resolves the same way (the direction plays no part)
+        select_leaf(app, "top.u_core.u_alu0", "port", "result")
+        assert app._focus == ("rtl/demo.sv", 25, 25), f"port result focus: {app._focus}"
+        # the no-src fallback is exercised in drive_fixture, where ports
+        # genuinely carry no src (every port in the real IR has one)
 
         # ---- card 213: d/L trace with hierarchy crossing ------------------
         # walk from top.out to its $xor driver and back; dump shows the path
@@ -325,6 +413,7 @@ async def main(argv: list[str] | None = None) -> None:
         await drive_real(root, args.manifest)
     else:
         await drive_fixture()
+        await drive_unreadable_src()
     print("PASS")
 
 
