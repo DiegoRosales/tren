@@ -1,10 +1,16 @@
 {
   description = "TREN — TUI RTL explorer implementation shell";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    pyproject-nix = {
+      url = "github:pyproject-nix/pyproject.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, pyproject-nix, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -38,60 +44,157 @@
       # glibc/crt injection that host-tool builds rely on. (Port from ipyfuse.)
       gccMulti14 = xilinxPkgs.wrapCCMulti xilinxPkgs.gcc14;
 
-      # TREN's Python env (textual UI), shared by both shells.
+      # TREN's Python env (textual UI), for the shells that put tren on
+      # PYTHONPATH rather than installing it.
       trenPython = pkgs: pkgs.python3.withPackages (ps: [ ps.textual ]);
+
+      # PEP 621 view of the project. Dependencies are declared once, in
+      # pyproject.toml, and consumed two ways: by buildPythonPackage below,
+      # and by pip in the venv shell. The three dev shells differ in *how*
+      # tren reaches the interpreter, never in what it depends on.
+      pyproject = pyproject-nix.lib.project.loadPyproject { projectRoot = ./.; };
+
+      # tren built as a store path, dependencies resolved the nix way.
+      trenPackage =
+        pkgs:
+        pkgs.python3.pkgs.buildPythonPackage (
+          pyproject.renderers.buildPythonPackage { python = pkgs.python3; }
+        );
+
+      # An interpreter with tren *installed*: `import tren` and the `tren` /
+      # `tren-tui` console scripts resolve into the store, exactly as they
+      # would for someone who installed the package — no PYTHONPATH, no venv,
+      # and no dependence on the directory you happen to be standing in.
+      trenEnv =
+        pkgs:
+        pkgs.python3.withPackages (
+          pyproject.renderers.withPackages {
+            python = pkgs.python3;
+            extraPackages = _ps: [ (trenPackage pkgs) ];
+          }
+        );
+
+      # Everything TREN shells out to. Shared by all three shells so they
+      # cannot drift apart on tool versions — the thing every gate assumes.
+      trenTools =
+        pkgs: with pkgs; [
+          # Elaboration backends TREN shells out to
+          yosys # write_json netlist (proc, never opt)
+          sv-lang # slang / slang-hier / slang --ast-json scope tree + params
+          verilator # optional: manifest importer test subject, -E/--json-only
+
+          # Earmarked rewrite target
+          rustc
+          cargo
+
+          jq
+          ripgrep
+          tmux # real-terminal OSC 52 round-trip (card 214 acceptance, tools/osc52_roundtrip.sh)
+        ];
+
+      # Shell banner. `where` names the shell and says how tren got here, so a
+      # stray `nix develop` in the wrong shell is visible in one line.
+      trenBanner = where: ''
+        echo
+        echo "  TREN dev shell — ${where}"
+        echo "  --------------"
+        printf '  %-10s %s\n' yosys    "$(yosys -V 2>/dev/null | head -1)"
+        printf '  %-10s %s\n' slang    "$(slang --version 2>/dev/null | head -1)"
+        printf '  %-10s %s\n' rustc    "$(rustc --version 2>/dev/null)"
+        printf '  %-10s %s\n' textual  "$(python3 -c "import textual; print('textual', textual.__version__)" 2>/dev/null || echo n/a)"
+        printf '  %-10s %s\n' tren     "$(command -v tren 2>/dev/null || echo 'n/a (python -m tren)')"
+        echo
+        echo "  Rules from AGENTS.md: yosys JSON needs proc; never opt; don't flatten;"
+        echo "  cross-scope bit matching is positional-only."
+        echo
+      '';
+
+      # `tren` for the shells that do not install the package: runs the repo's
+      # own src/ through PYTHONPATH, so edits take effect with no reinstall.
+      trenFromSource =
+        pkgs:
+        pkgs.writeShellScriptBin "tren" ''
+          set -eu
+          SRC="''${TREN_SRC:-$PWD/src}"
+          export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
+          exec ${pkgs.python3}/bin/python -m tren "$@"
+        '';
     in
     {
+      # `nix build` / `nix run .#tren` — the same store path .#tren shells in.
+      packages = forAllSystems (pkgs: rec {
+        tren = trenPackage pkgs;
+        default = tren;
+      });
+
       devShells =
         let
           base = forAllSystems (pkgs: {
+
+            # Default: the working shell. tren is *not* installed — the `tren`
+            # wrapper and every `make` target read the checkout's src/ through
+            # PYTHONPATH, so an edit is live on the next command. This is the
+            # shell all the gates in docs/verification.md assume.
+            # Usage: nix develop
             default = pkgs.mkShell {
               name = "tren";
+              packages = [
+                # UI framework (pinned: textual 8.2.8 — see README)
+                (trenPython pkgs)
+                (trenFromSource pkgs)
+              ] ++ trenTools pkgs;
+              shellHook = trenBanner "default (src/ on PYTHONPATH)";
+            };
 
-              packages =
-                with pkgs;
-                [
-                  # UI framework (pinned: textual 8.2.8 — see README)
-                  (trenPython pkgs)
+            # tren packaged the nix way: buildPythonPackage builds the whole
+            # project into the store with its declared dependencies, so
+            # `import tren` and the `tren` / `tren-tui` console scripts behave
+            # exactly as they would for a consumer of the package. Nothing
+            # here reads the checkout, which is the point — it is how you
+            # catch a module that only ever worked because src/ was on the
+            # path, or a dependency the code uses but pyproject.toml forgot.
+            # Edits need a re-entry (or `nix develop .#tren --refresh`).
+            # Usage: nix develop .#tren
+            tren = pkgs.mkShell {
+              name = "tren-pkg";
+              packages = [ (trenEnv pkgs) ] ++ trenTools pkgs;
+              shellHook = trenBanner "#tren (installed from the nix store)";
+            };
 
-                  # Elaboration backends TREN shells out to
-                  yosys # write_json netlist (proc, never opt)
-                  sv-lang # slang / slang-hier / slang --ast-json scope tree + params
-                  verilator # optional: manifest importer test subject, -E/--json-only
-
-                  # Earmarked rewrite target
-                  rustc
-                  cargo
-
-                  jq
-                  ripgrep
-                  tmux # real-terminal OSC 52 round-trip (card 214 acceptance, tools/osc52_roundtrip.sh)
-
-                  # tren CLI entry point (python -m tren; PYTHONPATH resolves to
-                  # the repo's src/ from the invocation directory, overridable)
-                  (pkgs.writeShellScriptBin "tren" (
-                    ''
-                      set -eu
-                      SRC="''${TREN_SRC:-$PWD/src}"
-                      export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
-                      exec ${pkgs.python3}/bin/python -m tren "$@"
-                    ''
-                  ))
-                ];
-
+            # The venv counterpart of .#tren. Instead of building tren and
+            # resolving its dependencies through nix, this shell creates a
+            # plain Python venv on first entry, pip-installs the project
+            # *editable* from the current directory, and activates it — the
+            # textbook Python flow, on top of nix's interpreter and backends.
+            #
+            # Enter it from the project root: the hook installs from `.` and
+            # creates `.venv/` in the working directory, so the editable
+            # install points back at your checkout and edits show up
+            # immediately. First entry needs network (pip fetches textual and
+            # rich from PyPI); later entries just activate. Reset with
+            # `rm -rf .venv/` and re-enter. `TREN_VENV_DIR` overrides `.venv`.
+            # Usage: nix develop .#tren-venv
+            tren-venv = pkgs.mkShell {
+              name = "tren-venv";
+              packages = [ pkgs.python3 ] ++ trenTools pkgs;
               shellHook = ''
-                echo
-                echo "  TREN dev shell"
-                echo "  --------------"
-                printf '  %-10s %s\n' yosys    "$(yosys -V 2>/dev/null | head -1)"
-                printf '  %-10s %s\n' slang    "$(slang --version 2>/dev/null | head -1)"
-                printf '  %-10s %s\n' rustc    "$(rustc --version 2>/dev/null)"
-                printf '  %-10s %s\n' textual  "$(python3 -c "import textual; print('textual', textual.__version__)" 2>/dev/null || echo n/a)"
-                echo
-                echo "  Rules from AGENTS.md: yosys JSON needs proc; never opt; don't flatten;"
-                echo "  cross-scope bit matching is positional-only."
-                echo
-              '';
+                if [ ! -f pyproject.toml ]; then
+                  echo "error: no pyproject.toml in $(pwd)." >&2
+                  echo "  Enter this shell from the project root, e.g.:" >&2
+                  echo "  cd /path/to/tren && nix develop .#tren-venv" >&2
+                  echo "  (the hook runs 'pip install -e .' in the current directory)" >&2
+                  exit 1
+                fi
+                export VENV_DIR="''${TREN_VENV_DIR:-.venv}"
+                if [ ! -d "$VENV_DIR" ]; then
+                  echo "Creating venv at $VENV_DIR and installing tren (-e) ..."
+                  python -m venv "$VENV_DIR"
+                  "$VENV_DIR/bin/pip" install -e .
+                fi
+                # shellcheck disable=SC1091
+                . "$VENV_DIR/bin/activate"
+              ''
+              + trenBanner "#tren-venv (editable install in .venv)";
             };
           });
         in
@@ -194,14 +297,7 @@
                     yosys
                     sv-lang
                     tmux
-                    (pkgs.writeShellScriptBin "tren" (
-                      ''
-                        set -eu
-                        SRC="''${TREN_SRC:-$PWD/src}"
-                        export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
-                        exec ${pkgs.python3}/bin/python -m tren "$@"
-                      ''
-                    ))
+                    (trenFromSource pkgs)
                   ];
                   profile = ''
                     export LD_LIBRARY_PATH=/usr/lib:/usr/lib64:$LD_LIBRARY_PATH

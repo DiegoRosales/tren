@@ -880,7 +880,12 @@ class TrenApp(App[None]):
         self._render_panes()
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> int:
+    """`python -m tren.tui` and the `tren-tui` console script.
+
+    A function rather than a bare `__main__` block so the installed package
+    can expose it as an entry point (pyproject.toml § project.scripts).
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--manifest",
@@ -893,7 +898,7 @@ if __name__ == "__main__":
         default=Path(".cache/tren"),
         help="IR cache directory (reused across runs; second start is instant)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.manifest is not None:
         root = Path.cwd()
         design = elaborate(
@@ -904,3 +909,8 @@ if __name__ == "__main__":
     else:
         design = load_design()
     TrenApp(design).run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

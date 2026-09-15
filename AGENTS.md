@@ -58,6 +58,13 @@ Always run under the dev shell: `nix develop . -c <command>` — never bare
 8.2.8 and provides yosys, sv-lang, rust, jq, rg. Version pins are recorded in
 `README.md`; bump them deliberately and re-verify the tests.
 
+The **default** shell is the one every gate assumes: tren is not installed
+there, it is read from the checkout's `src/` through `PYTHONPATH`. Run all
+tests and drives there. `.#tren` (nix-installed package) and `.#tren-venv`
+(editable `pip install -e .`) exist to exercise tren *as a package* — see
+README § Dev shells. Dependencies live in `pyproject.toml`; a new third-party
+import must be declared there, or `.#tren` is where it will break.
+
 For anything touching Xilinx tooling (Vivado / Vitis HLS) use the `#xilinx`
 FHS sandbox — the tools need a conventional `/usr/lib` that NixOS lacks:
 `nix develop .#xilinx` (x86_64-linux only) and work inside it. Note the env's

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tren"
+# Keep in step with src/tren/__init__.py:__version__.
+version = "0.0.0"
+description = "TREN — TUI RTL Explorer & Navigator"
+readme = "README.md"
+# Syntax floor, checked with python3.11 -m compileall. The project is
+# developed and gated on the 3.14 the dev shell pins (see README, Pinned
+# versions); nothing here is 3.12+ only.
+requires-python = ">=3.11"
+dependencies = [
+    # UI framework. 8.2 is the pinned spike target (README, § Pinned versions);
+    # its internals are load-bearing enough to be documented in AGENTS.md
+    # (Tree line cache, focus behaviour), so the floor is not decorative.
+    "textual>=8.2",
+    # Imported directly, not just through textual: tui.py builds rich.text.Text
+    # for the source and I/O panes.
+    "rich>=13.0",
+]
+
+[project.scripts]
+# The subcommand front door: `tren import ...` / `tren elaborate ...`.
+tren = "tren.__main__:main"
+# The three-pane explorer itself.
+tren-tui = "tren.tui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

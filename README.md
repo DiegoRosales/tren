@@ -34,6 +34,34 @@ nix develop .#xilinx                        # FHS sandbox for Xilinx tools (inte
 nix develop . -c make run                   # start the TUI (keys: see 'User guide' below)
 ```
 
+### Dev shells
+
+Four shells, all carrying the same backends (yosys, slang, verilator, rust,
+tmux) so they cannot drift apart on tool versions. They differ only in how
+`tren` itself reaches the interpreter:
+
+| Shell | tren comes from | Use it for |
+|---|---|---|
+| `nix develop` | the checkout's `src/`, via `PYTHONPATH` | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
+| `nix develop .#tren` | the nix store (`buildPythonPackage`) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
+| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | the textbook Python flow on nix's interpreter — an editable install, so edits are live too |
+| `nix develop .#xilinx` | the checkout's `src/` | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
+
+`.#tren` is the one that catches what the others hide: nothing on its path
+reads the checkout, so a module that only ever imported because `src/` was on
+`PYTHONPATH`, or a dependency the code uses but `pyproject.toml` does not
+declare, fails there and only there. It is also what `nix build .#tren`
+produces.
+
+`.#tren-venv` creates `.venv/` in the working directory on first entry and
+pip-installs the project editable from `.` — so enter it from the project
+root. First entry needs network (pip fetches `textual` and `rich` from PyPI);
+later entries just activate. `TREN_VENV_DIR` overrides the location; reset
+with `rm -rf .venv/` and re-enter.
+
+Dependencies are declared once, in `pyproject.toml`, and read by both the nix
+build (through `pyproject.nix`) and pip.
+
 The spike (`python -m tren.spike rtl/demo.sv`) runs yosys, builds the bit map
 and prints drivers/loads of `top.out`, descending across the core boundary
 down to the `$xor` that computes it — every row carries its `src` attribute.
@@ -233,6 +261,8 @@ src/tren/            package
 rtl/                 small SystemVerilog fixture for tests
 tests/               PILOT_WORKDIR for textual Pilot tests + unit tests
 manifest.json        hand-checkable design manifest (sources/incdirs/top/…)
+pyproject.toml       PEP 621 metadata + deps — read by both nix and pip
+flake.nix            dev shells (default / #tren / #tren-venv / #xilinx)
 ```
 
 ## Decisions already made (verified — do not re-derive)
