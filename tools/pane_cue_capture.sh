@@ -113,6 +113,15 @@ for pane, active in (("1", "tree"), ("2", "source"), ("3", "ports")):
             + "  ".join(f"{n}={background_at(lines[row], c)}" for n, c in COLUMNS.items())
         )
 
+# card 246: the status line (row 0) renders the selection's full path. The
+# keys pressed above leave the cursor on u_core, so row 0 must read the
+# hierarchical path, not the bare module name.
+row0 = SGR.sub("", (tmp / "pane-1.ansi").read_text().splitlines()[0])
+if "top.u_core" not in row0:
+    failures.append(f"status line row 0: {row0!r} missing top.u_core")
+else:
+    print(f"  status line row 0: {row0.strip()!r}")
+
 if failures:
     print("\nFAIL: the active-pane cue is not symmetric on a real terminal")
     for failure in failures:

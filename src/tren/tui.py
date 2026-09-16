@@ -1,5 +1,7 @@
 """tren — 3-pane textual spike, driven by the IR (tren.ir.Design).
 
+Top:     yazi-style status line with the selection's full hierarchical path
+         (appends the item name for a port/net leaf), updating live on nav.
 Left:    scope tree (filesystem-like hierarchy; generate scopes nested)
 Center:  source of the module you're sitting on — the *actual RTL file*
          loaded at the scope's src (file:line already in IR), with the
@@ -44,6 +46,8 @@ FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.
 # active-pane cue: the pane 1/2/3 acts on is lifted out of the background
 PANE_BG_ACTIVE = "#262626"
 PANE_BG_IDLE = "#121212"
+# status line background (card 246): distinctly a chrome bar, not a pane
+STATUS_BG = "#1e1e1e"
 
 
 def load_design(fixture: Path | None = None) -> Design:
@@ -90,6 +94,16 @@ class SourcePane(Static):
 
 class PortsPane(Static):
     """Right: I/O list of the current module."""
+
+
+class StatusBar(Static):
+    """Top line: the selection's full hierarchical path (yazi-style, card 246).
+
+    A plain Static is never focusable, so it cannot steal input — it is only a
+    display seam, updated by the app as the selection moves.
+    """
+
+    can_focus = False
 
 
 class TraceScreen(ModalScreen[None]):
@@ -201,6 +215,7 @@ class TrenApp(App[None]):
         self._user_cut: set[str] = set()
 
     def compose(self) -> ComposeResult:
+        yield StatusBar("", id="status")
         with Horizontal():
             # auto_expand=False: textual's expand-on-select is an *async
             # message handler that toggles* — a key burst (autorepeat /
@@ -236,6 +251,9 @@ class TrenApp(App[None]):
         self._tree_widget.auto_expand = False
         self._source_widget = self.query_one("#source")
         self._ports_widget = self.query_one("#ports")
+        self._status_widget = self.query_one("#status")
+        self._status_widget.styles.height = 1
+        self._status_widget.styles.background = STATUS_BG
         self._index = -1
         self._current_node = None
         # three columns: tree / source / ports; panes fill the viewport so
@@ -493,6 +511,7 @@ class TrenApp(App[None]):
                 header.append("✂ USER CUT\n", style="bold red")
             ports = header + ports
         self._ports_widget.update(ports)
+        self._status_widget.update(self._selection_status())
         self._render_pane_cue()
 
     def _render_pane_cue(self) -> None:
@@ -819,6 +838,59 @@ class TrenApp(App[None]):
     def _selection_scope_chain(self, node) -> list[str]:
         scope = self._scope_data(node)
         return scope.name.split(".") if scope is not None else []
+
+    def _status_chain(self, node) -> list[str]:
+        """Tree-lineage segments of a selection: [top, u_core] etc.
+
+        Unlike `_selection_parts` (the yank path, which keys off the *module*
+        scope a row stands for), the status line is the selection's full
+        *hierarchical* path — so an instance row (fixture UIs, unresolved
+        black boxes) reports its place in the tree (top.u_core), not the
+        module name (core). Real scopes are path-keyed anyway, so both agree
+        there. Ports/nets contribute nothing; their item is appended by
+        `_selection_status`.
+        """
+        chain: list[str] = []
+        n = node
+        while n is not None and n is not self._tree().root:
+            data = n.data
+            if data is not None:
+                kind = data.get("kind")
+                if kind == "scope":
+                    chain.append(data["scope"].name.split(".")[-1])
+                elif kind == "instance":
+                    chain.append(data["instance"].name)
+            n = n.parent
+        chain.reverse()
+        return chain
+
+    def _selection_status(self) -> RichText:
+        """The top status line: yazi-style full path of the selection (246).
+
+        Scope/instance rows show their hierarchical path (top.u_core.g[0].
+        u_alu_g); a port/net leaf appends the item name (…u_alu_g.result).
+        Without a selection the design top stands in.
+        """
+        node = getattr(self, "_current_node", None)
+        element = None
+        if node is not None and node.data is not None:
+            kind = node.data.get("kind")
+            if kind in ("port", "net"):
+                element = node.data[kind].name
+        chain = self._status_chain(node)
+        if not chain:
+            chain = [self.design.top]
+        text = RichText()
+        for i, seg in enumerate(chain):
+            if i:
+                text.append(".", style="dim")
+            last = i == len(chain) - 1
+            # the terminal segment is the thing being *looked at*; brighten it
+            # only when it is the whole selection (no item appended below)
+            text.append(seg, style="bold #ffffff" if last and element is None else "#c9c9c9")
+        if element is not None:
+            text.append(f".{element}", style="bold #ffa62b")
+        return text
 
     def _write_osc(self, payload: str) -> None:
         self.osc_events.append(payload)

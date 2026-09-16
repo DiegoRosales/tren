@@ -114,6 +114,10 @@ nodes** — the two bugs it pins both hid on precisely those rows while
   picks up `Tree:focus { background-tint: $foreground 5% }` and reads as
   highlighted even when idle.
 
+It also asserts the top status line (card 246) renders the selection's full
+path on row 0 of a real terminal — the drives assert the *value*, this asserts
+the terminal actually paints it.
+
 This layer is what caught the render-only bugs (tree root never expanded;
 tree auto-focus swallowing Enter; the stale/tinted pane cue above) that layers
 1–3 could not.

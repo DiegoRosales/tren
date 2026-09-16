@@ -39,6 +39,7 @@ async def drive_fixture() -> None:
         assert "top/" in app._current_node.label.plain, f"cursor: {app._current_node}"
         source_text = str(source.content)
         assert "module top" in source_text, "source pane did not focus top"
+        assert status_path(app) == "top", f"status after j: {status_path(app)!r}"
 
         # j/k do not unfold: only l expands (file-manager model)
         assert not app._current_node.is_expanded, "top must stay collapsed after j"
@@ -47,6 +48,7 @@ async def drive_fixture() -> None:
         assert app._current_node.is_expanded, "l should expand top"
         await pilot.press("j")  # -> u_core instance under top
         assert "u_core" in app._current_node.label.plain, f"cursor: {app._current_node}"
+        assert status_path(app) == "top.u_core", f"status after l,j: {status_path(app)!r}"
 
         # center must now show core's *instantiation* focused
         source_text = str(source.content)
@@ -62,8 +64,10 @@ async def drive_fixture() -> None:
         assert not app._current_node.is_expanded, "u_core should start collapsed"
         await pilot.press("l")
         assert app._current_node.is_expanded, "l should expand u_core"
+        assert status_path(app) == "top.u_core", f"status after l: {status_path(app)!r}"
         await pilot.press("h")
         assert not app._current_node.is_expanded, "h should collapse u_core"
+        assert status_path(app) == "top.u_core", f"status after h: {status_path(app)!r}"
         await pilot.press("l")
         assert app._current_node.is_expanded, "l should re-expand u_core"
 
@@ -71,6 +75,7 @@ async def drive_fixture() -> None:
         await pilot.press("j")
         assert app._current_node.label.plain.startswith("port"), f"cursor: {app._current_node}"
         assert "core #(32) u_core(" in str(source.content), "pane unlinked from selection"
+        assert status_path(app) == "top.u_core.a", f"port leaf status: {status_path(app)!r}"
 
         # yank recorded the selection
         await pilot.press("y")
@@ -81,10 +86,12 @@ async def drive_fixture() -> None:
         await pilot.press("ctrl+u")
         assert "core/" in app._current_node.label.plain, \
             f"fixture ctrl+u should select the module: {app._current_node}"
+        assert status_path(app) == "core", f"status after ctrl+u: {status_path(app)!r}"
 
         # enter shows the highlighted module in the centre (cursor: core scope)
         await pilot.press("enter")
         assert "core" in str(source.content).lower(), "enter did not show core RTL"
+        assert status_path(app) == "core", f"status after enter: {status_path(app)!r}"
 
         # pane selection: 2 routes j to source scroll, 3 to ports selection
         await pilot.press("2")
@@ -165,6 +172,11 @@ def select_leaf(app: TrenApp, scope_path: str, kind: str, name: str) -> None:
     raise AssertionError(f"no {kind} leaf {name!r} under {scope_path}")
 
 
+def status_path(app: TrenApp) -> str:
+    """Plain text of the top status line (card 246)."""
+    return str(app.query_one("#status").content)
+
+
 async def drive_unreadable_src() -> None:
     """Cards 242/243: a leaf src naming a file that is not on disk.
 
@@ -179,6 +191,7 @@ async def drive_unreadable_src() -> None:
             select_leaf(app, "core", "net", "x")
             await pilot.pause()
             assert app._focus == ("rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
+            assert status_path(app) == "core.x", f"status on a net leaf: {status_path(app)!r}"
             text = str(source.content)
             assert "cannot read" not in text, f"no inline fallback: {text[:120]!r}"
             assert "core #(32) u_core(" in text, f"inline snippet not shown: {text[:120]!r}"
@@ -199,6 +212,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._focus is not None, "top scope should resolve a file focus"
         assert app._focus[0] == "rtl/demo.sv", f"focus file: {app._focus}"
         assert "module top" in str(source.content), "top module not shown from real file"
+        assert status_path(app) == "top", f"status: {status_path(app)!r}"
 
         # j does not unfold; l does (file-manager model)
         await pilot.press("j")
@@ -211,6 +225,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("j")
         assert "u_core" in app._current_node.label.plain, f"cursor: {app._current_node}"
         assert app._focus == ("rtl/demo.sv", 77, 77), f"u_core focus: {app._focus}"
+        assert status_path(app) == "top.u_core", f"status: {status_path(app)!r}"
         src_text = str(source.content)
         assert "core #(32) u_core(" in src_text, f"no instantiation in source: {src_text[:120]!r}"
         # auto-follow keeps the band in view
@@ -224,6 +239,13 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert "u_alu0" in app._current_node.label.plain, f"cursor: {app._current_node}"
         assert app._focus == ("rtl/demo.sv", 56, 56), f"u_alu0 focus: {app._focus}"
         assert "alu #(W) u_alu0(" in str(source.content), "u_alu0 instantiation not focused"
+        assert status_path(app) == "top.u_core.u_alu0", f"status: {status_path(app)!r}"
+
+        # k walks back up one visible row -> u_core path again
+        await pilot.press("k")
+        assert "u_core" in app._current_node.label.plain, f"after k: {app._current_node}"
+        assert status_path(app) == "top.u_core", f"status after k: {status_path(app)!r}"
+        await pilot.press("j")  # back onto u_alu0
         assert app.src_offset + 1 <= 56 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
 
         # e opens the editor (stub) at the focused line
@@ -234,11 +256,13 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("ctrl+u")
         assert "u_core" in app._current_node.label.plain, f"after ctrl+u: {app._current_node}"
         assert app._focus == ("rtl/demo.sv", 77, 77), "focus should return to u_core"
+        assert status_path(app) == "top.u_core", f"status after ctrl+u: {status_path(app)!r}"
 
         # enter shows the highlighted module in the centre with context
         await pilot.press("enter")
         rows = app._source_widget.size.height or 30
         assert app.src_offset <= 77 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
+        assert status_path(app) == "top.u_core", f"status after enter: {status_path(app)!r}"
 
         # ---- cards 242/243: leaves focus their own DECLARATION -------------
         # The two backends spell the span differently and both land here:
@@ -246,6 +270,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         select_leaf(app, "top.u_core.u_alu0", "port", "op")
         assert app._focus == ("rtl/demo.sv", 24, 24), f"port op focus: {app._focus}"
         assert "input  logic [3:0]   op," in str(source.content), "op declaration not shown"
+        assert status_path(app) == "top.u_core.u_alu0.op", f"port leaf status: {status_path(app)!r}"
         rows = app._source_widget.size.height or 30
         assert app.src_offset + 1 <= 24 <= app.src_offset + rows, (
             f"port declaration out of view: offset {app.src_offset}"
@@ -254,6 +279,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         select_leaf(app, "top.u_core", "net", "x")
         assert app._focus == ("rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
         assert "logic [W-1:0] x, y, rd, r0;" in str(source.content), "net declaration not shown"
+        assert status_path(app) == "top.u_core.x", f"net leaf status: {status_path(app)!r}"
         assert app.src_offset + 1 <= 50 <= app.src_offset + rows, (
             f"net declaration out of view: offset {app.src_offset}"
         )
@@ -264,16 +290,19 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         app._expand_to(generate)
         app._select(app._visible().index(generate))
         assert app._focus == ("rtl/demo.sv", 58, 58), f"g[0] focus: {app._focus}"
+        assert status_path(app) == "top.u_core.g[0]", f"generate scope status: {status_path(app)!r}"
 
         # an output port resolves the same way (the direction plays no part)
         select_leaf(app, "top.u_core.u_alu0", "port", "result")
         assert app._focus == ("rtl/demo.sv", 25, 25), f"port result focus: {app._focus}"
+        assert status_path(app) == "top.u_core.u_alu0.result", f"out port status: {status_path(app)!r}"
         # the no-src fallback is exercised in drive_fixture, where ports
         # genuinely carry no src (every port in the real IR has one)
 
         # ---- card 213: d/L trace with hierarchy crossing ------------------
         # walk from top.out to its $xor driver and back; dump shows the path
         app._select_path("top", "out")
+        assert status_path(app) == "top.out", f"net under top status: {status_path(app)!r}"
         await pilot.press("d")
         modal = app._modal
         assert modal is not None, "d should open the trace modal"
@@ -300,9 +329,11 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         ports_text = str(ports.content)
         assert "BLACK BOX" in ports_text, f"no black box marker: {ports_text!r}"
         assert "rdata" in ports_text, "black box ports missing"
+        assert status_path(app) == "top.u_core.u_sram", f"black box status: {status_path(app)!r}"
 
         # X toggles a user cut on core (opaque and back)
         app._select_path("top.u_core")
+        assert status_path(app) == "top.u_core", f"status: {status_path(app)!r}"
         # card 219: I/O pane shows the slang overlay — resolved value,
         # declared default, override marker and the source-faithful type
         ports_text = str(ports.content)
@@ -351,6 +382,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
 
         # array segments re-render through the format (g[0] -> Tcl-escaped)
         app._select_path("top.u_core.g[0].u_alu_g", "result")
+        assert status_path(app) == "top.u_core.g[0].u_alu_g.result", f"deep net status: {status_path(app)!r}"
         await pilot.press("y")
         assert app.yanked[-1] == r"u_core/g\[0\]/u_alu_g/result", app.yanked[-1]
 
@@ -367,8 +399,10 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # ---- card 239: ctrl+u jumps to the next upper level ----------------
         # from a deep generate-block scope, one ctrl+u lands on its parent
         app._select_path("top.u_core.g[0].u_alu_g")
+        assert status_path(app) == "top.u_core.g[0].u_alu_g", f"deep scope status: {status_path(app)!r}"
         await pilot.press("ctrl+u")
         assert "u_core" in app._current_node.label.plain, f"after ctrl+u: {app._current_node}"
+        assert status_path(app) == "top.u_core", f"status after deep ctrl+u: {status_path(app)!r}"
 
         # from a port/net leaf, ctrl+u lands on ITS scope (current hierarchy)
         app._select_path("top.u_core", "x")

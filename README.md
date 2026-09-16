@@ -28,7 +28,7 @@ nix develop . -c bash -c "PYTHONPATH=src python -m tren.spike"                  
 nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"     # unit tests
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
-nix develop . -c bash tools/pane_cue_capture.sh   # real-terminal render check of the active-pane cue (tmux, private server)
+nix develop . -c bash tools/pane_cue_capture.sh   # real-terminal check: active-pane cue + top status line (tmux, private server)
 nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR, card 215)
 nix develop .#xilinx                        # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
 nix develop . -c make run                   # start the TUI (keys: see 'User guide' below)
@@ -83,6 +83,11 @@ nix develop . -c python -m tren.tui                                     # vendor
 The screen is three panes — **tree** (the scope hierarchy, like a filesystem)
 | **source** (the focused module's RTL) | **I/O** (parameters + ports). `q`
 quits.
+
+Across the top, a yazi-style **status line** shows the full hierarchical path
+of the current selection — a scope row reads `top.u_core.g[0].u_alu_g`, a
+port/net leaf appends the item (`top.u_core.g[0].u_alu_g.result`). It updates
+live on `j`/`k`/`l`/`h`/`ctrl+u`/`enter`, the final segment highlighted.
 
 The pane `1`/`2`/`3` selected — the one `j`/`k`/`y` act on — is lifted out of
 the background; the other two stay dark. Exactly one pane is ever lit.

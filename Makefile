@@ -24,7 +24,7 @@ help:
 	@echo "  make drive          headless Pilot drive, fixture mode"
 	@echo "  make drive-real     headless Pilot drive, real IR + trace/black-box flows"
 	@echo "  make roundtrip      real-terminal OSC 52 + editor round trip (private tmux server)"
-	@echo "  make pane-cue       real-terminal render check of the active-pane cue (private tmux server)"
+	@echo "  make pane-cue       real-terminal check of the pane cue + path status line (private tmux server)"
 	@echo "  make profile        lazy-load + cache profile on a synthetic 1100-scope IR"
 	@echo "  make check          unit + both drives (what CI runs)"
 	@echo
