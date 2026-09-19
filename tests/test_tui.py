@@ -17,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tren.ir import Port
-from tren.tui import _parse_src, port_leaf_label
+from tren.ir import Net, Port
+from tren.tui import _parse_src, net_leaf_label, port_leaf_label
 
 
 class ParseSrcYosysSpanTests(unittest.TestCase):
@@ -95,6 +95,22 @@ class PortLeafLabelTests(unittest.TestCase):
     def test_two_bit_port_keeps_the_range(self) -> None:
         port = Port(name="mode", direction="in", width=2)
         self.assertEqual(port_leaf_label(port), "port in    mode[1:0]")
+
+
+class NetLeafLabelTests(unittest.TestCase):
+    """Card 253: 'net <name>[msb:lsb]' - the port's range, no direction."""
+
+    def test_multi_bit_net(self) -> None:
+        self.assertEqual(net_leaf_label(Net(name="x", width=32)), "net x[31:0]")
+
+    def test_scalar_net_has_no_range(self) -> None:
+        self.assertEqual(net_leaf_label(Net(name="we", width=1)), "net we")
+
+    def test_range_reads_the_same_as_a_port(self) -> None:
+        net = net_leaf_label(Net(name="rd", width=8))
+        port = port_leaf_label(Port(name="rd", direction="in", width=8))
+        self.assertTrue(net.endswith("rd[7:0]"))
+        self.assertTrue(port.endswith("rd[7:0]"))
 
 
 if __name__ == "__main__":

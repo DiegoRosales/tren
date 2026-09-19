@@ -39,7 +39,7 @@ from textual.widgets import Footer, Label, ListItem, ListView, Static, Tree
 from .cache import IrCache
 from .elaborate import elaborate
 from .formats import BY_NAME, DEFAULT, PathFormat, render as render_format
-from .ir import Design, Port, Scope, design_from_fixture
+from .ir import Design, Net, Port, Scope, design_from_fixture
 from .manifest import Manifest
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.json"
@@ -92,12 +92,12 @@ def _parse_src(src: str | None) -> tuple[str, int, int] | None:
 
 
 def _bit_range(width: int) -> str:
-    """Bit range suffix for a port leaf: '[msb:lsb]', empty for a scalar.
+    """Bit range suffix for a leaf: '[msb:lsb]', empty for a scalar.
 
     The IR carries a width, not a declared range, so the range is derived as
-    ``[width-1:0]``. That is wrong for a port declared ``[7:1]`` or ``[0:7]``.
-    The declared range arrives with the slang overlay (card 219) and replaces
-    this line only - no other code reads the range.
+    ``[width-1:0]``. That is wrong for a signal declared ``[7:1]`` or
+    ``[0:7]``. The declared range arrives with the slang overlay (card 219)
+    and replaces this line only - no other code reads the range.
     """
     return f"[{width - 1}:0]" if width > 1 else ""
 
@@ -109,6 +109,14 @@ def port_leaf_label(port: Port) -> str:
     start the name at the same offset.
     """
     return f"port {port.direction:<{PORT_DIR_WIDTH}} {port.name}{_bit_range(port.width)}"
+
+
+def net_leaf_label(net: Net) -> str:
+    """Hierarchy leaf text for a net: 'net <name>[msb:lsb]' (card 253).
+
+    The range reads the same as a port's. A net has no direction column.
+    """
+    return f"net {net.name}{_bit_range(net.width)}"
 
 
 class SourcePane(Static):
@@ -351,7 +359,7 @@ class TrenApp(App[None]):
             )
         for net in scope.nets:
             node.add_leaf(
-                f"net {net.name}  [{net.width}]",
+                net_leaf_label(net),
                 data={"kind": "net", "net": net},
             )
 

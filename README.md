@@ -110,17 +110,19 @@ u_alu0/
   port in    op[3:0]
   port in    clk
   port out   result[31:0]
-  net x  [32]
+  net x[31:0]
+  net we
 ```
 
 A port leaf reads `port <direction> <name>[msb:lsb]`. The direction sits in a
 fixed column, so `in`, `out` and `inout` all start the name at the same
-offset. A scalar port (one bit) carries no range.
+offset. A net leaf reads `net <name>[msb:lsb]`, with the same range spelling
+and no direction. A scalar (one bit) carries no range.
 
 WARNING: the range is derived from the width as `[width-1:0]`, because the IR
-carries a width and not a declared range. A port declared `[7:1]` or `[0:7]`
-therefore shows a range that the source does not write. The declared range
-arrives with the slang overlay (card 219).
+carries a width and not a declared range. A signal declared `[7:1]` or
+`[0:7]` therefore shows a range that the source does not write. The declared
+range arrives with the slang overlay (card 219).
 
 ### The I/O pane
 

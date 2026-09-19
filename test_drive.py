@@ -293,6 +293,9 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         )
 
         select_leaf(app, "top.u_core", "net", "x")
+        # card 253: a net leaf carries the port's range spelling
+        assert app._current_node.label.plain == "net x[31:0]", \
+            f"net leaf label: {app._current_node.label.plain!r}"
         assert app._focus == ("rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
         assert "logic [W-1:0] x, y, rd, r0;" in str(source.content), "net declaration not shown"
         assert status_path(app) == "top.u_core.x", f"net leaf status: {status_path(app)!r}"
@@ -353,6 +356,9 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         select_leaf(app, "top.u_core.u_sram", "port", "rdata")
         assert app._current_node.label.plain == "port out   rdata[31:0]", \
             f"out port leaf label: {app._current_node.label.plain!r}"
+        select_leaf(app, "top.u_core.u_sram", "net", "we")
+        assert app._current_node.label.plain == "net we", \
+            f"scalar net leaf label: {app._current_node.label.plain!r}"
 
         # X toggles a user cut on core (opaque and back)
         app._select_path("top.u_core")
