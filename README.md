@@ -1,4 +1,4 @@
-# TREN — TUI RTL Explorer & Navigator
+# TREN - TUI RTL Explorer & Navigator
 
 [![CI](https://github.com/DiegoRosales/tren/actions/workflows/ci.yml/badge.svg)](https://github.com/DiegoRosales/tren/actions/workflows/ci.yml)
 
@@ -45,7 +45,7 @@ tmux) so they cannot drift apart on tool versions. They differ only in how
 |---|---|---|
 | `nix develop` | the checkout's `src/`, via `PYTHONPATH` | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
 | `nix develop .#tren` | the nix store (`buildPythonPackage`) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
-| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | the textbook Python flow on nix's interpreter — an editable install, so edits are live too |
+| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | the textbook Python flow on nix's interpreter - an editable install, so edits are live too |
 | `nix develop .#xilinx` | the checkout's `src/` | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
 
 `.#tren` is the one that catches what the others hide: nothing on its path
@@ -55,7 +55,7 @@ declare, fails there and only there. It is also what `nix build .#tren`
 produces.
 
 `.#tren-venv` creates `.venv/` in the working directory on first entry and
-pip-installs the project editable from `.` — so enter it from the project
+pip-installs the project editable from `.` - so enter it from the project
 root. First entry needs network (pip fetches `textual` and `rich` from PyPI);
 later entries just activate. `TREN_VENV_DIR` overrides the location; reset
 with `rm -rf .venv/` and re-enter.
@@ -65,9 +65,9 @@ build (through `pyproject.nix`) and pip.
 
 The spike (`python -m tren.spike rtl/demo.sv`) runs yosys, builds the bit map
 and prints drivers/loads of `top.out`, descending across the core boundary
-down to the `$xor` that computes it — every row carries its `src` attribute.
+down to the `$xor` that computes it - every row carries its `src` attribute.
 Use `--keep` to keep the generated netlist under `.cache/tren/` for
-inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.69 —
+inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.69 -
 the concatenation collapses to pure net aliasing, so `o` shows no driver
 (its bit list literally overlays `hi` and `lo`); the loads are all there.
 
@@ -81,21 +81,21 @@ nix develop . -c python -m tren.tui                                     # vendor
 # or: nix develop . -c make run
 ```
 
-The screen is three panes — **tree** (the scope hierarchy, like a filesystem)
+The screen is three panes - **tree** (the scope hierarchy, like a filesystem)
 | **source** (the focused module's RTL) | **I/O** (parameters + ports). `q`
 quits.
 
 Across the top, a yazi-style **status line** shows the full hierarchical path
-of the current selection — a scope row reads `top.u_core.g[0].u_alu_g`, a
+of the current selection - a scope row reads `top.u_core.g[0].u_alu_g`, a
 port/net leaf appends the item (`top.u_core.g[0].u_alu_g.result`). It updates
 live on `j`/`k`/`l`/`h`/`ctrl+u`/`enter`, the final segment highlighted.
 
-The pane `1`/`2`/`3` selected — the one `j`/`k`/`y` act on — is lifted out of
+The pane `1`/`2`/`3` selected - the one `j`/`k`/`y` act on - is lifted out of
 the background; the other two stay dark. Exactly one pane is ever lit.
 
 The first run elaborates (yosys + slang) and caches the IR under
 `.cache/tren/`; later runs start instantly. The cache is keyed on the
-manifest, the sources' mtimes **and** the shape of the IR itself — so editing
+manifest, the sources' mtimes **and** the shape of the IR itself - so editing
 RTL *or* upgrading to a tren whose IR carries new fields re-elaborates once,
 instead of serving a blob that predates them.
 
@@ -113,7 +113,7 @@ Parameters first, then the ports:
 A parameter shows the value **resolved for this instance** with its declared
 default beside it: `✎` marks one the instantiation overrides, `·` one that
 takes the default (a `localparam` can never be overridden). A port shows its
-type as written in the source — `logic [31:0]`, from slang — then direction
+type as written in the source - `logic [31:0]`, from slang - then direction
 and bit width.
 
 Types, defaults and declaration lines come from the slang overlay; widths and
@@ -133,13 +133,13 @@ pane.
 | `l` | tree: expand the highlighted scope (reveal its children) |
 | `h` | tree: collapse the highlighted scope (hide its children) |
 | `enter` | tree: show the highlighted module in the centre RTL pane, with context |
-| `ctrl+u` | tree: step up one level, current scope first — a port/net leaf jumps to its own module, a module row to its parent |
-| `y` | yank the selection through the current path format (raw OSC 52 → the terminal's clipboard) |
-| `Y` | cycle the yank format: `sv` → `vivado` → `yosys` → `vcd` |
+| `ctrl+u` | tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent |
+| `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
+| `Y` | cycle the yank format: `sv` -> `vivado` -> `yosys` -> `vcd` |
 | `d` `L` | trace **drivers** / **loads** of the selected net (opens the trace modal) |
 | `X` | cut/restore the highlighted scope (treat it as a black box) |
 | `;` | dump the current trace path as text |
-| `e` | open `$EDITOR` at the selection's declaration — a scope's *instantiation* in its parent, a port/net's own declaration (app suspends and returns) |
+| `e` | open `$EDITOR` at the selection's declaration - a scope's *instantiation* in its parent, a port/net's own declaration (app suspends and returns) |
 | `E` | open `$EDITOR` at the *module definition* (the module's declaration line); on a top-level module both `e` and `E` land there |
 | `q` | quit |
 
@@ -148,17 +148,17 @@ In the **trace modal**: `enter` crosses a boundary into the child scope,
 
 ### Navigating
 
-`j`/`k` move through the tree **without unfolding** anything — only `l`
+`j`/`k` move through the tree **without unfolding** anything - only `l`
 expands the highlighted scope to reveal its children (file-manager model),
 and `h` collapses it again. `ctrl+u` steps up one granularity level, current
 scope first: from a port/net leaf it jumps to that module's row (not past it
 to the parent); pressed again it moves up to the parent module. `enter` puts the highlighted module into the centre. The center pane shows the **real RTL
 file** at the module's *instantiation in its parent* (or its declaration at
-the top), with the focused range highlighted and kept in view — `e` opens
+the top), with the focused range highlighted and kept in view - `e` opens
 the editor at exactly that line, `E` at the module's own definition.
 
 Selecting a **port** or **net** leaf focuses that signal's own *declaration*
-line rather than the enclosing module — `port a` under `top/u_core` lands on
+line rather than the enclosing module - `port a` under `top/u_core` lands on
 `input logic [W-1:0] a,`, `net x` on `logic [W-1:0] x, y, rd, r0;`. A leaf
 whose backend carried no `src` falls back to the module-level focus, and a
 `src` naming a file that is not on disk (fixtures, moved sources) falls back
@@ -176,7 +176,7 @@ sequence (works in any terminal that relays it, e.g. tmux with
 | Format | Selection `top.u_core.g[0].u_alu_g.result` |
 |---|---|
 | `sv` | `top.u_core.g[0].u_alu_g.result` |
-| `vivado` | `u_core/g\[0\]/u_alu_g/result` — top excluded, `/`, Tcl-escaped brackets |
+| `vivado` | `u_core/g\[0\]/u_alu_g/result` - top excluded, `/`, Tcl-escaped brackets |
 | `yosys` | `top/u_core/g[0]/u_alu_g/result` |
 | `vcd` | `top.u_core.g[0].u_alu_g.result` |
 
@@ -184,24 +184,24 @@ sequence (works in any terminal that relays it, e.g. tmux with
 
 Select a net to the tree, then `d` (drivers) or `L` (loads). The modal lists
 the touching cells; `enter` on a boundary row crosses **positionally** into
-the child scope's net (bits are module-local — matching by ID across a
+the child scope's net (bits are module-local - matching by ID across a
 boundary is wrong by design). `;` dumps the breadcrumb, e.g.
 `top.out ▶ top.u_core.alu_result`.
 
 ### Black boxes and cuts
 
 Body-less modules (`sram_stub`-style) render as opaque scopes with their
-ports and a `!` marker. `X` adds an explicit cut to any scope — the trace
-stops at it with the reason shown — and `X` again restores it.
+ports and a `!` marker. `X` adds an explicit cut to any scope - the trace
+stops at it with the reason shown - and `X` again restores it.
 
 ### Headless / CI
 
-`make check` runs the unit suite plus both Pilot drives — the same gates the
+`make check` runs the unit suite plus both Pilot drives - the same gates the
 CI workflow runs. `make test` / `make drive` / `make drive-real` run them
 individually; `make roundtrip` verifies the OSC 52 + editor path and
 `make pane-cue` the rendered active-pane highlight, both against a real
 terminal on a private tmux server (Pilot asserts style *values*, not what the
-terminal paints — see `docs/verification.md`).
+terminal paints - see `docs/verification.md`).
 
 ### Reading Vitis HLS RTL output (no Xilinx needed)
 
@@ -214,7 +214,7 @@ boundaries.
 
 ## Importers
 
-Manifest producers — bootstrap, not a dependency (`tren import`).
+Manifest producers - bootstrap, not a dependency (`tren import`).
 
 - **Plain filelist** (`.f`, slang `-F` grammar) or a bare source directory.
 - **Vivado** (`project.xpr`, auto-detected): parse `<FileSets>` DesignSrcs
@@ -225,7 +225,7 @@ Manifest producers — bootstrap, not a dependency (`tren import`).
   (`.bd`) warn. Verified against a Vitis HLS 2025.2 export: yosys
   `read_verilog` parses the generated Verilog-2005 cleanly; `slang-hier`
   additionally needs Vivado's `vivado_interfaces.svh` interface library for
-  the block-level `bd_0_sv.sv`, which the workspace does not ship — pass
+  the block-level `bd_0_sv.sv`, which the workspace does not ship - pass
   `--top fft_wrapper` (or add the lib dir) to elaborate the HLS core.
 
 ## Vitis HLS examples and the #xilinx sandbox
@@ -266,12 +266,12 @@ src/tren/            package
   __main__.py        subcommand front door (tren import / tren elaborate)
 rtl/                 small SystemVerilog fixture for tests
 tests/               PILOT_WORKDIR for textual Pilot tests + unit tests
-manifest.json        hand-checkable design manifest (sources/incdirs/top/…)
-pyproject.toml       PEP 621 metadata + deps — read by both nix and pip
+manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
+pyproject.toml       PEP 621 metadata + deps - read by both nix and pip
 flake.nix            dev shells (default / #tren / #tren-venv / #xilinx)
 ```
 
-## Decisions already made (verified — do not re-derive)
+## Decisions already made (verified - do not re-derive)
 
 - **Backends**: yosys `write_json` after `proc` (never `opt`; bit IDs are
   positional-only across scopes); `slang-hier --params` for scope tree +
@@ -287,18 +287,18 @@ flake.nix            dev shells (default / #tren / #tren-venv / #xilinx)
 
 ## Sources of truth
 
-- Design note: Nextcloud **"TREN — RTL explorer TUI (concept)"**, note id
+- Design note: Nextcloud **"TREN - RTL explorer TUI (concept)"**, note id
   `1503454` (cat `TREN`). **Mirrored in this repo** for offline reading:
-  - `docs/notes/TREN-concept.md` — the concept/design note
-  - `docs/notes/TREN-backend-api-exploration.md` — yosys/slang/verilator report
-  - `docs/notes/TREN-tui-exploration.md` — framework verdict + how TUIs work
+  - `docs/notes/TREN-concept.md` - the concept/design note
+  - `docs/notes/TREN-backend-api-exploration.md` - yosys/slang/verilator report
+  - `docs/notes/TREN-tui-exploration.md` - framework verdict + how TUIs work
   (Nextcloud stays canonical; each mirror carries its note id + etag.)
 - Verified exploration + reports: the sibling **`tren_testing`** directory
   (`report.md` for backends, `report-tui.md` for the framework verdict,
   `t1_yosys/` `t3_slang/` `tui_textual/` for reproductions).
 - Task breakdown: Nextcloud Deck board **"TREN"**.
-- Pinned versions: Python 3.14 · textual 8.2.8 · rust 1.98 · ratatui 0.30.2 ·
-  yosys 0.69 · sv-lang 11.0.
-- How TREN is verified: `docs/verification.md` — the layered strategy
-  (unit → elaboration acceptance → Pilot drives → real-terminal round trip →
-  scale/cache profile → real-artefact importers) and the change checklist.
+- Pinned versions: Python 3.14, textual 8.2.8, rust 1.98, ratatui 0.30.2,
+  yosys 0.69, sv-lang 11.0.
+- How TREN is verified: `docs/verification.md` - the layered strategy
+  (unit -> elaboration acceptance -> Pilot drives -> real-terminal round trip ->
+  scale/cache profile -> real-artefact importers) and the change checklist.

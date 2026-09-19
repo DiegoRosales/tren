@@ -1,4 +1,4 @@
-# tren — Agent Guidelines & Project Instructions
+# tren - Agent Guidelines & Project Instructions
 
 Guidelines and conventions for AI agents and humans working in this
 repository. Short on ceremony, long on preventing re-discovery.
@@ -7,17 +7,17 @@ repository. Short on ceremony, long on preventing re-discovery.
 
 This is the **implementation** repo for TREN (TUI RTL Explorer & Navigator).
 It currently holds the spike on textual. The evaluation harness that produced
-the verified findings — dummy RTL, per-tool experiments, reports — lives in
+the verified findings - dummy RTL, per-tool experiments, reports - lives in
 the **sibling `tren_testing` directory** and belongs there, not here. Do not
 copy harness artifacts into this repo; cite them instead.
 
 ## 1. Sources of truth
 
-- **Design**: Nextcloud note *"TREN — RTL explorer TUI (concept)"*,
+- **Design**: Nextcloud note *"TREN - RTL explorer TUI (concept)"*,
   note id `1503454`, category `TREN`. Read it before proposing architecture.
   **A mirror lives in this repo** at `docs/notes/TREN-concept.md` (plus the
   backend- and TUI-exploration reports mirrored alongside); if Nextcloud is
-  unreachable, read the mirrors — but treat Nextcloud as canonical.
+  unreachable, read the mirrors - but treat Nextcloud as canonical.
 - **Verified findings / verdicts**: sibling `tren_testing/report.md`
   (backends), `tren_testing/report-tui.md` (framework verdict + how TUIs
   work), and `tren_testing/{t1_yosys,t3_slang,tui_textual}/findings.md`
@@ -27,33 +27,33 @@ copy harness artifacts into this repo; cite them instead.
   *In progress* before starting it and to *Done* when its acceptance criteria
   pass.
 
-## 2. Decisions already made — do not re-derive
+## 2. Decisions already made - do not re-derive
 
 - **Backends** (verified against installed tools, yosys 0.69 / sv-lang 11.0):
   yosys `write_json` for connectivity; `slang-hier --params` and/or
   `slang --ast-json` for scope tree + resolved params. `slang --ast-json`
   flags that matter: `--ast-json-source-info`, `--ast-json-detailed-types`.
 - **Yosys rules** (non-negotiable):
-  - run `proc` — `write_json` rejects unprocessed designs;
-  - never run `opt` — it prunes unobservable cells/nets out of the JSON;
-  - never `flatten` — unflattened cells are the hierarchy;
+  - run `proc` - `write_json` rejects unprocessed designs;
+  - never run `opt` - it prunes unobservable cells/nets out of the JSON;
+  - never `flatten` - unflattened cells are the hierarchy;
   - bit IDs are **module-local and positional-only** across a boundary:
     match the k-th listed bit of a port, never the numbers;
-  - module names are mangled `$paramod\name\param=value` — un-mangle and join
+  - module names are mangled `$paramod\name\param=value` - un-mangle and join
     with `slang-hier` names.
 - **UI framework**: textual (pinned 8.2.8) for the spike/MVP; ratatui 0.30 is
   the earmarked rewrite target and must remain a drop-in swap (IR and
   navigation logic framework-agnostic). Screen = tree | source | I/O; keys
   j/k/l/h, 1/2/3 pane select, enter shows the module (centre), ctrl+u up a
-  level, y yank (OSC 52), e editor jump. The guide in README.md § User guide
-  is the keymap reference.
+  level, y yank (OSC 52), e editor jump. The "User guide" section of
+  README.md is the keymap reference.
 - **Black boxes are the normal case**: TREN always opens something. Port
   lists + `blackbox=1` come from yosys JSON already; user cuts toggle a scope
   to opaque.
 
 ## 3. Toolchain
 
-Always run under the dev shell: `nix develop . -c <command>` — never bare
+Always run under the dev shell: `nix develop . -c <command>` - never bare
 `python`/`yosys`/`slang` from the host. The flake pins Python 3.14 + textual
 8.2.8 and provides yosys, sv-lang, rust, jq, rg. Version pins are recorded in
 `README.md`; bump them deliberately and re-verify the tests.
@@ -61,15 +61,16 @@ Always run under the dev shell: `nix develop . -c <command>` — never bare
 The **default** shell is the one every gate assumes: tren is not installed
 there, it is read from the checkout's `src/` through `PYTHONPATH`. Run all
 tests and drives there. `.#tren` (nix-installed package) and `.#tren-venv`
-(editable `pip install -e .`) exist to exercise tren *as a package* — see
-README § Dev shells. Dependencies live in `pyproject.toml`; a new third-party
-import must be declared there, or `.#tren` is where it will break.
+(editable `pip install -e .`) exist to exercise tren *as a package*. See the
+"Dev shells" section of README.md. Dependencies live in `pyproject.toml`; a
+new third-party import must be declared there, or `.#tren` is where it will
+break.
 
 For anything touching Xilinx tooling (Vivado / Vitis HLS) use the `#xilinx`
-FHS sandbox — the tools need a conventional `/usr/lib` that NixOS lacks:
+FHS sandbox - the tools need a conventional `/usr/lib` that NixOS lacks:
 `nix develop .#xilinx` (x86_64-linux only) and work inside it. Note the env's
 runScript shell is interactive-only: `nix develop .#xilinx -c <cmd>` does NOT
-execute the command (verified on nix 2.x for buildFHSEnv .env outputs) — run
+execute the command (verified on nix 2.x for buildFHSEnv .env outputs) - run
 the Makefile inside the shell instead. The HLS example build flow mirrors
 ipyfuse: `make setup_xilinx` writes `.xilinx_env` from `$XILINX_VITIS`,
 `make <block>_HLS` re-synthesises one block under `test/hls_examples/hls/`.
@@ -78,75 +79,118 @@ source for the pinned nixpkgs rev).
 
 ## 4. Working conventions
 
-- **The user guide lives in `README.md` (§ User guide). Keep it in sync in
-  the same change as any binding / CLI / behaviour edit** — the keymap table,
-  yank formats, trace/black-box semantics and the make targets are all
-  documented there and verified by the Pilot drives; after editing it, run
-  `make check` (unit + both drives) and, if a key/OSC path changed,
+- **The user guide lives in the "User guide" section of `README.md`. Keep it
+  in sync in the same change as any binding / CLI / behaviour edit**: the
+  keymap table, yank formats, trace/black-box semantics and the make targets
+  are all documented there and verified by the Pilot drives. After editing
+  it, run `make check` (unit + both drives) and, if a key/OSC path changed,
   `make roundtrip`.
-- **The verification strategy lives in `docs/verification.md`** — the layered
-  gates (unit → elaboration acceptance → Pilot drives → real-terminal round
-  trip → scale/cache profile → real-artefact importers), what each layer
+- **The verification strategy lives in `docs/verification.md`**: the layered
+  gates (unit -> elaboration acceptance -> Pilot drives -> real-terminal round
+  trip -> scale/cache profile -> real-artefact importers), what each layer
   cannot catch (e.g. Pilot asserts state, not rendered output), and the
   change checklist. Consult it before deciding a change is "done".
 - **Verify against the installed tool; never assert flags/formats from
   memory.** This project has burned real time on exactly that.
-- **Distinguish verified from assumed**; carry the ⚠ convention from the
-  design note if something is a guess.
+- **Distinguish verified from assumed**: mark a guess with `WARNING:` (the
+  design note's warning-symbol convention, written in ASCII).
 - **Report negative results.** "X is not packaged / API Y is gone" is a
   finding that changes architecture (see `tui_textual/findings.md`).
 - Python: 3.14, `from __future__ import annotations`, dataclasses for the IR,
   type hints, no comments unless the why is non-obvious. Keep three layers
-  separate: CLI parsing → IR model → UI.
+  separate: CLI parsing -> IR model -> UI.
 - Tests: pure logic as unit tests; UI flows via textual **Pilot**
   (`test_drive.py`). Headless and CI-able by design.
 - Elaboration output is an on-disk cache keyed by
   `sha256(manifest + source mtimes)`; start instantly on cache hits.
 - **Never `export PYTHONPATH=src`** at the shell level for runtimes that
-  import textual — the dev shell exposes rich/textual through its own
+  import textual - the dev shell exposes rich/textual through its own
   `PYTHONPATH`, and replacing it breaks `import rich`/`import textual`. The
   test files self-insert `src` via `sys.path.insert`; use
   `PYTHONPATH=src:$PYTHONPATH` only when you must (e.g. `python -c` smoke
   checks).
 
+### Writing style: Simplified Technical English (ASD-STE100)
+
+Write all prose in **ASD-STE100 Simplified Technical English**: code comments,
+docstrings, commit messages, README and `docs/`, Deck card text, and the
+chat report of what you did. Identifiers follow the same spirit (one word per
+meaning), but keep established names.
+
+The rules that matter here:
+
+- One instruction per sentence. Keep procedural sentences to 20 words or
+  less, descriptive sentences to 25 words or less.
+- Active voice, present tense. Use the imperative for instructions
+  ("Run `make check`", not "the tests should be run").
+- One word, one meaning. Do not use "test" as both verb and noun in the same
+  paragraph if a clearer word exists. Do not switch synonyms mid-document
+  (pick "scope" or "node", then keep it).
+- Keep articles and helper words: "the port", not "port". Do not compress
+  into noun clusters of more than three words.
+- No slang, metaphor, irony, or backstory. Say what the change does.
+- Paragraphs of 6 sentences or less.
+
+### Character set: ASCII only
+
+Prose and code must use plain ASCII. This applies to files in this repo and
+to commit messages.
+
+- Never use: em dash (U+2014), en dash (U+2013), curly quotes, the ellipsis
+  character, the non-breaking space, arrows, emoji, or box-drawing and symbol
+  characters used as decoration.
+- Use instead: `-` or `--`, `'` and `"`, `...`, a normal space, `->`.
+- Mark an unverified claim with `WARNING:` (the design note writes this as a
+  warning symbol; keep the meaning, not the character).
+- Exceptions, both narrow:
+  - **Glyphs the TUI paints.** `src/tren/tui.py` uses marker characters on
+    purpose (the override pencil, the cut scissors, the black-box sign, the
+    trace arrow). Keep them, keep the tests that assert them, and keep the
+    README samples that show what the screen looks like. Do not add a new
+    glyph unless it carries meaning that ASCII cannot.
+  - **Data that must stay byte-exact**: captured tool output, fixture RTL,
+    a terminal escape sequence in a test.
+- Check a change with `rg -n '[^\x00-\x7F]'` on the files you touched before
+  you commit.
+
 ### Known gotchas (verified, keep for later)
 
-- textual 8.2: `Tree.cursor_node` is read-only → track the cursor in the app;
-  `visible_nodes` was removed → walk `node.children` (respect `is_expanded`);
-  widget queries can race the first tick → cache refs in `on_mount()`; app
+- textual 8.2: `Tree.cursor_node` is read-only -> track the cursor in the app;
+  `visible_nodes` was removed -> walk `node.children` (respect `is_expanded`);
+  widget queries can race the first tick -> cache refs in `on_mount()`; app
   binding `priority=True` wins over a focused widget; `export_screenshot()`
   returns **SVG**; rich style modifiers go first (`"bold #a6c9ff"` not
   `"#a6c9ff,bold"`).
 - textual 8.2 `Tree` caches rendered line **strips** in `_line_cache`, keyed
-  on `(line, hover, width, _updates, pseudo-classes, node updates)` — the
+  on `(line, hover, width, _updates, pseudo-classes, node updates)` - the
   widget background is *not* in the key. Restyling a Tree
-  (`styles.background = …`) leaves every line carrying a node painted at the
+  (`styles.background = ...`) leaves every line carrying a node painted at the
   old colour; only the blank region below repaints. Call
   `_clear_line_cache()` + `refresh()` (`_invalidate()` also resets nodes and
-  re-layouts — heavier than a repaint needs).
+  re-layouts - heavier than a repaint needs).
 - textual `can_focus = False` does **not** blur a widget that is already
   focused. On a real terminal textual has auto-focused the Tree by the time
   `on_mount` runs, so the tree stays focused and picks up
   `Tree:focus { background-tint: $foreground 5% }` (~4% lighter than every
   other pane). Headless Pilot reports `focused=None`, so the drives cannot
-  see any of this — call `self.set_focus(None)` explicitly and gate on
+  see any of this - call `self.set_focus(None)` explicitly and gate on
   `make pane-cue`.
 - textual 8.2 **does** ship a clipboard API: `App.copy_to_clipboard(text)`
   writes the raw OSC 52 escape (`\x1b]52;c;<b64>\a`) straight through the
-  driver. `App.console` is a rich Console bound to `_NullFile()` — never use
+  driver. `App.console` is a rich Console bound to `_NullFile()` - never use
   it as an output sink. (Correction: the tui_textual finding "textual has no
   clipboard API" predates this method.)
 - textual 8.2 `Tree.auto_expand` runs in an async `@on(NodeSelected)`
-  handler that **toggles** — under a key burst (autorepeat / scripted paste)
+  handler that **toggles** - under a key burst (autorepeat / scripted paste)
   it re-orders against the app's own visible-walk, and pre-expanding the node
   makes the handler collapse it. Set `tree.auto_expand = False` (it is a var,
   not a ctor kwarg) and expand deterministically in `_select`.
 - yosys 0.69 JSON: `write_json` needs `proc`; `opt` is destructive; generate
   instances appear as `g[i].u_alu_g`-style cell names; body-less modules
   serialize `ports` + `blackbox=1`.
-- sv-lang hard-errors on multiple continuous assignments to one net — keep
+- sv-lang hard-errors on multiple continuous assignments to one net - keep
   fixture RTL SV-legal (else verilator warns and yosys is silent; slang is
-  the strict one — trust it).
+  the strict one - trust it).
 
 ## 5. Git & commits
 
