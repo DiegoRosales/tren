@@ -74,6 +74,9 @@ async def drive_fixture() -> None:
         # j -> first port leaf under u_core; panes stay on core
         await pilot.press("j")
         assert app._current_node.label.plain.startswith("port"), f"cursor: {app._current_node}"
+        # card 253: the leaf reads 'port <dir> <name>[msb:lsb]'
+        assert app._current_node.label.plain == "port in    a[31:0]", \
+            f"port leaf label: {app._current_node.label.plain!r}"
         assert "core #(32) u_core(" in str(source.content), "pane unlinked from selection"
         assert status_path(app) == "top.u_core.a", f"port leaf status: {status_path(app)!r}"
 
@@ -278,6 +281,9 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # The two backends spell the span differently and both land here:
         # Port.src is slang's file:line:col, Net.src the yosys file:l.c-l.c.
         select_leaf(app, "top.u_core.u_alu0", "port", "op")
+        # card 253: a real port leaf reads 'port <dir> <name>[msb:lsb]'
+        assert app._current_node.label.plain == "port in    op[3:0]", \
+            f"port leaf label: {app._current_node.label.plain!r}"
         assert app._focus == ("rtl/demo.sv", 24, 24), f"port op focus: {app._focus}"
         assert "input  logic [3:0]   op," in str(source.content), "op declaration not shown"
         assert status_path(app) == "top.u_core.u_alu0.op", f"port leaf status: {status_path(app)!r}"
@@ -340,6 +346,13 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert "BLACK BOX" in ports_text, f"no black box marker: {ports_text!r}"
         assert "rdata" in ports_text, "black box ports missing"
         assert status_path(app) == "top.u_core.u_sram", f"black box status: {status_path(app)!r}"
+        # card 253: a scalar port carries no range, and out lines up with in
+        select_leaf(app, "top.u_core.u_sram", "port", "we")
+        assert app._current_node.label.plain == "port in    we", \
+            f"scalar port leaf label: {app._current_node.label.plain!r}"
+        select_leaf(app, "top.u_core.u_sram", "port", "rdata")
+        assert app._current_node.label.plain == "port out   rdata[31:0]", \
+            f"out port leaf label: {app._current_node.label.plain!r}"
 
         # X toggles a user cut on core (opaque and back)
         app._select_path("top.u_core")

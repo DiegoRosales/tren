@@ -39,7 +39,7 @@ from textual.widgets import Footer, Label, ListItem, ListView, Static, Tree
 from .cache import IrCache
 from .elaborate import elaborate
 from .formats import BY_NAME, DEFAULT, PathFormat, render as render_format
-from .ir import Design, Scope, design_from_fixture
+from .ir import Design, Port, Scope, design_from_fixture
 from .manifest import Manifest
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.json"
@@ -49,6 +49,8 @@ PANE_BG_ACTIVE = "#262626"
 PANE_BG_IDLE = "#121212"
 # status line background (card 246): distinctly a chrome bar, not a pane
 STATUS_BG = "#1e1e1e"
+# port leaf column (card 253): "inout" is the longest direction
+PORT_DIR_WIDTH = 5
 
 
 def load_design(fixture: Path | None = None) -> Design:
@@ -87,6 +89,26 @@ def _parse_src(src: str | None) -> tuple[str, int, int] | None:
     lo = int(m.group(1))
     hi = int(m.group(2) or lo)
     return file, lo, hi
+
+
+def _bit_range(width: int) -> str:
+    """Bit range suffix for a port leaf: '[msb:lsb]', empty for a scalar.
+
+    The IR carries a width, not a declared range, so the range is derived as
+    ``[width-1:0]``. That is wrong for a port declared ``[7:1]`` or ``[0:7]``.
+    The declared range arrives with the slang overlay (card 219) and replaces
+    this line only - no other code reads the range.
+    """
+    return f"[{width - 1}:0]" if width > 1 else ""
+
+
+def port_leaf_label(port: Port) -> str:
+    """Hierarchy leaf text for a port: 'port <dir> <name>[msb:lsb]' (card 253).
+
+    The direction is left-aligned in a fixed column, so in / out / inout all
+    start the name at the same offset.
+    """
+    return f"port {port.direction:<{PORT_DIR_WIDTH}} {port.name}{_bit_range(port.width)}"
 
 
 class SourcePane(Static):
@@ -324,7 +346,7 @@ class TrenApp(App[None]):
     def _add_ports_nets(self, node: Tree.Node, scope: Scope) -> None:
         for port in scope.ports:
             node.add_leaf(
-                f"port {port.name}  {port.direction}[{port.width}]",
+                port_leaf_label(port),
                 data={"kind": "port", "port": port},
             )
         for net in scope.nets:

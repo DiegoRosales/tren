@@ -99,6 +99,29 @@ manifest, the sources' mtimes **and** the shape of the IR itself - so editing
 RTL *or* upgrading to a tren whose IR carries new fields re-elaborates once,
 instead of serving a blob that predates them.
 
+### The tree pane
+
+A scope row carries the instance name; below it come the scope's ports, then
+its nets:
+
+```
+u_alu0/
+  port in    a[31:0]
+  port in    op[3:0]
+  port in    clk
+  port out   result[31:0]
+  net x  [32]
+```
+
+A port leaf reads `port <direction> <name>[msb:lsb]`. The direction sits in a
+fixed column, so `in`, `out` and `inout` all start the name at the same
+offset. A scalar port (one bit) carries no range.
+
+WARNING: the range is derived from the width as `[width-1:0]`, because the IR
+carries a width and not a declared range. A port declared `[7:1]` or `[0:7]`
+therefore shows a range that the source does not write. The declared range
+arrives with the slang overlay (card 219).
+
 ### The I/O pane
 
 Parameters first, then the ports:

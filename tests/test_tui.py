@@ -1,4 +1,4 @@
-"""Unit tests for the TUI's pure source-span parsing (cards 242/243).
+"""Unit tests for the TUI's pure text helpers (cards 242/243, 253).
 
 `_parse_src` is the one piece of tui.py with no UI in it, and it has to read
 *two* span spellings because two backends feed the IR: yosys writes
@@ -17,7 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tren.tui import _parse_src
+from tren.ir import Port
+from tren.tui import _parse_src, port_leaf_label
 
 
 class ParseSrcYosysSpanTests(unittest.TestCase):
@@ -63,6 +64,37 @@ class ParseSrcEdgeTests(unittest.TestCase):
         for src in (None, "", "garbage", "rtl/demo.sv", "rtl/demo.sv:x.y"):
             with self.subTest(src=src):
                 self.assertIsNone(_parse_src(src))
+
+
+class PortLeafLabelTests(unittest.TestCase):
+    """Card 253: 'port <dir> <name>[msb:lsb]', the names in one column."""
+
+    def test_input_port(self) -> None:
+        port = Port(name="a", direction="in", width=32)
+        self.assertEqual(port_leaf_label(port), "port in    a[31:0]")
+
+    def test_output_port(self) -> None:
+        port = Port(name="result", direction="out", width=32)
+        self.assertEqual(port_leaf_label(port), "port out   result[31:0]")
+
+    def test_inout_port(self) -> None:
+        port = Port(name="sda", direction="inout", width=8)
+        self.assertEqual(port_leaf_label(port), "port inout sda[7:0]")
+
+    def test_every_direction_starts_the_name_at_one_column(self) -> None:
+        labels = [
+            port_leaf_label(Port(name="n", direction=direction, width=4))
+            for direction in ("in", "out", "inout")
+        ]
+        self.assertEqual({label.index("n[") for label in labels}, {len("port ") + 6})
+
+    def test_scalar_port_has_no_range(self) -> None:
+        port = Port(name="clk", direction="in", width=1)
+        self.assertEqual(port_leaf_label(port), "port in    clk")
+
+    def test_two_bit_port_keeps_the_range(self) -> None:
+        port = Port(name="mode", direction="in", width=2)
+        self.assertEqual(port_leaf_label(port), "port in    mode[1:0]")
 
 
 if __name__ == "__main__":
