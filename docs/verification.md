@@ -92,7 +92,8 @@ Pipe-panes the raw output bytes and asserts:
 
 - the OSC 52 clipboard sequence actually leaves the process and encodes the
   expected yank path (`top.u_core`);
-- `e` invokes a recorder `$EDITOR` with `+77 rtl/demo.sv`.
+- `e` invokes a recorder `$EDITOR` with `+77 rtl/demo.sv`, and `E` (cards
+  241) with `+45 rtl/demo.sv` — the module definition.
 
 Why pipe-pane instead of `set-clipboard`/`show-buffer`: a client-less tmux
 server relays OSC 52 to nothing (no attached `Ms`-capable terminal), so the

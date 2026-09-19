@@ -11,6 +11,7 @@
 #      path of the selection, top.u_core.
 #   2. `e` spawns $EDITOR at the focused file:line (a fake editor logs its
 #      argv): must be "+77 rtl/demo.sv" (core's instantiation site).
+#   3. `E` (card 241) spawns it at the module definition: "+45 rtl/demo.sv".
 #
 # Why pipe-pane and not `set-clipboard on` + `show-buffer`: tmux only stores
 # OSC 52 in its copy buffer when an *attached client* advertises the Ms
@@ -61,4 +62,11 @@ grep -q '^+77 rtl/demo.sv$' "$LOG" 2>/dev/null || {
   echo "FAIL: editor not invoked with +77 rtl/demo.sv"; exit 1
 }
 
-echo "PASS: OSC 52 byte-level round trip + editor jump on a real terminal"
+# E must jump to the module's own definition (core: rtl/demo.sv:45)
+tmux -L "$SOCK" send-keys -t "$SESS" E
+sleep 2
+grep -q '^+45 rtl/demo.sv$' "$LOG" 2>/dev/null || {
+  echo "FAIL: editor not invoked with +45 rtl/demo.sv"; exit 1
+}
+
+echo "PASS: OSC 52 byte-level round trip + e/E editor jumps on a real terminal"

@@ -9,7 +9,8 @@ highlighted scope, `enter` shows that module in the centre RTL pane, `ctrl+u`
 jumps up a hierarchy level, `y` yanks the selection through the current path
 format as a raw OSC 52 clipboard write, `Y` cycles the format (SV
 hierarchical / Vivado `get_pins` / yosys `select` / VCD dot-path), `e` jumps
-to the declaration in `$EDITOR` (`+line file` style, suspending the app).
+to the selection's declaration in `$EDITOR` (`+line file` style, suspending
+the app), `E` to the module definition.
 
 Status: **spike phase, built on textual 8.2**. The backend pair is verified
 and pinned (see *Sources of truth*): yosys `write_json` for bit-level
@@ -138,7 +139,8 @@ pane.
 | `d` `L` | trace **drivers** / **loads** of the selected net (opens the trace modal) |
 | `X` | cut/restore the highlighted scope (treat it as a black box) |
 | `;` | dump the current trace path as text |
-| `e` | open `$EDITOR` at the focused `file:line` (app suspends and returns) |
+| `e` | open `$EDITOR` at the selection's declaration — a scope's *instantiation* in its parent, a port/net's own declaration (app suspends and returns) |
+| `E` | open `$EDITOR` at the *module definition* (the module's declaration line); on a top-level module both `e` and `E` land there |
 | `q` | quit |
 
 In the **trace modal**: `enter` crosses a boundary into the child scope,
@@ -150,11 +152,10 @@ In the **trace modal**: `enter` crosses a boundary into the child scope,
 expands the highlighted scope to reveal its children (file-manager model),
 and `h` collapses it again. `ctrl+u` steps up one granularity level, current
 scope first: from a port/net leaf it jumps to that module's row (not past it
-to the parent); pressed again it moves up to the parent module. `enter` puts
-the highlighted module into the centre. The center pane shows the **real RTL
+to the parent); pressed again it moves up to the parent module. `enter` puts the highlighted module into the centre. The center pane shows the **real RTL
 file** at the module's *instantiation in its parent* (or its declaration at
 the top), with the focused range highlighted and kept in view — `e` opens
-the editor at exactly that line.
+the editor at exactly that line, `E` at the module's own definition.
 
 Selecting a **port** or **net** leaf focuses that signal's own *declaration*
 line rather than the enclosing module — `port a` under `top/u_core` lands on

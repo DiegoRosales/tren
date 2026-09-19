@@ -248,15 +248,25 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("j")  # back onto u_alu0
         assert app.src_offset + 1 <= 56 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
 
-        # e opens the editor (stub) at the focused line
+        # e/E (cards 241): on u_alu0, e = the instantiation line, E = the
+        # module's own definition (alu begins at rtl/demo.sv:21)
         await pilot.press("e")
         assert app.editor_target == "rtl/demo.sv:56", f"editor target: {app.editor_target}"
+        await pilot.press("E")
+        assert app.editor_target == "rtl/demo.sv:21", f"editor def target: {app.editor_target}"
 
         # ctrl+u walks back up to core (the enclosing scope of u_alu0)
         await pilot.press("ctrl+u")
         assert "u_core" in app._current_node.label.plain, f"after ctrl+u: {app._current_node}"
         assert app._focus == ("rtl/demo.sv", 77, 77), "focus should return to u_core"
         assert status_path(app) == "top.u_core", f"status after ctrl+u: {status_path(app)!r}"
+
+        # on a nested scope, e = the instantiation in its parent (+77),
+        # E = the module's own declaration (+45)
+        await pilot.press("e")
+        assert app.editor_target == "rtl/demo.sv:77", f"e on u_core: {app.editor_target}"
+        await pilot.press("E")
+        assert app.editor_target == "rtl/demo.sv:45", f"E on u_core: {app.editor_target}"
 
         # enter shows the highlighted module in the centre with context
         await pilot.press("enter")
@@ -418,6 +428,13 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._current_node.data is not None
         assert app._current_node.data.get("scope", {}).name == "top", \
             f"top-level ctrl+u should not wrap: {app._current_node.data}"
+
+        # ---- card 241: on a top-level module e and E both land on the
+        #      definition (no parent instantiation to jump to)
+        await pilot.press("e")
+        assert app.editor_target == "rtl/demo.sv:70", f"e on top: {app.editor_target}"
+        await pilot.press("E")
+        assert app.editor_target == "rtl/demo.sv:70", f"E on top: {app.editor_target}"
 
         # ---- card 238: enter shows the module; the d/L modal keeps Enter ----
         app._select_path("top", "out")

@@ -12,10 +12,11 @@ Right:   the module's I/O (ports)
 
 Auto-follow: on scope change the focus band is kept in view
 (src_offset = focus_start - rows/2, clamped). `e` opens the editor (stub)
-at the focused line.
+at the selection's declaration line, `E` at the module definition.
 
 Keys: j/k move, l expand, h collapse, enter shows the module in the centre,
-ctrl+u jumps up a level, 1/2/3 pane select, y yank, e editor, q quit.
+ctrl+u jumps up a level, 1/2/3 pane select, y yank, e editor at the
+selection's declaration, E editor at the module definition, q quit.
 Headless Pilot tests:  python test_drive.py [--manifest …]
 """
 
@@ -184,7 +185,8 @@ class TrenApp(App[None]):
         Binding("L", "trace_loads", "loads", priority=True),
         Binding("X", "toggle_cut", "cut", priority=True),
         Binding(";", "dump_trace", "dump", priority=True),
-        Binding("e", "open_editor", "editor", priority=True),
+        Binding("e", "open_editor", "editor inst", priority=True),
+        Binding("E", "open_module_definition", "editor def", priority=True),
         Binding("q", "quit", "quit", priority=True),
     ]
 
@@ -921,9 +923,8 @@ class TrenApp(App[None]):
         self._write_osc(payload)
         self.bell()
 
-    def action_open_editor(self) -> None:
-        """Open $EDITOR at the focused line (suspend; record only headless)."""
-        focus = self._focus_for(self._current_node)
+    def _open_editor(self, focus: tuple[str, int, int] | None) -> None:
+        """Suspend-and-return $EDITOR jump (+line file), shared by e and E."""
         self.editor_target = f"{focus[0]}:{focus[1]}" if focus is not None else None
         if focus is None:
             return
@@ -946,6 +947,21 @@ class TrenApp(App[None]):
                 subprocess.call([*shlex.split(editor), f"+{line}", file])
         except Exception:
             self.bell()
+
+    def action_open_editor(self) -> None:
+        """e: open $EDITOR at the selection's own declaration — for a scope
+        the *instantiation* in its parent (the line you'd edit to rewire the
+        port map), for a port/net leaf its own declaration (cards 242/243).
+        A top-level module has no parent: both e and E land on its definition.
+        """
+        self._open_editor(self._focus_for(self._current_node))
+
+    def action_open_module_definition(self) -> None:
+        """E: open $EDITOR at the *module definition* — the scope's own src
+        (Scope.src carries the declaration span), regardless of where the
+        selection sits. Leaves defer to the scope they belong to."""
+        scope = self._scope_data(self._current_node)
+        self._open_editor(_parse_src(scope.src) if scope is not None else None)
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         self._current_node = event.node
