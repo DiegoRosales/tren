@@ -188,6 +188,17 @@ to commit messages.
 - yosys 0.69 JSON: `write_json` needs `proc`; `opt` is destructive; generate
   instances appear as `g[i].u_alu_g`-style cell names; body-less modules
   serialize `ports` + `blackbox=1`.
+- sv-lang 11 `--ast-json` keeps a **declared range** as the source writes it
+  (`[7:1]`, `[0:7]`, `[15:8]`) on the type node of a `Port`, `Variable` or
+  `Net` member, and resolves a parametrised bound per instance. yosys carries
+  a bit count only, so the range is the overlay's to provide. Body nets are
+  `Variable` members (a `wire` is a `Net`); a port appears a second time as a
+  `Variable` with the same type. A generate block's name is empty in the AST
+  while yosys spells the net `g[0].gr` - index the blocks in order to join.
+- slang **normalises an integer literal**: the source text `3'b000` comes
+  back as `3'b0` and `2'd1` as `2'b1`. Never compare a resolved value with a
+  source-text default as strings (that is what put a false override marker on
+  every HLS state parameter); compare the numbers (`ir.literal_int`).
 - sv-lang hard-errors on multiple continuous assignments to one net - keep
   fixture RTL SV-legal (else verilator warns and yosys is silent; slang is
   the strict one - trust it).

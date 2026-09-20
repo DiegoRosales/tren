@@ -187,6 +187,19 @@ def _type_string(node: dict | None) -> str | None:
     return None
 
 
+def _type_range(node: dict | None) -> str | None:
+    """Declared range of a slang type node ('[7:1]'), or None for a scalar.
+
+    slang keeps the range as the source writes it - verified sv-lang 11:
+    ``logic [0:7]`` stays '[0:7]' and ``logic [15:8]`` stays '[15:8]' - and
+    resolves a parametrised bound to the instance's value.
+    """
+    if not isinstance(node, dict) or node.get("kind") != "PackedArrayType":
+        return None
+    rng = node.get("range")
+    return rng or None
+
+
 def _decl_default(lines: list[str], src: str | None) -> str | None:
     """Source-text default of a parameter at its declaration span.
 
@@ -194,7 +207,12 @@ def _decl_default(lines: list[str], src: str | None) -> str | None:
     declared default (verified sv-lang 11: only resolved value + the
     per-instance initializer exist). TREN reads the default where it is
     written: the same source line as the declaration, the text after the
-    first '=' up to the next terminator (',', ';', ')') or end of line.
+    first '=' up to the next terminator (',', ';', or a ')' that closes the
+    declaration) or end of line.
+
+    A bracket that the default opens itself does not end it: the scan keeps
+    the whole expression of ``parameter B = (32 / 8);`` and stops on the
+    ')' of ``#(parameter int W = 8)`` only because that one is unbalanced.
     """
     pos = _src_pos(src)
     if pos is None or not lines:
@@ -215,8 +233,16 @@ def _decl_default(lines: list[str], src: str | None) -> str | None:
             return None
         rest = text[eq + 1:]
     end = len(rest)
+    depth = 0
     for i, ch in enumerate(rest):
-        if ch in ",;()":
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                end = i
+                break
+            depth -= 1
+        elif ch in ",;" and depth == 0:
             end = i
             break
     tok = rest[:end].strip()
@@ -260,8 +286,12 @@ def _parse_ast_decls(
     """Return (module_decls, generate_info).
 
     module_decls[module] = {"params": {name: {value, default, isLocal, src}},
-                            "ports": {name: {direction, width, type, src}}}
+                            "ports": {name: {direction, width, type, range, src}},
+                            "nets": {name: {type, range, src}}}
     generate_info[module][name] = {"count": N, "src": ...}
+
+    A net of a generate block carries the block path yosys gives it
+    ("g[0].gr"), so the two layers join on one name.
 
     ``root`` anchors the AST's relative source paths when reading declared
     parameter defaults from the source text (slang does not expose them).
@@ -286,10 +316,10 @@ def _parse_ast_decls(
 
     def decl(module: str) -> dict[str, Any]:
         return decls.setdefault(
-            module, {"params": {}, "ports": {}}
+            module, {"params": {}, "ports": {}, "nets": {}}
         )
 
-    def visit_members(members: list[dict], module: str) -> None:
+    def visit_members(members: list[dict], module: str, prefix: str = "") -> None:
         for m in members or []:
             kind = m.get("kind")
             if kind in ("Parameter", "LocalParameter"):
@@ -310,6 +340,15 @@ def _parse_ast_decls(
                     "direction": direction,
                     "width": _type_width(m.get("type")),
                     "type": _type_string(m.get("type")),
+                    "range": _type_range(m.get("type")),
+                    "src": _ast_src(m),
+                }
+            elif kind in ("Variable", "Net"):
+                # The body declarations: 'logic [W-1:0] x' and 'wire [3:0] w'.
+                # A port appears here a second time, with the same type.
+                decl(module)["nets"][f"{prefix}{m['name']}"] = {
+                    "type": _type_string(m.get("type")),
+                    "range": _type_range(m.get("type")),
                     "src": _ast_src(m),
                 }
             elif kind == "Instance":
@@ -323,10 +362,13 @@ def _parse_ast_decls(
                     "count": len(blocks),
                     "src": _ast_src(m),
                 }
-                for block in blocks:
-                    visit_members(block.get("members"), module)
+                # slang leaves the block names empty; yosys spells them
+                # 'g[0]' - index the blocks in order, as the generate scopes
+                # above do.
+                for i, block in enumerate(blocks):
+                    visit_members(block.get("members"), module, f"{prefix}{m['name']}[{i}].")
             elif kind == "GenerateBlock":
-                visit_members(m.get("members"), module)
+                visit_members(m.get("members"), module, prefix)
 
     root_instance = next(
         (m for m in (ast.get("design") or {}).get("members") or [] if m.get("kind") == "Instance"),
@@ -374,6 +416,7 @@ def _ports_for(mod: dict, decl: dict[str, Any] | None) -> tuple[Port, ...]:
                 width=len(p.get("bits") or []),
                 src=decl_port.get("src"),
                 type=decl_port.get("type"),
+                range=decl_port.get("range"),
             )
         )
     return tuple(ports)  # source (declaration) order; yosys JSON is stable
@@ -392,18 +435,28 @@ def _bit_key(b: Any) -> int:
         return -1
 
 
-def _nets_for(mod: dict) -> tuple[Net, ...]:
+def _nets_for(mod: dict, decl: dict[str, Any] | None = None) -> tuple[Net, ...]:
+    """Nets of one module: yosys for the bits, slang's declaration for the range.
+
+    yosys carries a bit count only, so a net declared ``[7:1]`` or ``[0:7]``
+    has no range to show without the overlay (card 219). A net the AST walk
+    never reached keeps its range None, and the reader falls back to the
+    width.
+    """
+    decl_nets = (decl or {}).get("nets") or {}
     nets: list[Net] = []
     for name, n in (mod.get("netnames") or {}).items():
         if name.startswith("$"):
             continue
         bits = n.get("bits") or []
+        decl_net = decl_nets.get(name) or {}
         nets.append(
             Net(
                 name=name,
                 width=len(bits),
                 bits=tuple(_bit_key(b) for b in bits),
                 src=(n.get("attributes") or {}).get("src"),
+                range=decl_net.get("range"),
             )
         )
     return tuple(sorted(nets, key=lambda n: n.name))
@@ -521,7 +574,7 @@ def build_design(
             blackbox=_is_blackbox(mod),
             params=_params_for(node, decls.get(base)),
             ports=_ports_for(mod, decls.get(base)),
-            nets=_nets_for(mod),
+            nets=_nets_for(mod, decls.get(base)),
             src=((mod.get("attributes") or {}).get("src") or node.get("file")),
         )
 

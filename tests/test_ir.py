@@ -24,7 +24,9 @@ from tren.ir import (  # noqa: E402
     Design,
     Endpoint,
     NetConnectivity,
+    Param,
     design_from_fixture,
+    literal_int,
     schema_id,
 )
 from tren.manifest import Manifest  # noqa: E402
@@ -81,6 +83,67 @@ class RoundTripTests(unittest.TestCase):
             ),
         )
         self.assertEqual(Design.from_json(design.to_json()), design)
+
+
+class LiteralIntTests(unittest.TestCase):
+    """The two layers spell one number differently (card 219)."""
+
+    def test_plain_decimal(self) -> None:
+        self.assertEqual(literal_int("8"), 8)
+        self.assertEqual(literal_int(" 11 "), 11)
+        self.assertEqual(literal_int("-1"), -1)
+
+    def test_sized_literals(self) -> None:
+        self.assertEqual(literal_int("32'd32"), 32)
+        self.assertEqual(literal_int("3'b000"), 0)
+        self.assertEqual(literal_int("4'b11"), 3)
+        self.assertEqual(literal_int("32'hff"), 255)
+        self.assertEqual(literal_int("8'o17"), 15)
+        self.assertEqual(literal_int("16'sd7"), 7)
+        self.assertEqual(literal_int("8'b1010_1010"), 170)
+
+    def test_not_a_literal(self) -> None:
+        self.assertIsNone(literal_int(None))
+        self.assertIsNone(literal_int(""))
+        self.assertIsNone(literal_int("(32 / 8)"))
+        self.assertIsNone(literal_int("2*W"))
+        self.assertIsNone(literal_int("4'bxx"))  # unknown bits have no value
+        self.assertIsNone(literal_int("2'b12"))  # a digit the base has not
+        self.assertIsNone(literal_int("hello"))
+
+
+class ParamOverrideTests(unittest.TestCase):
+    """Card 219: the override marker states a fact, so it compares numbers.
+
+    slang-hier resolves "3'b000" to "3'b0" and "2'd1" to "2'b1". A text
+    compare reads those as an override of a parameter nobody overrides.
+    """
+
+    def test_same_number_spelled_differently_is_not_an_override(self) -> None:
+        self.assertFalse(Param(name="ST", value="3'b0", default="3'b000").overridden)
+        self.assertFalse(Param(name="S1", value="2'b1", default="2'd1").overridden)
+        self.assertFalse(Param(name="N", value="32'd32", default="32").overridden)
+
+    def test_a_real_override_still_marks(self) -> None:
+        self.assertTrue(Param(name="W", value="32'd32", default="8").overridden)
+        self.assertTrue(Param(name="M", value="4'b11", default="4'b10").overridden)
+
+    def test_localparam_is_never_overridden(self) -> None:
+        p = Param(name="OP", value="4'b11", default="3", kind="localparam")
+        self.assertFalse(p.overridden)
+
+    def test_no_declared_default_claims_nothing(self) -> None:
+        self.assertFalse(Param(name="W", value="32'd32").overridden)
+
+    def test_expression_default_claims_nothing(self) -> None:
+        # '(32 / 8)' against a resolved '4' says nothing either way, and an
+        # override is a positive claim.
+        self.assertFalse(Param(name="B", value="4", default="(32 / 8)").overridden)
+        self.assertFalse(Param(name="B", value="8", default="(32 / 8)").overridden)
+
+    def test_two_non_literals_compare_as_text(self) -> None:
+        self.assertTrue(Param(name="S", value='"b"', default='"a"').overridden)
+        self.assertFalse(Param(name="S", value='"a"', default='"a"').overridden)
 
 
 class ManifestTests(unittest.TestCase):

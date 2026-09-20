@@ -58,8 +58,15 @@ them). Builds the real IR from the *tracked demo RTL* and asserts:
   path-keyed `top.u_core.g[0]`, `module=None` for generate);
 - resolved + default params at full fidelity (`W=32'd32`/default `8`/
   override; `OP` localparam), port types from slang (`logic [31:0]`);
+- declared ranges on ports and nets, the generate block's `g[0].gr`
+  included;
 - deterministic: `elaborate` twice -> equal `Design`s;
 - cache: warm hit round-trips the same `Design`.
+
+A second tracked fixture, `rtl/ranges.sv`, holds the ranges the demo cannot
+carry - `[7:1]`, `[0:7]`, `[15:8]` - because the drives assert the demo's
+line numbers. Its acceptance test asserts the IR *and* the leaf text the
+hierarchy paints, so a range that stops reaching the label fails here.
 
 This layer is the thing that pins **tool-version behaviour**: if yosys/slang
 change something, this test fails loudly instead of silently disturbing every

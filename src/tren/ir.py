@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import Any, Union, get_args, get_origin, get_type_hints
@@ -31,6 +32,42 @@ class Port:
     width: int
     src: str | None = None
     type: str | None = None  # source-faithful type string from slang, e.g. "logic [31:0]"
+    range: str | None = None  # declared range as written, e.g. "[7:1]"
+
+
+_LITERAL = re.compile(
+    r"^(?P<size>\d+)?'(?P<sign>[sS])?(?P<base>[bBoOdDhH])(?P<digits>[0-9a-fA-F_]+)$"
+)
+_BASE = {"b": 2, "o": 8, "d": 10, "h": 16}
+
+
+def literal_int(text: str | None) -> int | None:
+    """Value of a Verilog integer literal, or None when it is not one.
+
+    Reads both spellings the backends produce for one number: the plain
+    source text of a declared default ("8", "-1") and slang's resolved form
+    ("32'd8", "3'b000"). A literal that carries x or z bits has no single
+    value and gives None, as does any expression ("(32 / 8)").
+    """
+    if text is None:
+        return None
+    text = text.strip()
+    if not text:
+        return None
+    negative = text.startswith("-")
+    if negative:
+        text = text[1:].lstrip()
+    digits_only = text.replace("_", "")
+    if digits_only.isdigit():
+        return -int(digits_only) if negative else int(digits_only)
+    m = _LITERAL.match(text)
+    if m is None:
+        return None
+    try:
+        value = int(m.group("digits").replace("_", ""), _BASE[m.group("base").lower()])
+    except ValueError:
+        return None  # a digit the base does not have ("2'b12")
+    return -value if negative else value
 
 
 @dataclass(frozen=True)
@@ -45,14 +82,25 @@ class Param:
         """The instance resolves to something other than the declared default.
 
         Only meaningful for ``parameter`` (a ``localparam`` cannot be
-        overridden); compares the source-text default with the resolved
-        value as strings (e.g. "8" vs "32'd32").
+        overridden). The two sides are spelled by different layers: the
+        default is source text, the value is slang's resolved literal, and
+        the same number reads "3'b000" in one and "3'b0" in the other.
+        Compare them as numbers, so only a real override gets the marker.
+
+        When exactly one side is a literal the two are not comparable - a
+        default of "(32 / 8)" against a value of "4" says nothing about an
+        override - and the parameter counts as not overridden. Two
+        non-literals (a string parameter) fall back to a text compare.
         """
-        return (
-            self.kind == "parameter"
-            and self.default is not None
-            and str(self.value) != str(self.default)
-        )
+        if self.kind != "parameter" or self.default is None:
+            return False
+        declared = literal_int(self.default)
+        resolved = literal_int(str(self.value))
+        if declared is None and resolved is None:
+            return str(self.value).strip() != str(self.default).strip()
+        if declared is None or resolved is None:
+            return False
+        return declared != resolved
 
 
 @dataclass(frozen=True)
@@ -61,6 +109,7 @@ class Net:
     width: int
     bits: tuple[int, ...] = ()
     src: str | None = None
+    range: str | None = None  # declared range as written, e.g. "[0:7]"
 
 
 @dataclass(frozen=True)
@@ -294,11 +343,11 @@ def design_from_fixture(path: str | Path) -> Design:
                     for p in s.get("params", [])
                 ),
                 ports=tuple(
-                    Port(name=p["name"], direction=p.get("dir", "in"), width=int(p.get("width", 0)), src=p.get("src"))
+                    Port(name=p["name"], direction=p.get("dir", "in"), width=int(p.get("width", 0)), src=p.get("src"), range=p.get("range"))
                     for p in s.get("ports", [])
                 ),
                 nets=tuple(
-                    Net(name=n["name"], width=int(n.get("width", 0)), src=n.get("src"))
+                    Net(name=n["name"], width=int(n.get("width", 0)), src=n.get("src"), range=n.get("range"))
                     for n in s.get("nets", [])
                 ),
                 instances=tuple(

@@ -22,6 +22,7 @@ from tren.elaborate import (  # noqa: E402
     _decl_default,
     _nets_for,
     _src_pos,
+    _type_range,
     _type_string,
     build_design,
     elaborate,
@@ -29,6 +30,7 @@ from tren.elaborate import (  # noqa: E402
 )
 from tren.ir import BoundaryLink, Design, NetConnectivity, Port, Scope  # noqa: E402
 from tren.manifest import Manifest  # noqa: E402
+from tren.tui import net_leaf_label, port_leaf_label  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -179,6 +181,43 @@ class SlangOverlayUnitTests(unittest.TestCase):
         self.assertIsNone(_decl_default([], "rtl/demo.sv:1:38"))
         self.assertIsNone(_decl_default(lines, None))
 
+    def test_decl_default_keeps_a_bracketed_expression(self) -> None:
+        # HLS writes its width parameters as expressions. A '(' that the
+        # default opens itself must not end it.
+        lines = [
+            "parameter C_S_AXI_WSTRB_WIDTH = (32 / 8);",
+            "parameter NESTED = ((4 + 2) * 2);",
+            "parameter PICK = WIDTHS[1:0];",
+            "module m #(parameter int W = (8), parameter int V = 2)",
+        ]
+        self.assertEqual(_decl_default(lines, "f.v:1:11"), "(32 / 8)")
+        self.assertEqual(_decl_default(lines, "f.v:2:11"), "((4 + 2) * 2)")
+        self.assertEqual(_decl_default(lines, "f.v:3:11"), "WIDTHS[1:0]")
+        # the ')' that closes the parameter port list is unbalanced: it ends
+        # the default, and the ',' ends the first one
+        self.assertEqual(_decl_default(lines, "f.v:4:26"), "(8)")
+        self.assertEqual(_decl_default(lines, "f.v:4:49"), "2")
+
+    def test_type_range(self) -> None:
+        packed = {"kind": "PackedArrayType", "range": "[7:1]",
+                  "elementType": {"name": "logic", "kind": "ScalarType"}}
+        self.assertEqual(_type_range(packed), "[7:1]")
+        self.assertEqual(_type_range({**packed, "range": "[0:7]"}), "[0:7]")
+        self.assertIsNone(_type_range({"kind": "ScalarType", "name": "logic"}))
+        self.assertIsNone(_type_range({**packed, "range": ""}))
+        self.assertIsNone(_type_range(None))
+
+    def test_nets_for_reads_the_declared_range(self) -> None:
+        mod = {"netnames": {
+            "nd": {"bits": [1, 2], "attributes": {"src": "f.sv:8"}},
+            "unknown": {"bits": [3, 4], "attributes": {}},
+        }}
+        decl = {"nets": {"nd": {"range": "[15:8]", "type": "logic [15:8]"}}}
+        nets = {n.name: n for n in _nets_for(mod, decl)}
+        self.assertEqual(nets["nd"].range, "[15:8]")
+        # a net the AST walk never reached keeps None and falls back to width
+        self.assertIsNone(nets["unknown"].range)
+
 
 class BitKeyTests(unittest.TestCase):
     """Yosys JSON uses non-integer tokens for constant / don't-care bits."""
@@ -318,6 +357,65 @@ class DemoAcceptanceTests(unittest.TestCase):
         self.assertIn("alu", by_scope)
         self.assertGreater(len(design.connectivity), 0)
         self.assertGreater(len(design.boundaries), 0)
+
+    def test_declared_ranges_reach_the_demo_ir(self) -> None:
+        design = elaborate(self.manifest, REPO, cache=None)
+        alu0 = design.scope("top.u_core.u_alu0")
+        core = design.scope("top.u_core")
+        assert alu0 is not None and core is not None
+        self.assertEqual({p.name: p.range for p in alu0.ports}["op"], "[3:0]")
+        nets = {n.name: n for n in core.nets}
+        self.assertEqual(nets["x"].range, "[31:0]")
+        # a generate block's net joins the two layers on the name yosys
+        # gives it, 'g[0].gr'
+        self.assertEqual(nets["g[0].gr"].range, "[31:0]")
+        self.assertEqual(nets["g[1].gr"].range, "[31:0]")
+
+
+@unittest.skipUnless(
+    shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
+    "requires the nix dev shell (yosys/slang on PATH)",
+)
+class DeclaredRangeAcceptanceTests(unittest.TestCase):
+    """Card 219: the range a leaf paints is the one the source declares.
+
+    yosys carries a bit count only, so the range used to be derived as
+    [width-1:0] and every descending range that does not end at 0, and every
+    ascending range, read wrong. rtl/ranges.sv holds exactly those cases.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.design = elaborate(
+            Manifest.read(REPO / "rtl" / "ranges.manifest.json"), REPO, cache=None
+        )
+
+    def test_ports_keep_the_declared_range(self) -> None:
+        scope = self.design.scope("ranges")
+        assert scope is not None
+        ports = {p.name: p for p in scope.ports}
+        self.assertEqual((ports["down"].range, ports["down"].width), ("[7:1]", 7))
+        self.assertEqual((ports["up"].range, ports["up"].width), ("[0:7]", 8))
+        self.assertIsNone(ports["sc"].range, "a scalar declares no range")
+
+    def test_nets_keep_the_declared_range(self) -> None:
+        scope = self.design.scope("ranges")
+        assert scope is not None
+        nets = {n.name: n for n in scope.nets}
+        self.assertEqual((nets["nd"].range, nets["nd"].width), ("[15:8]", 8))
+        self.assertEqual((nets["nu"].range, nets["nu"].width), ("[0:3]", 4))
+        self.assertIsNone(nets["ns"].range)
+
+    def test_the_leaves_read_as_the_source_writes_them(self) -> None:
+        scope = self.design.scope("ranges")
+        assert scope is not None
+        ports = {p.name: p for p in scope.ports}
+        nets = {n.name: n for n in scope.nets}
+        self.assertEqual(port_leaf_label(ports["down"]), "port in    down[7:1]")
+        self.assertEqual(port_leaf_label(ports["up"]), "port in    up[0:7]")
+        self.assertEqual(port_leaf_label(ports["sc"]), "port in    sc")
+        self.assertEqual(net_leaf_label(nets["nd"]), "net nd[15:8]")
+        self.assertEqual(net_leaf_label(nets["nu"]), "net nu[0:3]")
 
 
 if __name__ == "__main__":

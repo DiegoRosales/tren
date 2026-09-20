@@ -91,14 +91,16 @@ def _parse_src(src: str | None) -> tuple[str, int, int] | None:
     return file, lo, hi
 
 
-def _bit_range(width: int) -> str:
+def _bit_range(width: int, declared: str | None = None) -> str:
     """Bit range suffix for a leaf: '[msb:lsb]', empty for a scalar.
 
-    The IR carries a width, not a declared range, so the range is derived as
-    ``[width-1:0]``. That is wrong for a signal declared ``[7:1]`` or
-    ``[0:7]``. The declared range arrives with the slang overlay (card 219)
-    and replaces this line only - no other code reads the range.
+    The declared range comes from the slang overlay and reads as the source
+    writes it, ``[7:1]`` and ``[0:7]`` included (card 219). A signal the
+    overlay never reached carries none, and the range falls back to the
+    width as ``[width-1:0]``.
     """
+    if declared:
+        return declared
     return f"[{width - 1}:0]" if width > 1 else ""
 
 
@@ -108,7 +110,8 @@ def port_leaf_label(port: Port) -> str:
     The direction is left-aligned in a fixed column, so in / out / inout all
     start the name at the same offset.
     """
-    return f"port {port.direction:<{PORT_DIR_WIDTH}} {port.name}{_bit_range(port.width)}"
+    suffix = _bit_range(port.width, port.range)
+    return f"port {port.direction:<{PORT_DIR_WIDTH}} {port.name}{suffix}"
 
 
 def net_leaf_label(net: Net) -> str:
@@ -116,7 +119,7 @@ def net_leaf_label(net: Net) -> str:
 
     The range reads the same as a port's. A net has no direction column.
     """
-    return f"net {net.name}{_bit_range(net.width)}"
+    return f"net {net.name}{_bit_range(net.width, net.range)}"
 
 
 class SourcePane(Static):

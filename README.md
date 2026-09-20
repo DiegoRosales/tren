@@ -119,10 +119,11 @@ fixed column, so `in`, `out` and `inout` all start the name at the same
 offset. A net leaf reads `net <name>[msb:lsb]`, with the same range spelling
 and no direction. A scalar (one bit) carries no range.
 
-WARNING: the range is derived from the width as `[width-1:0]`, because the IR
-carries a width and not a declared range. A signal declared `[7:1]` or
-`[0:7]` therefore shows a range that the source does not write. The declared
-range arrives with the slang overlay (card 219).
+The range is the one the source declares, from the slang overlay: `[7:1]`
+and `[0:7]` read as they are written, and a parametrised bound shows the
+value this instance resolves. A signal the overlay never reached (a module
+outside the slang pass) keeps the range derived from the yosys bit count,
+`[width-1:0]`.
 
 ### The I/O pane
 
@@ -140,6 +141,13 @@ default beside it: `✎` marks one the instantiation overrides, `·` one that
 takes the default (a `localparam` can never be overridden). A port shows its
 type as written in the source - `logic [31:0]`, from slang - then direction
 and bit width.
+
+The two sides of a parameter come from different layers and spell one number
+differently: slang resolves the source text `3'b000` to `3'b0`. TREN
+compares them as numbers, so only a real override gets the `✎`. A default
+written as an expression - `parameter B = (32 / 8)` - is shown as written,
+and never counts as an override: the resolved `4` beside it proves nothing
+either way.
 
 Types, defaults and declaration lines come from the slang overlay; widths and
 connectivity come from yosys. A port belonging to a module the slang pass
@@ -289,7 +297,8 @@ src/tren/            package
   formats.py         yank format registry + templates
   tui.py             the textual app (implements the screen + keys only)
   __main__.py        subcommand front door (tren import / tren elaborate)
-rtl/                 small SystemVerilog fixture for tests
+rtl/                 small SystemVerilog fixtures: demo.sv (the drives) and
+                     ranges.sv (declared ranges: [7:1], [0:7])
 tests/               PILOT_WORKDIR for textual Pilot tests + unit tests
 manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
 pyproject.toml       PEP 621 metadata + deps - read by both nix and pip

@@ -1,0 +1,11 @@
+{
+  "name": "ranges",
+  "sources": [
+    "rtl/ranges.sv"
+  ],
+  "incdirs": [],
+  "defines": [],
+  "params": [],
+  "top": "ranges",
+  "blackboxes": []
+}

@@ -113,5 +113,32 @@ class NetLeafLabelTests(unittest.TestCase):
         self.assertTrue(port.endswith("rd[7:0]"))
 
 
+class DeclaredRangeLabelTests(unittest.TestCase):
+    """Card 219: the slang overlay carries the range the source writes.
+
+    The width alone spells every range [width-1:0], which is wrong for a
+    descending range that does not end at 0 and for an ascending one.
+    """
+
+    def test_declared_range_wins_over_the_width(self) -> None:
+        port = Port(name="down", direction="in", width=7, range="[7:1]")
+        self.assertEqual(port_leaf_label(port), "port in    down[7:1]")
+
+    def test_ascending_range(self) -> None:
+        self.assertEqual(
+            net_leaf_label(Net(name="up", width=8, range="[0:7]")), "net up[0:7]"
+        )
+
+    def test_a_one_bit_vector_keeps_its_range(self) -> None:
+        # 'logic [0:0] v' is a vector, not a scalar: the source says so.
+        port = Port(name="v", direction="out", width=1, range="[0:0]")
+        self.assertEqual(port_leaf_label(port), "port out   v[0:0]")
+
+    def test_without_the_overlay_the_width_still_spells_it(self) -> None:
+        self.assertEqual(
+            net_leaf_label(Net(name="n", width=4, range=None)), "net n[3:0]"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
