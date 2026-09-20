@@ -23,7 +23,13 @@ from textual.widgets import Static  # noqa: E402
 
 from tren.elaborate import elaborate  # noqa: E402
 from tren.manifest import Manifest  # noqa: E402
-from tren.tui import PANE_BG_ACTIVE, PANE_BG_IDLE, TrenApp, load_design  # noqa: E402
+from tren.tui import (  # noqa: E402
+    PANE_BG_ACTIVE,
+    PANE_BG_IDLE,
+    PANE_WIDTHS,
+    TrenApp,
+    load_design,
+)
 
 
 async def drive_fixture() -> None:
@@ -134,6 +140,41 @@ async def drive_fixture() -> None:
         assert not tree.has_focus, "the tree must not hold focus"
         await pilot.press("1")
 
+        # card 268: z zooms the active pane to the full width and hides the
+        # other two; z again restores the three columns
+        assert not app.zoomed, "the app must start unzoomed"
+        await pilot.press("z")
+        assert app.zoomed, "z should zoom"
+        for name, widget in widgets.items():
+            if name == "tree":
+                assert widget.display, "the zoomed pane must stay visible"
+                assert width_percent(widget) == 100.0, (
+                    f"zoomed pane width is {widget.styles.width}"
+                )
+            else:
+                assert not widget.display, f"{name} must be hidden while zoomed"
+
+        # 1/2/3 move the zoom with the active pane (one pane is ever visible)
+        await pilot.press("2")
+        assert app.active == "source", "2 should activate the source pane"
+        assert source.display and not tree.display and not ports.display, (
+            "the zoom should follow the active pane"
+        )
+
+        # keys still act on the zoomed pane
+        prev_offset = app.src_offset
+        await pilot.press("j")
+        assert app.src_offset == prev_offset + 1, "j should scroll the zoomed source"
+
+        await pilot.press("z")
+        assert not app.zoomed, "z should unzoom"
+        for name, widget in widgets.items():
+            assert widget.display, f"{name} must return after the zoom"
+            assert width_percent(widget) == float(PANE_WIDTHS[name].rstrip("%")), (
+                f"{name} width after unzoom: {widget.styles.width}"
+            )
+        await pilot.press("1")
+
         # cards 242/243, the no-src fallback: fixture ports carry no src, so a
         # port leaf resolves no declaration of its own and the enclosing
         # scope's inline RTL keeps the pane (no error, no jump).
@@ -173,6 +214,16 @@ def select_leaf(app: TrenApp, scope_path: str, kind: str, name: str) -> None:
             app._select(app._visible().index(child))
             return
     raise AssertionError(f"no {kind} leaf {name!r} under {scope_path}")
+
+
+def width_percent(widget) -> float:
+    """Percentage a pane's width style carries (card 268).
+
+    Textual stores a percentage width as `Unit.WIDTH` ('32w'), so a plain
+    comparison with `Scalar.parse('32%')` (`Unit.PERCENT`) never matches.
+    Every pane width is a percentage, so read the number.
+    """
+    return widget.styles.width.value
 
 
 def status_path(app: TrenApp) -> str:
@@ -325,6 +376,9 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("d")
         modal = app._modal
         assert modal is not None, "d should open the trace modal"
+        # card 268: the modal covers the panes, so z must not zoom behind it
+        await pilot.press("z")
+        assert not app.zoomed, "z must be refused while the trace modal is open"
         assert "drivers of top.out" in str(modal.query_one("#trace-title").content)
         assert app._trace == [("top", "out")], f"trace: {app._trace}"
         assert [r["label"] for r in modal.rows] == ["u_core.alu_result  → core"]

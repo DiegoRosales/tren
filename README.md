@@ -4,7 +4,8 @@
 
 A terminal RTL browser that treats a design hierarchy like a filesystem.
 Three panes: **scope tree** | **focused RTL source** | **module I/O**.
-`1`/`2`/`3` select the pane; `j`/`k` move, `l`/`h` expand/collapse the
+`1`/`2`/`3` select the pane and `z` zooms it to the full width; `j`/`k` move,
+`l`/`h` expand/collapse the
 highlighted scope, `enter` shows that module in the centre RTL pane, `ctrl+u`
 jumps up a hierarchy level, `y` yanks the selection through the current path
 format as a raw OSC 52 clipboard write, `Y` cycles the format (SV
@@ -154,6 +155,16 @@ connectivity come from yosys. A port belonging to a module the slang pass
 never reached still shows the netlist's direction and width, just without a
 type.
 
+### Zooming a pane
+
+`z` zooms the active pane: it takes the full width and the other two panes go
+away. `z` again restores the three columns at their usual widths. While the
+zoom is on, `1`/`2`/`3` move it - the pane you select becomes the zoomed one,
+so exactly one pane is ever on screen. Every other key keeps its effect: `j`
+still walks the tree, scrolls the source or selects a port, by the active
+pane. `z` does nothing while the trace modal is open, because the modal covers
+the panes.
+
 ### Keys
 
 All bindings work from any pane unless noted; `x` below means the active
@@ -162,6 +173,7 @@ pane.
 | Key | Effect |
 |---|---|
 | `1` `2` `3` | select the tree / source / I/O pane |
+| `z` | zoom the active pane to the full width, or restore the three columns |
 | `j` `k` | move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port |
 | `l` | tree: expand the highlighted scope (reveal its children) |
 | `h` | tree: collapse the highlighted scope (hide its children) |

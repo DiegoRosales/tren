@@ -15,8 +15,9 @@ Auto-follow: on scope change the focus band is kept in view
 at the selection's declaration line, `E` at the module definition.
 
 Keys: j/k move, l expand, h collapse, enter shows the module in the centre,
-ctrl+u jumps up a level, 1/2/3 pane select, y yank, e editor at the
-selection's declaration, E editor at the module definition, q quit.
+ctrl+u jumps up a level, 1/2/3 pane select, z zoom the active pane, y yank,
+e editor at the selection's declaration, E editor at the module definition,
+q quit.
 Headless Pilot tests:  python test_drive.py [--manifest …]
 """
 
@@ -34,6 +35,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Footer, Label, ListItem, ListView, Static, Tree
 
 from .cache import IrCache
@@ -49,6 +51,9 @@ PANE_BG_ACTIVE = "#262626"
 PANE_BG_IDLE = "#121212"
 # status line background (card 246): distinctly a chrome bar, not a pane
 STATUS_BG = "#1e1e1e"
+# three-column layout (card 268 restores these widths when the zoom ends)
+PANE_WIDTHS = {"tree": "32%", "source": "48%", "ports": "20%"}
+ZOOM_WIDTH = "100%"
 # port leaf column (card 253): "inout" is the longest direction
 PORT_DIR_WIDTH = 5
 
@@ -205,6 +210,7 @@ class TrenApp(App[None]):
         Binding("1", "select_pane_tree", "tree", priority=True),
         Binding("2", "select_pane_source", "source", priority=True),
         Binding("3", "select_pane_ports", "ports", priority=True),
+        Binding("z", "toggle_zoom", "zoom", priority=True),
         Binding("j", "next_item", "down", priority=True),
         Binding("k", "prev_item", "up", priority=True),
         Binding("l", "expand", "expand", priority=True),
@@ -232,7 +238,9 @@ class TrenApp(App[None]):
         self.osc_events: list[str] = []
         self.active = "tree"  # which pane j/k/l/h/y act on: tree | source | ports
         self._cue: str | None = None  # pane the background cue is painted for
+        self.zoomed = False  # z: the active pane fills the screen (card 268)
         self.src_offset = 0
+        self._source_rows = 30  # last known source-pane height (see _follow)
         self.port_index = 0
         self.pane_ports: list[Port] = []
         self._scopes = {s.name: s for s in design.scopes}
@@ -293,10 +301,9 @@ class TrenApp(App[None]):
         self._current_node = None
         # three columns: tree / source / ports; panes fill the viewport so
         # size.height is stable (not content-driven) for auto-follow
-        for selector, width in (("#tree", "32%"), ("#source", "48%"), ("#ports", "20%")):
-            widget = self.query_one(selector)
-            widget.styles.width = width
+        for _, widget in self._panes():
             widget.styles.height = "1fr"
+        self._apply_layout()
 
         roots = [s for s in self.design.scopes if _scope_parent(s.name) not in self._scopes]
         for scope in roots:
@@ -439,8 +446,14 @@ class TrenApp(App[None]):
         return self._file_cache[file]
 
     def _follow(self, focus: tuple[str, int, int]) -> None:
-        # floor the viewport: early renders report a tiny/zero height
-        rows = max(10, self._source_widget.size.height or 30)
+        # floor the viewport: early renders report a tiny/zero height, and a
+        # pane hidden by the zoom (card 268) reports zero for as long as it
+        # stays hidden — keep the last real height so the band is centred for
+        # the viewport the pane gets back.
+        height = self._source_widget.size.height
+        if height:
+            self._source_rows = height
+        rows = max(10, self._source_rows)
         file, lo, _ = focus
         lines = self._file_lines(file)
         max_offset = max(0, len(lines) - rows)
@@ -549,16 +562,32 @@ class TrenApp(App[None]):
         self._status_widget.update(self._selection_status())
         self._render_pane_cue()
 
+    def _panes(self) -> tuple[tuple[str, Widget], ...]:
+        """The three panes in screen order, keyed by the name `active` uses."""
+        return (
+            ("tree", self._tree_widget),
+            ("source", self._source_widget),
+            ("ports", self._ports_widget),
+        )
+
+    def _apply_layout(self) -> None:
+        """Size the panes for the current zoom state (card 268).
+
+        Zoomed, the active pane takes the full width and the other two are
+        undisplayed: a hidden widget claims no space, so a plain width change
+        is not enough. Unzoomed, every pane returns to its share of the row.
+        """
+        for pid, widget in self._panes():
+            active = pid == self.active
+            widget.display = active or not self.zoomed
+            widget.styles.width = ZOOM_WIDTH if self.zoomed else PANE_WIDTHS[pid]
+
     def _render_pane_cue(self) -> None:
         """Repaint the active-pane background cue (no-op unless it changed)."""
         if self._cue == self.active:
             return
         self._cue = self.active
-        for pid, widget in (
-            ("tree", self._tree_widget),
-            ("source", self._source_widget),
-            ("ports", self._ports_widget),
-        ):
+        for pid, widget in self._panes():
             widget.styles.background = PANE_BG_ACTIVE if pid == self.active else PANE_BG_IDLE
         # textual 8.2 Tree caches rendered line *strips* keyed on
         # (line, cursor, hover, width, ...) — the background is not part of the
@@ -738,16 +767,33 @@ class TrenApp(App[None]):
 
     # ---- actions ----------------------------------------------------------
 
-    def action_select_pane_tree(self) -> None:
-        self.active = "tree"
+    def _select_pane(self, pane: str) -> None:
+        """Make a pane active. Zoomed, the zoom moves with it (card 268)."""
+        self.active = pane
+        if self.zoomed:
+            self._apply_layout()
         self._render_panes()
+
+    def action_select_pane_tree(self) -> None:
+        self._select_pane("tree")
 
     def action_select_pane_source(self) -> None:
-        self.active = "source"
-        self._render_panes()
+        self._select_pane("source")
 
     def action_select_pane_ports(self) -> None:
-        self.active = "ports"
+        self._select_pane("ports")
+
+    def action_toggle_zoom(self) -> None:
+        """z: zoom the active pane to the full width, or restore the columns.
+
+        The trace modal covers the panes, so a zoom there changes nothing the
+        user can see. Refuse it instead of leaving a surprise behind the modal.
+        """
+        if self._modal is not None:
+            self.bell()
+            return
+        self.zoomed = not self.zoomed
+        self._apply_layout()
         self._render_panes()
 
     def action_next_item(self) -> None:

@@ -44,8 +44,8 @@ copy harness artifacts into this repo; cite them instead.
 - **UI framework**: textual (pinned 8.2.8) for the spike/MVP; ratatui 0.30 is
   the earmarked rewrite target and must remain a drop-in swap (IR and
   navigation logic framework-agnostic). Screen = tree | source | I/O; keys
-  j/k/l/h, 1/2/3 pane select, enter shows the module (centre), ctrl+u up a
-  level, y yank (OSC 52), e editor jump. The "User guide" section of
+  j/k/l/h, 1/2/3 pane select, z zooms the active pane, enter shows the module
+  (centre), ctrl+u up a level, y yank (OSC 52), e editor jump. The "User guide" section of
   README.md is the keymap reference.
 - **Black boxes are the normal case**: TREN always opens something. Port
   lists + `blackbox=1` come from yosys JSON already; user cuts toggle a scope
