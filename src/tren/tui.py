@@ -17,7 +17,8 @@ at the selection's declaration line, `E` at the module definition.
 Keys: j/k move, l expand, h collapse, enter shows the module in the centre,
 ctrl+u jumps up a level, 1/2/3 pane select, z zoom the active pane, y yank,
 e editor at the selection's declaration, E editor at the module definition,
-q quit.
+q quit. The arrow keys are aliases: down/up = j/k, right/left = l/h (card
+267); in the trace modal right descends and left goes back.
 Headless Pilot tests:  python test_drive.py [--manifest …]
 """
 
@@ -151,9 +152,15 @@ class TraceScreen(ModalScreen[None]):
     Enter is handled via ListView.Selected (ListView owns the enter key).
     List navigation uses arrow keys: the App's j/k bindings are
     priority=True and would shadow same-letter modal bindings (verified).
+    The focused ListView keeps up/down for the list, because the App's arrow
+    aliases (card 267) are not priority. Left/right are free there, so the
+    modal binds them to back/descend: an arrow in the trace never reaches the
+    tree behind the modal.
     """
 
     BINDINGS = [
+        Binding("right", "descend_trace", "descend", show=False),
+        Binding("left", "pop_trace", "back", show=False),
         Binding("backspace", "pop_trace", "back", show=False),
         Binding("escape", "dismiss", "close", show=False),
     ]
@@ -187,14 +194,20 @@ class TraceScreen(ModalScreen[None]):
             self.listwidget.index = 0
         self.listwidget.focus()
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
+    def _descend(self, idx: int | None) -> None:
         app = self._app
-        idx = event.index if event.index is not None else self.listwidget.index
         if idx is not None and 0 <= idx < len(self.rows):
             if app._trace_descend(self.rows[idx]):
                 self._refresh()
                 return
         app.bell()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self._descend(event.index if event.index is not None else self.listwidget.index)
+
+    def action_descend_trace(self) -> None:
+        """right: cross the highlighted boundary, as enter does."""
+        self._descend(self.listwidget.index)
 
     def action_pop_trace(self) -> None:
         app = self._app
@@ -215,6 +228,14 @@ class TrenApp(App[None]):
         Binding("k", "prev_item", "up", priority=True),
         Binding("l", "expand", "expand", priority=True),
         Binding("h", "collapse", "collapse", priority=True),
+        # arrow aliases of j/k/l/h (card 267). NOT priority, and that is the
+        # point: the trace modal's ListView owns up/down for its own list, and
+        # the modal binds left/right itself. A priority alias here would take
+        # all four away from the modal, exactly as j/k/l/h are taken.
+        Binding("down", "next_item", "down", show=False),
+        Binding("up", "prev_item", "up", show=False),
+        Binding("right", "expand", "expand", show=False),
+        Binding("left", "collapse", "collapse", show=False),
         Binding("enter", "focus_source", "show rtl"),  # NOT priority: the d/L
         # modal's ListView owns Enter while the trace is open
         Binding("ctrl+u", "go_up_level", "up level", priority=True),

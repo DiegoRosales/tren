@@ -77,6 +77,18 @@ async def drive_fixture() -> None:
         await pilot.press("l")
         assert app._current_node.is_expanded, "l should re-expand u_core"
 
+        # card 267: the arrow keys are aliases of j/k/l/h in the tree
+        await pilot.press("left")
+        assert not app._current_node.is_expanded, "left should collapse u_core"
+        await pilot.press("right")
+        assert app._current_node.is_expanded, "right should expand u_core"
+        await pilot.press("down")
+        assert app._current_node.label.plain.startswith("port"), \
+            f"down should step to the next visible row: {app._current_node}"
+        await pilot.press("up")
+        assert "u_core" in app._current_node.label.plain, \
+            f"up should step back: {app._current_node}"
+
         # j -> first port leaf under u_core; panes stay on core
         await pilot.press("j")
         assert app._current_node.label.plain.startswith("port"), f"cursor: {app._current_node}"
@@ -108,6 +120,11 @@ async def drive_fixture() -> None:
         prev_offset = app.src_offset
         await pilot.press("j")
         assert app.src_offset == prev_offset + 1, "j in source pane should scroll the source"
+        # card 267: the arrows scroll the source pane too
+        await pilot.press("down")
+        assert app.src_offset == prev_offset + 2, "down should scroll the source pane"
+        await pilot.press("up")
+        assert app.src_offset == prev_offset + 1, "up should scroll the source pane back"
 
         await pilot.press("3")
         assert app.active == "ports", "pressing 3 should activate the ports pane"
@@ -115,6 +132,13 @@ async def drive_fixture() -> None:
         assert app.port_index == 1, "j in ports pane should move the I/O selection"
         await pilot.press("y")
         assert "b" in app.yanked[-1], f"yank in ports pane should name the selected port: {app.yanked[-1]}"
+        # card 267: the arrows move the I/O selection too
+        before = app.port_index
+        await pilot.press("down")
+        assert app.port_index == (before + 1) % len(app.pane_ports), \
+            f"down should move the I/O selection: {app.port_index}"
+        await pilot.press("up")
+        assert app.port_index == before, f"up should move it back: {app.port_index}"
 
         await pilot.press("1")
         assert app.active == "tree", "pressing 1 should reactivate the tree pane"
@@ -393,6 +417,15 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
 
         await pilot.press("backspace")  # pop back to top.out
         assert app._trace == [("top", "out")], f"trace after pop: {app._trace}"
+
+        # card 267: in the modal right descends and left goes back, so an
+        # arrow never falls through to the tree behind it
+        await pilot.press("right")
+        assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], \
+            f"right should cross the boundary: {app._trace}"
+        await pilot.press("left")
+        assert app._trace == [("top", "out")], f"left should pop the trace: {app._trace}"
+
         await pilot.press("escape")
         assert app._modal is None, "escape should close the trace modal"
 

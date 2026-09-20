@@ -177,6 +177,7 @@ pane.
 | `j` `k` | move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port |
 | `l` | tree: expand the highlighted scope (reveal its children) |
 | `h` | tree: collapse the highlighted scope (hide its children) |
+| arrows | aliases: `down`/`up` = `j`/`k`, `right`/`left` = `l`/`h` |
 | `enter` | tree: show the highlighted module in the centre RTL pane, with context |
 | `ctrl+u` | tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent |
 | `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
@@ -188,14 +189,16 @@ pane.
 | `E` | open `$EDITOR` at the *module definition* (the module's declaration line); on a top-level module both `e` and `E` land there |
 | `q` | quit |
 
-In the **trace modal**: `enter` crosses a boundary into the child scope,
-`backspace` pops the trace stack, `escape` closes it.
+In the **trace modal**: `enter` or `right` crosses a boundary into the child
+scope, `backspace` or `left` pops the trace stack, `down`/`up` move through
+the rows, `escape` closes it.
 
 ### Navigating
 
 `j`/`k` move through the tree **without unfolding** anything - only `l`
 expands the highlighted scope to reveal its children (file-manager model),
-and `h` collapses it again. `ctrl+u` steps up one granularity level, current
+and `h` collapses it again. The arrow keys do the same four things: `down`
+and `up` move, `right` expands, `left` collapses. `ctrl+u` steps up one granularity level, current
 scope first: from a port/net leaf it jumps to that module's row (not past it
 to the parent); pressed again it moves up to the parent module. `enter` puts the highlighted module into the centre. The center pane shows the **real RTL
 file** at the module's *instantiation in its parent* (or its declaration at
