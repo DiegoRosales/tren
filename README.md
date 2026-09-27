@@ -171,6 +171,8 @@ the panes.
 All bindings work from any pane unless noted; `x` below means the active
 pane.
 
+<!-- keys:begin -->
+
 | Key | Effect |
 |---|---|
 | `1` `2` `3` | select the tree / source / I/O pane |
@@ -178,21 +180,22 @@ pane.
 | `j` `k` | move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port |
 | `l` | tree: expand the highlighted scope (reveal its children) |
 | `h` | tree: collapse the highlighted scope (hide its children) |
-| arrows | aliases: `down`/`up` = `j`/`k`, `right`/`left` = `l`/`h` |
+| `arrows` | aliases: down/up = j/k, right/left = l/h |
 | `enter` | tree: show the highlighted module in the centre RTL pane, with context |
 | `ctrl+u` | tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent |
 | `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
-| `Y` | cycle the yank format: `sv` -> `vivado` -> `yosys` -> `vcd` |
-| `d` `L` | trace **drivers** / **loads** of the selected net (opens the trace modal) |
+| `Y` | cycle the yank format: sv -> vivado -> yosys -> vcd |
+| `d` `L` | trace drivers / loads of the selected net (opens the trace modal) |
 | `X` | cut/restore the highlighted scope (treat it as a black box) |
 | `;` | dump the current trace path as text |
-| `e` | open `$EDITOR` at the selection's declaration - a scope's *instantiation* in its parent, a port/net's own declaration (app suspends and returns) |
-| `E` | open `$EDITOR` at the *module definition* (the module's declaration line); on a top-level module both `e` and `E` land there |
+| `e` | open $EDITOR at the selection's declaration - a scope's instantiation in its parent, a port/net's own declaration |
+| `E` | open $EDITOR at the module definition (the module's declaration line); on a top module both e and E land there |
+| `?` | open this navigation cheatsheet |
 | `q` | quit |
 
-In the **trace modal**: `enter` or `right` crosses a boundary into the child
-scope, `backspace` or `left` pops the trace stack, `down`/`up` move through
-the rows, `escape` closes it.
+In the **trace modal**: `enter` or `right` crosses a boundary into the child scope, `backspace` or `left` pops the trace stack, `down/up` move through the rows, `escape` closes it.
+
+<!-- keys:end -->
 
 ### Navigating
 

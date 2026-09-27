@@ -16,9 +16,10 @@ at the selection's declaration line, `E` at the module definition.
 
 Keys: j/k move, l expand, h collapse, enter shows the module in the centre,
 ctrl+u jumps up a level, 1/2/3 pane select, z zoom the active pane, y yank,
-e editor at the selection's declaration, E editor at the module definition,
-q quit. The arrow keys are aliases: down/up = j/k, right/left = l/h (card
-267); in the trace modal right descends and left goes back.
+? navigation cheatsheet, e editor at the selection's declaration, E editor at
+the module definition, q quit. The arrow keys are aliases: down/up = j/k,
+right/left = l/h (card 267); in the trace modal right descends and left goes
+back.
 Headless Pilot tests:  python test_drive.py [--manifest …]
 """
 
@@ -32,6 +33,7 @@ import subprocess
 from pathlib import Path
 
 from rich.text import Text as RichText
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -43,6 +45,7 @@ from .cache import IrCache
 from .elaborate import elaborate
 from .formats import BY_NAME, DEFAULT, PathFormat, render as render_format
 from .ir import Design, Net, Port, Scope, design_from_fixture
+from .keys import SCREEN_KEYS, TRACE_KEYS, KeyDoc
 from .manifest import Manifest
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.json"
@@ -128,6 +131,11 @@ def net_leaf_label(net: Net) -> str:
     return f"net {net.name}{_bit_range(net.width, net.range)}"
 
 
+def cheat_line(doc: KeyDoc) -> str:
+    """Cheatsheet row: the keys in a fixed column, then the effect (card 248)."""
+    return f"{doc.keys:<16} {doc.effect}"
+
+
 class SourcePane(Static):
     """Center: RTL source with the focused range highlighted."""
 
@@ -144,6 +152,46 @@ class StatusBar(Static):
     """
 
     can_focus = False
+
+
+class CheatSheet(ModalScreen[None]):
+    """Navigation cheatsheet: the full key map on one screen (card 248).
+
+    Escape dismisses. Every other key also dismisses first and then continues
+    to the layer below - TrenApp.on_event pops the sheet before dispatching,
+    so a nav key reads the map and keeps navigating in one press. Both the
+    sheet and the README table come from tren.keys, so they cannot drift.
+
+    Opening it while the d/L trace modal is open lists the trace keys too:
+    the app passes include_trace from whether a trace is currently shown.
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "close", show=False),
+    ]
+
+    def __init__(self, include_trace: bool = False) -> None:
+        super().__init__()
+        self.include_trace = include_trace
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Navigation cheatsheet", id="cheat-title")
+            for doc in SCREEN_KEYS:
+                yield Static(cheat_line(doc))
+            if self.include_trace:
+                yield Label("While the trace is open:", id="cheat-trace-title")
+                for doc in TRACE_KEYS:
+                    yield Static(cheat_line(doc))
+            yield Label("Escape or any key closes this.", id="cheat-hint")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._app = self.app  # type: ignore[assignment]
+        self._app._cheat = self  # type: ignore[attr-defined]
+
+    def on_unmount(self) -> None:
+        self._app._cheat = None  # type: ignore[attr-defined]
 
 
 class TraceScreen(ModalScreen[None]):
@@ -247,6 +295,7 @@ class TrenApp(App[None]):
         Binding(";", "dump_trace", "dump", priority=True),
         Binding("e", "open_editor", "editor inst", priority=True),
         Binding("E", "open_module_definition", "editor def", priority=True),
+        Binding("?", "show_cheatsheet", "cheatsheet", priority=True),
         Binding("q", "quit", "quit", priority=True),
     ]
 
@@ -277,6 +326,8 @@ class TrenApp(App[None]):
         self.trace_dump: str = ""
         # user cuts (X): scope paths made opaque at runtime
         self._user_cut: set[str] = set()
+        # the ? cheatsheet when it is on screen (card 248)
+        self._cheat: "CheatSheet | None" = None
 
     def compose(self) -> ComposeResult:
         yield StatusBar("", id="status")
@@ -816,6 +867,38 @@ class TrenApp(App[None]):
         self.zoomed = not self.zoomed
         self._apply_layout()
         self._render_panes()
+
+    def action_show_cheatsheet(self) -> None:
+        """?: open the navigation cheatsheet (full key map, card 248).
+
+        The sheet lists the trace-modal keys too when a trace is open. It is
+        also reachable from inside the trace modal, where the trace is still
+        mounted underneath. A second open is refused: on_event pops the sheet
+        on the `?` key instead of reopening it.
+        """
+        if self._cheat is not None:
+            return
+        self.push_screen(CheatSheet(include_trace=self._modal is not None))
+
+    async def on_event(self, event: events.Event) -> None:
+        """The cheatsheet yields to any key: dismiss it, then dispatch on.
+
+        Every nav key is an app-level binding, so textual would run it while
+        the sheet stays up. Pop the sheet first, then let the same key reach
+        the layer below (the panes, or the trace modal it was opened from).
+        escape and `?` only dismiss: escape must not close the trace modal
+        underneath too, and `?` must not reopen the sheet.
+        """
+        if isinstance(event, events.Key) and not event.is_forwarded:
+            if self._cheat is not None and self.screen is self._cheat:
+                # event.name is the normalized key ('question_mark' for '?')
+                key = event.name
+                self.pop_screen()
+                self._cheat = None
+                if key in ("escape", "question_mark"):
+                    event.stop()
+                    return
+        await super().on_event(event)
 
     def action_next_item(self) -> None:
         if self.active == "ports":

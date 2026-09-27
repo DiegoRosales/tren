@@ -181,6 +181,14 @@ to commit messages.
   driver. `App.console` is a rich Console bound to `_NullFile()` - never use
   it as an output sink. (Correction: the tui_textual finding "textual has no
   clipboard API" predates this method.)
+- textual 8.2 normalizes `?` to the key name `question_mark` (the `Binding`
+  still reads `"?"`). A modal screen cannot beat an App `priority=True`
+  binding: `App.on_event` runs `_check_bindings` app-first, so the `?`
+  cheatsheet pops itself in `TrenApp.on_event` before dispatch - that is how
+  one nav key both dismisses the sheet and keeps acting (card 248).
+- The cheatsheet (`?`) and the README "Keys" table render from the same list
+  in `tren/keys.py`; change a binding and run `make guide` (asserted by
+  `tests/test_keys.py`).
 - textual 8.2 `Tree.auto_expand` runs in an async `@on(NodeSelected)`
   handler that **toggles** - under a key burst (autorepeat / scripted paste)
   it re-orders against the app's own visible-walk, and pre-expanding the node

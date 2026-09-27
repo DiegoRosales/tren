@@ -206,7 +206,7 @@ ceremony:
 |---|---|---|
 | pure logic / IR | unit test | `make test` |
 | a new IR field | nothing to remember - `ir.schema_id()` invalidates caches from its layout. Changing what an *existing* field means is the exception: bump `ir.SCHEMA_VERSION` | `make test` |
-| binding / navigation / pane | update Pilot drives, user guide, AGENTS gotchas | `make check` + `make roundtrip` (tree/OSC) |
+| binding / navigation / pane | update Pilot drives, user guide, AGENTS gotchas; a key map change also runs `make guide` so the README table and the `?` cheatsheet (one list in `tren/keys.py`) cannot drift | `make check` + `make roundtrip` (tree/OSC) |
 | pane styling / anything the Tree renders | assert the style in the drives **and** capture a real terminal | `make check` + `make pane-cue` |
 | elaborator / CLI / importers | extend acceptance, re-run on demo + an HLS block | `make check` + `make hls-elaborate BLOCK=...` |
 | backend flag / format claim | **verify against the tool first** (AGENTS section 4) | run tool, then encode as test |

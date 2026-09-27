@@ -11,7 +11,7 @@ HLS_EXAMPLES_PATH := test/hls_examples
 .DEFAULT_GOAL := help
 
 .PHONY: help run run-fixture import elaborate test drive drive-real roundtrip \
-        pane-cue profile bom check hls-import hls-elaborate hls-run
+        pane-cue profile bom guide check hls-import hls-elaborate hls-run
 
 help:
 	@echo "TREN examples that work (stock checkout, nix-only):"
@@ -27,6 +27,7 @@ help:
 	@echo "  make pane-cue       real-terminal check of the pane cue + path status line (private tmux server)"
 	@echo "  make profile        lazy-load + cache profile on a synthetic 1100-scope IR"
 	@echo "  make bom            regenerate docs/sw-bom.md from the dev shell (card 263)"
+	@echo "  make guide          regenerate the README keys block from tren/keys.py (card 248)"
 	@echo "  make check          unit + both drives (what CI runs)"
 	@echo
 	@echo "  make hls-import     import the HLS RTL export: test/hls_examples/hls/<BLOCK>/rtl_output"
@@ -76,6 +77,9 @@ profile:
 
 bom:
 	$(NIX) python tools/bom.py
+
+guide:
+	$(NIX) python tools/guide.py
 
 check: test drive drive-real
 

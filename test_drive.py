@@ -216,6 +216,31 @@ async def drive_fixture() -> None:
         assert app._focus is None, f"fixture scopes carry no file src: {app._focus}"
         assert app.src_offset == 0, f"new snippet must start at the top: {app.src_offset}"
 
+        # ---- card 248: ? opens the navigation cheatsheet ------------------
+        await pilot.press("?")
+        assert app._cheat is not None, "? should open the cheatsheet"
+        assert not app._cheat.include_trace, "no trace open: no trace keys listed"
+        cheat_rows = "\n".join(str(s.content) for s in app._cheat.query("Static"))
+        assert "Navigation cheatsheet" in cheat_rows, cheat_rows
+        # acceptance: the cheatsheet lists the yank and editor keys
+        assert "yank the selection" in cheat_rows, "cheatsheet lists yank"
+        assert "$EDITOR" in cheat_rows, "cheatsheet lists the editor keys"
+        assert "While the trace is open:" not in cheat_rows
+
+        # escape dismisses the cheatsheet
+        await pilot.press("escape")
+        assert app._cheat is None, "escape should dismiss the cheatsheet"
+
+        # any nav key dismisses it first, then acts (no second press needed)
+        await pilot.press("?")
+        assert app._cheat is not None, "? should open the cheatsheet again"
+        before = app._index
+        await pilot.press("j")
+        assert app._cheat is None, "a nav key should dismiss the cheatsheet"
+        assert app._index == (before + 1) % len(app._visible()), (
+            f"the nav key should still act: index {app._index}"
+        )
+
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)
         (out / "shot.svg").write_text(app.export_screenshot())
@@ -428,6 +453,34 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
 
         await pilot.press("escape")
         assert app._modal is None, "escape should close the trace modal"
+
+        # ---- card 248: ? cheatsheet, incl. opened from inside a trace -----
+        await pilot.press("?")
+        assert app._cheat is not None, "? should open the cheatsheet"
+        assert not app._cheat.include_trace, "no trace open: no trace keys"
+        cheat_rows = "\n".join(str(s.content) for s in app._cheat.query("Static"))
+        assert "yank the selection" in cheat_rows, "cheatsheet lists yank"
+        assert "$EDITOR" in cheat_rows, "cheatsheet lists the editor keys"
+        await pilot.press("escape")
+        assert app._cheat is None, "escape should dismiss the cheatsheet"
+
+        # from inside the d/L modal the cheatsheet also lists the trace keys
+        app._select_path("top", "out")
+        await pilot.press("d")
+        modal = app._modal
+        assert modal is not None, "d should open the trace modal"
+        await pilot.press("?")
+        assert app._cheat is not None, "? inside the trace modal"
+        assert app._cheat.include_trace, "a trace is open: list the trace keys"
+        cheat_rows = "\n".join(str(s.content) for s in app._cheat.query("Static"))
+        assert "While the trace is open:" in cheat_rows, cheat_rows
+        assert "crosses a boundary" in cheat_rows, "trace keys listed"
+        assert "yank the selection" in cheat_rows, "screen keys still there"
+        await pilot.press("escape")
+        assert app._cheat is None, "escape dismisses the cheatsheet"
+        assert app._modal is not None, "the trace modal survives the cheatsheet"
+        await pilot.press("escape")
+        assert app._modal is None, "escape then closes the trace modal"
 
         # ---- card 212: black boxes + user cuts ----------------------------
         # sram_stub renders as an opaque scope: marker + its ports
