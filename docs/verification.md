@@ -29,7 +29,7 @@ locally; layer 4 needs a terminal so it is not in CI.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python, no subprocesses. 74 tests.
+Pure Python, no subprocesses. 135 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.

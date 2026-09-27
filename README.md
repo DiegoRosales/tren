@@ -32,6 +32,7 @@ nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
 nix develop . -c bash tools/pane_cue_capture.sh   # real-terminal check: active-pane cue + top status line (tmux, private server)
 nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR, card 215)
+nix develop . -c make bom                   # regenerate docs/sw-bom.md from the dev shell (card 263)
 nix develop .#xilinx                        # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
 nix develop . -c make run                   # start the TUI (keys: see 'User guide' below)
 ```
@@ -249,7 +250,9 @@ CI workflow runs. `make test` / `make drive` / `make drive-real` run them
 individually; `make roundtrip` verifies the OSC 52 + editor path and
 `make pane-cue` the rendered active-pane highlight, both against a real
 terminal on a private tmux server (Pilot asserts style *values*, not what the
-terminal paints - see `docs/verification.md`).
+terminal paints - see `docs/verification.md`). `make bom` regenerates the
+auto-generated software bill of materials (`docs/sw-bom.md`) from whatever the
+dev shell resolves.
 
 ### Reading Vitis HLS RTL output (no Xilinx needed)
 
@@ -316,6 +319,10 @@ rtl/                 small SystemVerilog fixtures: demo.sv (the drives) and
                      ranges.sv (declared ranges: [7:1], [0:7])
 tests/               PILOT_WORKDIR for textual Pilot tests + unit tests
 manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
+docs/                verification.md + notes/ mirrors; tech-concepts.md and
+                     sw-bom.md (the technical-concepts / SW BOM documents, card 263)
+tools/               osc52_roundtrip.sh, pane_cue_capture.sh, profile_1k_scopes.py,
+                     bom.py (SW BOM generator, card 263)
 pyproject.toml       PEP 621 metadata + deps - read by both nix and pip
 flake.nix            dev shells (default / #tren / #tren-venv / #xilinx)
 ```
@@ -351,3 +358,5 @@ flake.nix            dev shells (default / #tren / #tren-venv / #xilinx)
 - How TREN is verified: `docs/verification.md` - the layered strategy
   (unit -> elaboration acceptance -> Pilot drives -> real-terminal round trip ->
   scale/cache profile -> real-artefact importers) and the change checklist.
+- Component map: `docs/tech-concepts.md` (technical concepts -> the component
+  that uses each) and `docs/sw-bom.md` (the auto-generated software BOM).
