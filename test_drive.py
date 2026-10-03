@@ -291,6 +291,11 @@ async def drive_fixture() -> None:
         assert app._search is not None, "q must not quit a committed search"
         assert app._index == before_index, "a blocked key must not reach the tree"
         assert search._cursor == 1, "a blocked key must not move the match"
+        await pilot.press("slash")  # / returns to the query box (card 279)
+        assert search is app._search, "/ must keep the finder open"
+        assert not search._committed, "/ un-commits the finder"
+        assert app.focused is search.inputwidget, "/ refocuses the query box"
+        assert search._cursor == 1, "/ keeps the match position"
         await pilot.press("ctrl+enter")
         assert app._search is None, "ctrl+enter should close the search"
         assert status_path(app) == "alu.a", status_path(app)
@@ -736,6 +741,11 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._search is not None and app._search._committed, \
             "enter commits the query"
         assert app.focused is None, f"commit blurs the query box: {app.focused}"
+        await pilot.press("slash")  # / returns to the query box (card 279)
+        assert not app._search._committed, "/ un-commits the finder"
+        assert app.focused is app._search.inputwidget, "/ refocuses the query box"
+        await pilot.press("enter")  # commit again before opening
+        assert app._search._committed, "enter commits again"
         await pilot.press("ctrl+enter")  # select the highlighted result
         assert app._search is None, "ctrl+enter should dismiss the search"
         assert status_path(app) == "top.u_core.alu_result", status_path(app)

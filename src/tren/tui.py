@@ -73,9 +73,11 @@ PORT_DIR_WIDTH = 5
 # keys the *committed* finder handles itself (event.key form). Everything
 # else is stopped while it is up: the query box no longer holds focus there,
 # so a printable key would otherwise fire the app's priority bindings behind
-# the modal (q quit, y yank, X cut, ...). Compare event.key, not event.name:
-# textual spells 'N' as name 'upper_n' while the binding and event.key stay
-# 'N'.
+# the modal (q quit, y yank, X cut, ...). '/' is NOT here: the app's own
+# priority open_search would steal it, so TrenApp.on_event intercepts it
+# before dispatch and returns to the query box instead. Compare event.key,
+# not event.name: textual spells 'N' as name 'upper_n' and '/' as 'slash'
+# while the binding and event.key keep their original form.
 SEARCH_COMMITTED_KEYS = frozenset(
     {"n", "N", "up", "down", "enter", "escape", "ctrl+enter"}
 )
@@ -290,12 +292,13 @@ class SearchScreen(ModalScreen[None]):
     this screen, so they beat the app's own arrow aliases. `enter` (Input
     Submitted) commits the query: the Input is blurred and the finder stays
     open, and `n` / `N` step to the next / previous match through the whole
-    result list. `enter` again returns to the query box to refine.
+    result list.
     `ctrl+enter` leaves the finder and selects the highlighted result in the
-    tree; `escape` dismisses without jumping. Nothing holds focus while the
-    finder is committed, so TrenApp.on_event swallows every key except the
-    finder's own - otherwise the app's priority printable bindings (q quit,
-    y yank, X cut, ...) would fire under the modal.
+    tree; `escape` dismisses without jumping. `enter` or `/` returns to the
+    query box to refine. Nothing holds focus while the finder is committed,
+    so TrenApp.on_event swallows every key except the finder's own -
+    otherwise the app's priority printable bindings (q quit, y yank, X cut,
+    ...) would fire under the modal.
 
     The right column previews the result's source focus by reusing the
     centre pane's renderer with a private scroll offset, so the pane state
@@ -1264,7 +1267,9 @@ class TrenApp(App[None]):
         A *committed* search blurs the query box, so no widget guards the
         app's priority printable bindings (q quit, y yank, X cut, ...).
         Stop every key except the finder's own there, or it would act on the
-        tree behind the modal.
+        tree behind the modal. '/' is the one exception, intercepted here
+        before the app's priority open_search can steal it: the finder is
+        already open, so '/' returns to the query box instead (card 279).
         """
         if isinstance(event, events.Key) and not event.is_forwarded:
             if self._cheat is not None and self.screen is self._cheat:
@@ -1276,13 +1281,14 @@ class TrenApp(App[None]):
                     event.stop()
                     return
             search = self._search
-            if (
-                search is not None
-                and getattr(search, "_committed", False)
-                and event.key not in SEARCH_COMMITTED_KEYS
-            ):
-                event.stop()
-                return
+            if search is not None and getattr(search, "_committed", False):
+                if event.key == "slash":
+                    search.action_search_edit_query()
+                    event.stop()
+                    return
+                if event.key not in SEARCH_COMMITTED_KEYS:
+                    event.stop()
+                    return
         await super().on_event(event)
 
     def action_next_item(self) -> None:

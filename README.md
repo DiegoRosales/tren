@@ -233,7 +233,7 @@ declaration. The query box holds focus, so every letter types - the letters
 
 The walk is vim-style. `enter` commits the query and keeps the finder open:
 `n`/`N` then step to the next / previous match through the whole result set,
-wrap-arounds included, and `enter` again returns to the query box to refine.
+wrap-arounds included. `enter` or `/` returns to the query box to refine.
 `ctrl+enter` drops you back into the tree with the highlighted result
 selected, `escape` dismisses without jumping. While the finder is committed
 no other key reaches the tree behind it, so `q`, `y`, `X` and friends are
