@@ -189,11 +189,25 @@ to commit messages.
 - The cheatsheet (`?`) and the README "Keys" table render from the same list
   in `tren/keys.py`; change a binding and run `make guide` (asserted by
   `tests/test_keys.py`).
+- textual 8.2 strips every *printable* key from the binding chain while an
+  `Input` holds focus (`Input.check_consume_key`), so typing in a modal can
+  never fire the app's priority j/k/d/L/... bindings; and the screen binding
+  chain truncates at the last `ModalScreen` (`_modal_binding_chain`), so a
+  non-priority binding there (the / search modal's up/down) beats the app's
+  non-priority arrow aliases. That pairing is what lets the / search modal
+  (card 244) treat j/k/d/L as text while up/down move the results. It also
+  means the user cannot type a query containing j or k *as movement*: the
+  arrows are the j/k aliases, documented as such.
 - textual 8.2 `Tree.auto_expand` runs in an async `@on(NodeSelected)`
   handler that **toggles** - under a key burst (autorepeat / scripted paste)
   it re-orders against the app's own visible-walk, and pre-expanding the node
   makes the handler collapse it. Set `tree.auto_expand = False` (it is a var,
   not a ctor kwarg) and expand deterministically in `_select`.
+- textual 8.2 `ListView.extend` costs about 0.5 ms per `ListItem` widget,
+  measured headless (10k rows ~ 4.6 s, 20k ~ 10 s). A finder that rebuilds
+  its list on every keystroke must render a bounded window (the search modal
+  caps at `MAX_ROWS = 200`) and show the real count in a label; otherwise a
+  broad query on a large design blocks the UI for seconds per key.
 - yosys 0.69 JSON: `write_json` needs `proc`; `opt` is destructive; generate
   instances appear as `g[i].u_alu_g`-style cell names; body-less modules
   serialize `ports` + `blackbox=1`.

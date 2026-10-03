@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from textual.color import Color  # noqa: E402
-from textual.widgets import Static  # noqa: E402
+from textual.widgets import Input, Static  # noqa: E402
 
 from tren.elaborate import elaborate  # noqa: E402
 from tren.manifest import Manifest  # noqa: E402
@@ -240,6 +240,77 @@ async def drive_fixture() -> None:
         assert app._index == (before + 1) % len(app._visible()), (
             f"the nav key should still act: index {app._index}"
         )
+
+        # ---- card 244: / global fuzzy search -----------------------------
+        await pilot.press("slash")
+        assert app._search is not None, "/ should open the search modal"
+        # the query Input must hold focus or the printable keys behind the
+        # modal (j/k/d/L/...) would fire the app bindings
+        assert app.focused is app._search.inputwidget, \
+            f"query box focused? {app.focused}"
+        # a substring of a signal name finds the net across scopes
+        await pilot.press(*"alu_result")
+        rows = app._search.rows
+        assert [e.kind for e in rows] == ["port", "net"], (
+            f"alu_result rows: {[(e.kind, e.path) for e in rows]}"
+        )
+        assert all(e.path == "core.alu_result" for e in rows)
+        # down moves to the net row; enter jumps to it and closes
+        await pilot.press("down")
+        await pilot.press("enter")
+        assert app._search is None, "enter should dismiss the search"
+        node = app._current_node
+        assert node is not None and node.data is not None, "no selection"
+        assert node.data["kind"] == "net", node.data
+        # the fixture is module-keyed: core's own scope row owns the leaf
+        assert status_path(app) == "core.alu_result", status_path(app)
+        assert app._focus == ("rtl/demo.sv", 48, 48), f"focus: {app._focus}"
+
+        # instance search returns the expected item for the demo IR
+        await pilot.press("slash")
+        await pilot.press(*"u_sram")
+        rows = app._search.rows
+        assert [e.kind for e in rows] == ["instance"], (
+            f"u_sram rows: {[(e.kind, e.path) for e in rows]}"
+        )
+        assert rows[0].path == "core.u_sram", rows[0].path
+        await pilot.press("escape")
+        assert app._search is None, "escape should dismiss the search"
+
+        # module search returns the black-box module
+        await pilot.press("slash")
+        await pilot.press(*"sram_stub")
+        rows = app._search.rows
+        # the module row ranks first; its own port leaves match the prefix too
+        assert rows[0].kind == "module" and rows[0].path == "sram_stub", (
+            f"sram_stub rows: {[(e.kind, e.path) for e in rows]}"
+        )
+        await pilot.press("escape")
+
+        # port search
+        await pilot.press("slash")
+        await pilot.press(*"op")
+        rows = app._search.rows
+        assert any(e.kind == "port" and e.path == "alu.op" for e in rows), rows
+        await pilot.press("escape")
+
+        # file search
+        await pilot.press("slash")
+        await pilot.press(*"demo.sv")
+        rows = app._search.rows
+        assert any(e.kind == "file" and e.path == "rtl/demo.sv" for e in rows), rows
+        await pilot.press("escape")
+        assert app._search is None
+
+        # card 268 interplay: z must be refused while the search is open
+        await pilot.press("slash")
+        assert app._search is not None
+        await pilot.press("z")
+        assert not app.zoomed, "z must be refused while the search is open"
+        # and d/L must be refused too (mirror of the trace-under-search guard)
+        await pilot.press("d")
+        assert app._modal is None, "d must not open a trace under the search"
+        await pilot.press("escape")
 
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)
@@ -603,6 +674,43 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("enter")  # must cross the boundary, not trigger focus_source
         assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], f"trace: {app._trace}"
         await pilot.press("escape")
+
+        # ---- card 244: / global search on the real IR ---------------------
+        await pilot.press("slash")
+        assert app._search is not None, "/ should open the search modal"
+        assert app.focused is app._search.inputwidget, \
+            f"query box focused? {app.focused}"
+        # typing a substring of a signal name finds the net across scopes
+        await pilot.press(*"alu_result")
+        rows = app._search.rows
+        assert [e.kind for e in rows if e.path == "top.u_core.alu_result"] == [
+            "port", "net"], rows
+        await pilot.press("down")  # -> the net row
+        await pilot.press("enter")
+        assert app._search is None, "enter should dismiss the search"
+        assert status_path(app) == "top.u_core.alu_result", status_path(app)
+        # yosys attributes the net to the declaration line (the output port)
+        assert app._focus == ("rtl/demo.sv", 48, 48), f"focus: {app._focus}"
+
+        # file search jumps to the first scope carrying a src in the file
+        await pilot.press("slash")
+        await pilot.press(*"demo.sv")
+        rows = app._search.rows
+        assert any(e.kind == "file" and e.path == "rtl/demo.sv" for e in rows), rows
+        await pilot.press("enter")
+        assert app._search is None
+        assert status_path(app) == "top", status_path(app)
+
+        # module and instance searches both find the black-box scope
+        await pilot.press("slash")
+        await pilot.press(*"u_sram")
+        rows = app._search.rows
+        assert any(e.kind == "module" and e.path == "top.u_core.u_sram" for e in rows), rows
+        assert any(e.kind == "instance" and e.path == "top.u_core.u_sram" for e in rows), rows
+        await pilot.press("enter")  # first row is the module
+        assert app._search is None
+        assert status_path(app) == "top.u_core.u_sram", status_path(app)
+        assert "BLACK BOX" in str(ports.content), "black box marker after jump"
 
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)

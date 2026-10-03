@@ -16,6 +16,7 @@ at the selection's declaration line, `E` at the module definition.
 
 Keys: j/k move, l expand, h collapse, enter shows the module in the centre,
 ctrl+u jumps up a level, 1/2/3 pane select, z zoom the active pane, y yank,
+/ global search (modules, instances, ports, nets, files; card 244),
 ? navigation cheatsheet, e editor at the selection's declaration, E editor at
 the module definition, q quit. The arrow keys are aliases: down/up = j/k,
 right/left = l/h (card 267); in the trace modal right descends and left goes
@@ -27,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -39,14 +39,23 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Footer, Label, ListItem, ListView, Static, Tree
+from textual.widgets import (
+    Footer,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    Static,
+    Tree,
+)
 
 from .cache import IrCache
 from .elaborate import elaborate
 from .formats import BY_NAME, DEFAULT, PathFormat, render as render_format
-from .ir import Design, Net, Port, Scope, design_from_fixture
+from .ir import Design, Net, Port, Scope, design_from_fixture, parse_src as _parse_src
 from .keys import SCREEN_KEYS, TRACE_KEYS, KeyDoc
 from .manifest import Manifest
+from .search import SearchEntry, build_search_index, filter_and_rank
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.json"
 
@@ -69,35 +78,6 @@ def load_design(fixture: Path | None = None) -> Design:
 def _scope_parent(path: str) -> str | None:
     parts = path.rsplit(".", 1)
     return parts[0] if len(parts) == 2 else None
-
-
-def _parse_src(src: str | None) -> tuple[str, int, int] | None:
-    """'<file>:<span>' -> (file, first_line, last_line).
-
-    The two backends spell spans differently and both reach the IR:
-      yosys attributes  'rtl/demo.sv:77.14-77.65'  line.col[-line.col]
-      slang --ast-json  'rtl/demo.sv:46:25'        line:col
-    Read naively, the slang form yields the *column* as the line and leaves
-    the line glued to the file name, so ports (and generate scopes, whose
-    src also comes from slang) focused a bogus file at a bogus line.
-    """
-    if not src:
-        return None
-    file, _, rest = src.rpartition(":")
-    if not file:
-        return None
-    if rest.isdigit():
-        # trailing field is a bare integer: either slang's 'file:line:col'
-        # (then what precedes it ends in ':line') or a plain 'file:line'
-        head, _, line = file.rpartition(":")
-        if head and line.isdigit():
-            return head, int(line), int(line)
-    m = re.match(r"(\d+)(?:\.\d+)?(?:-(\d+)(?:\.\d+)?)?$", rest)
-    if m is None:
-        return None
-    lo = int(m.group(1))
-    hi = int(m.group(2) or lo)
-    return file, lo, hi
 
 
 def _bit_range(width: int, declared: str | None = None) -> str:
@@ -134,6 +114,22 @@ def net_leaf_label(net: Net) -> str:
 def cheat_line(doc: KeyDoc) -> str:
     """Cheatsheet row: the keys in a fixed column, then the effect (card 248)."""
     return f"{doc.keys:<16} {doc.effect}"
+
+
+def search_row_label(entry: SearchEntry) -> str:
+    """One result row of the global finder: kind, then the full path (card 244)."""
+    if entry.kind == "module":
+        return f"module {entry.path}"
+    if entry.kind == "instance":
+        target = entry.instance.module if entry.instance is not None else None
+        return f"instance {entry.path} -> {target or 'generate'}"
+    if entry.kind == "port":
+        return f"port {entry.path}"
+    if entry.kind == "net":
+        return f"net {entry.path}"
+    if entry.kind == "file":
+        return f"file {entry.path}"
+    return entry.path
 
 
 class SourcePane(Static):
@@ -265,6 +261,128 @@ class TraceScreen(ModalScreen[None]):
             app.bell()
 
 
+class SearchScreen(ModalScreen[None]):
+    """Global fuzzy search: modules, instances, ports, nets, files (card 244).
+
+    The query Input holds focus, so every printable key - j and k included -
+    types text and never reaches the app bindings behind the modal (textual
+    strips printable keys from the binding chain while an Input is focused;
+    verified). Navigation is up/down, the arrow aliases of j/k (card 267),
+    bound here: the modal binding chain truncates at this screen, so they win
+    over the app's own arrow aliases. Enter (Input.Submitted) jumps to the
+    highlighted result and dismisses; escape dismisses.
+
+    The right column previews the result's source focus by reusing the
+    centre pane's renderer with a private scroll offset, so the pane state
+    behind the modal is untouched. The result list renders at most
+    `MAX_ROWS` rows; the count label shows how many matched.
+    """
+
+    BINDINGS = [
+        Binding("up", "search_prev", "up", show=False),
+        Binding("down", "search_next", "down", show=False),
+        Binding("escape", "dismiss", "close", show=False),
+    ]
+
+    PREVIEW_ROWS = 12
+
+    # Rows the result ListView materialises. Creating a ListItem widget per
+    # row dominates the finder's latency on a large design (measured ~0.5 ms
+    # per row), so the list is a window over the ranked rows and the count
+    # label carries the real total.
+    MAX_ROWS = 200
+
+    def compose(self) -> ComposeResult:
+        yield Input(
+            placeholder="search modules, instances, ports, nets, files",
+            id="search-input",
+        )
+        with Horizontal():
+            yield ListView(id="search-results")
+            yield Static("", id="search-preview")
+        yield Label("", id="search-count")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._app = self.app  # type: ignore[assignment]
+        self._app._search = self  # type: ignore[attr-defined]
+        self.inputwidget = self.query_one("#search-input", Input)
+        self.listwidget = self.query_one("#search-results", ListView)
+        self.preview = self.query_one("#search-preview", Static)
+        self.countlabel = self.query_one("#search-count", Label)
+        self.rows = filter_and_rank(self._app._search_index, "")  # type: ignore[attr-defined]
+        self._shown: list[SearchEntry] = []
+        self._cursor = 0
+        self._preview_entry: SearchEntry | None = None
+        self._rebuild()
+        self.inputwidget.focus()
+
+    def on_unmount(self) -> None:
+        self._app._search = None  # type: ignore[attr-defined]
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        self.rows = filter_and_rank(self._app._search_index, event.value)  # type: ignore[attr-defined]
+        self._cursor = 0
+        self._rebuild()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if not self._shown:
+            self._app.bell()
+            return
+        entry = self._shown[self._cursor]
+        if self._app._select_entry(entry):  # type: ignore[attr-defined]
+            self._app.pop_screen()
+        else:
+            self._app.bell()
+
+    def action_search_next(self) -> None:
+        self._move_cursor(1)
+
+    def action_search_prev(self) -> None:
+        self._move_cursor(-1)
+
+    def _move_cursor(self, delta: int) -> None:
+        if not self._shown:
+            self._app.bell()
+            return
+        self._cursor = (self._cursor + delta) % len(self._shown)
+        self.listwidget.index = self._cursor
+        self._render_preview()
+
+    def _rebuild(self) -> None:
+        self._shown = self.rows[: self.MAX_ROWS] if self.rows else []
+        if self._cursor >= len(self._shown):
+            self._cursor = max(0, len(self._shown) - 1)
+        total = len(self.rows)
+        self.countlabel.update(
+            f"{total} result{'s' if total != 1 else ''}" if total else "no results"
+        )
+        self.listwidget.clear()
+        self.listwidget.extend(
+            ListItem(Static(search_row_label(e))) for e in self._shown
+        )
+        if self._shown:
+            self.listwidget.index = self._cursor
+        self._render_preview()
+
+    def _render_preview(self) -> None:
+        if not self._shown:
+            self.preview.update("")
+            self._preview_entry = None
+            return
+        entry = self._shown[self._cursor]
+        if entry is self._preview_entry:
+            return
+        self._preview_entry = entry
+        focus, scope = self._app._entry_preview(entry)  # type: ignore[attr-defined]
+        offset = (
+            self._app._preview_offset(focus, self.PREVIEW_ROWS)  # type: ignore[attr-defined]
+            if focus is not None
+            else 0
+        )
+        self.preview.update(self._app._render_source(focus, scope, offset=offset))
+
+
 class TrenApp(App[None]):
     TITLE = "tren (textual)"
     BINDINGS = [
@@ -287,6 +405,7 @@ class TrenApp(App[None]):
         Binding("enter", "focus_source", "show rtl"),  # NOT priority: the d/L
         # modal's ListView owns Enter while the trace is open
         Binding("ctrl+u", "go_up_level", "up level", priority=True),
+        Binding("/", "open_search", "search", priority=True),
         Binding("y", "yank", "yank", priority=True),
         Binding("Y", "cycle_format", "fmt", priority=True),
         Binding("d", "trace_drivers", "drivers", priority=True),
@@ -328,6 +447,9 @@ class TrenApp(App[None]):
         self._user_cut: set[str] = set()
         # the ? cheatsheet when it is on screen (card 248)
         self._cheat: "CheatSheet | None" = None
+        # the / global search when it is on screen (card 244)
+        self._search: "SearchScreen | None" = None
+        self._search_index = build_search_index(design)
 
     def compose(self) -> ComposeResult:
         yield StatusBar("", id="status")
@@ -548,19 +670,25 @@ class TrenApp(App[None]):
         self._render_panes()
 
     def _render_source(
-        self, focus: tuple[str, int, int] | None, scope: Scope | None
+        self, focus: tuple[str, int, int] | None, scope: Scope | None, offset: int | None = None
     ) -> RichText:
+        """Render the source view.
+
+        offset overrides the pane scroll: the search preview (card 244) passes
+        a per-entry offset so browsing results never disturbs the pane state.
+        """
+        off = self.src_offset if offset is None else offset
         src = RichText()
         if focus is not None:
             file, lo, hi = focus
             lines = self._file_lines(file)
             if lines:
                 src.append(f"· {file}  lines {lo}-{hi}\n", style="dim")
-                view = lines[self.src_offset :]
-                if self.src_offset:
+                view = lines[off :]
+                if off:
                     src.append("…… (↑ scroll to see earlier lines)\n", style="dim italic")
                 for i, line in enumerate(view):
-                    abs_i = self.src_offset + i + 1
+                    abs_i = off + i + 1
                     style = "bold #ffa62b" if lo <= abs_i <= hi else "dim white"
                     src.append(f"{line}\n", style=style)
                 return src
@@ -575,11 +703,11 @@ class TrenApp(App[None]):
             # fixture fallback: inline rtl snippet with the rtl_focus band
             rtl = scope.rtl
             lo, hi = scope.rtl_focus
-            view = rtl[self.src_offset :]
-            if self.src_offset:
+            view = rtl[off :]
+            if off:
                 src.append("…… (↑ scroll to see earlier lines)\n", style="dim italic")
             for i, line in enumerate(view):
-                abs_i = i + 1 + self.src_offset
+                abs_i = i + 1 + off
                 style = "bold #ffa62b" if lo <= abs_i <= hi else "dim white"
                 src.append(f"{line}\n", style=style)
         return src
@@ -787,21 +915,165 @@ class TrenApp(App[None]):
         for n in reversed(chain):
             n.expand()
 
-    def _select_path(self, scope_path: str, net_name: str | None = None) -> None:
+    def _select_path(self, scope_path: str, net_name: str | None = None) -> bool:
+        """Select the tree row for a scope (or one of its nets); True on hit.
+
+        The search finder (card 244) keys on the return value: False means
+        the scope has no tree row and the caller tries a fixture fallback.
+        """
         scope_node = self._find_scope_node(scope_path)
         if scope_node is None:
-            return
+            return False
         self._expand_to(scope_node)
         if net_name is not None:
             leaf = self._find_net_leaf(scope_node, net_name)
             if leaf is not None:
                 self._expand_to(leaf)
                 self._select(self._visible().index(leaf))
-                return
+                return True
         self._select(self._visible().index(scope_node))
+        return True
+
+    # ---- global search: jump + preview helpers (card 244) ---------------
+
+    def _select_instance_row(self, parent_path: str, inst_name: str) -> bool:
+        """Select an instance row under a scope row (the fixture shape: the
+        instance has no sub-scope node of its own)."""
+        node = self._find_scope_node(parent_path)
+        if node is None:
+            return False
+        self._ensure_children(node)
+        self._expand_to(node)
+        for child in node.children:
+            data = child.data
+            if (
+                data is not None
+                and data.get("kind") == "instance"
+                and data["instance"].name == inst_name
+            ):
+                self._expand_to(child)
+                self._select(self._visible().index(child))
+                return True
+        return False
+
+    def _select_any_instance_of(self, module: str) -> bool:
+        """Fixture module with no tree row: select the first instance row of
+        that module anywhere in the tree."""
+        for scope in self.design.scopes:
+            for inst in scope.instances:
+                if (
+                    inst.module == module
+                    and self._select_instance_row(scope.name, inst.name)
+                ):
+                    return True
+        return False
+
+    def _select_leaf(self, scope_path: str, kind: str, name: str) -> bool:
+        """Select a port/net leaf, in either tree shape.
+
+        A real scope row carries its own leaves; a fixture module (no row)
+        hangs them under each instance row that instantiates the module.
+        Only direct children count, so a nested scope's same-named leaf is
+        never picked instead of the scope's own.
+        """
+        scope_node = self._find_scope_node(scope_path)
+        if scope_node is not None:
+            self._ensure_children(scope_node)
+            self._expand_to(scope_node)
+            for child in scope_node.children:
+                data = child.data
+                if (
+                    data is not None
+                    and data.get("kind") == kind
+                    and data[kind].name == name
+                ):
+                    self._expand_to(child)
+                    self._select(self._visible().index(child))
+                    return True
+        for scope in self.design.scopes:
+            node = self._find_scope_node(scope.name)
+            if node is None:
+                continue
+            self._ensure_children(node)
+            for child in node.children:
+                data = child.data
+                if (
+                    data is not None
+                    and data.get("kind") == "instance"
+                    and data["instance"].module == scope_path
+                ):
+                    self._ensure_children(child)
+                    for leaf in child.children:
+                        leaf_data = leaf.data
+                        if (
+                            leaf_data is not None
+                            and leaf_data.get("kind") == kind
+                            and leaf_data[kind].name == name
+                        ):
+                            self._expand_to(leaf)
+                            self._select(self._visible().index(leaf))
+                            return True
+        return False
+
+    def _select_entry(self, entry: SearchEntry) -> bool:
+        """Select the tree row a search result means; True on jump.
+
+        A fixture module has no row of its own (the tree is instance-keyed),
+        so module and port/net entries fall back to an instance row of the
+        module.
+        """
+        kind = entry.kind
+        if kind == "module":
+            if self._select_path(entry.path):
+                return True
+            scope = entry.scope
+            if scope is None:
+                return False
+            return self._select_any_instance_of(scope.module or scope.name)
+        if kind == "instance":
+            if self._select_path(entry.path):
+                return True
+            inst = entry.instance
+            if inst is not None and entry.scope is not None:
+                return self._select_instance_row(entry.scope.name, inst.name)
+            return False
+        if kind in ("port", "net"):
+            scope = entry.scope
+            return self._select_leaf(scope.name if scope is not None else entry.path, kind, entry.name)
+        if kind == "file":
+            scope = entry.scope
+            if scope is None:
+                return False
+            if self._select_path(scope.name):
+                return True
+            return self._select_any_instance_of(scope.module or scope.name)
+        return False
+
+    def _entry_preview(
+        self, entry: SearchEntry
+    ) -> tuple[tuple[str, int, int] | None, Scope | None]:
+        """(focus, scope) the source pane would show for a search result."""
+        if entry.kind == "module":
+            return _parse_src(entry.src), entry.scope
+        if entry.kind == "instance":
+            inst = entry.instance
+            if inst is not None:
+                return _parse_src(inst.src or entry.src), (
+                    self._scopes.get(inst.module) if inst.module else entry.scope
+                )
+            return _parse_src(entry.src), entry.scope
+        if entry.kind in ("port", "net", "file"):
+            return _parse_src(entry.src), entry.scope
+        return None, None
+
+    def _preview_offset(self, focus: tuple[str, int, int], rows: int) -> int:
+        """Scroll offset for the search preview, centring the focus line."""
+        file, lo, _ = focus
+        lines = self._file_lines(file)
+        return max(0, min(lo - rows // 2, max(0, len(lines) - rows)))
 
     def _open_trace(self, direction: str) -> None:
-        if self._modal is not None:
+        if self._modal is not None or self._search is not None:
             self.bell()
             return
         sel = self._selection_net()
@@ -858,10 +1130,11 @@ class TrenApp(App[None]):
     def action_toggle_zoom(self) -> None:
         """z: zoom the active pane to the full width, or restore the columns.
 
-        The trace modal covers the panes, so a zoom there changes nothing the
-        user can see. Refuse it instead of leaving a surprise behind the modal.
+        The trace modal and the search modal cover the panes, so a zoom
+        there changes nothing the user can see. Refuse it instead of leaving
+        a surprise behind the modal.
         """
-        if self._modal is not None:
+        if self._modal is not None or self._search is not None:
             self.bell()
             return
         self.zoomed = not self.zoomed
@@ -879,6 +1152,18 @@ class TrenApp(App[None]):
         if self._cheat is not None:
             return
         self.push_screen(CheatSheet(include_trace=self._modal is not None))
+
+    def action_open_search(self) -> None:
+        """/: open the global search over modules/instances/ports/nets/files.
+
+        Refused while the trace modal is open, the mirror of the trace modal
+        refusing to open under it: the finder needs the full screen and the
+        search modal's Input owns the printable keys.
+        """
+        if self._modal is not None or self._search is not None:
+            self.bell()
+            return
+        self.push_screen(SearchScreen())
 
     async def on_event(self, event: events.Event) -> None:
         """The cheatsheet yields to any key: dismiss it, then dispatch on.

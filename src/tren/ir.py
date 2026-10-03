@@ -21,6 +21,40 @@ from pathlib import Path
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
 # --------------------------------------------------------------------------
+# Source-span parsing
+# --------------------------------------------------------------------------
+
+
+def parse_src(src: str | None) -> tuple[str, int, int] | None:
+    """'<file>:<span>' -> (file, first_line, last_line).
+
+    The two backends spell spans differently and both reach the IR:
+      yosys attributes  'rtl/demo.sv:77.14-77.65'  line.col[-line.col]
+      slang --ast-json  'rtl/demo.sv:46:25'        line:col
+    Read naively, the slang form yields the *column* as the line and leaves
+    the line glued to the file name, so ports (and generate scopes, whose
+    src also comes from slang) focused a bogus file at a bogus line.
+    """
+    if not src:
+        return None
+    file, _, rest = src.rpartition(":")
+    if not file:
+        return None
+    if rest.isdigit():
+        # trailing field is a bare integer: either slang's 'file:line:col'
+        # (then what precedes it ends in ':line') or a plain 'file:line'
+        head, _, line = file.rpartition(":")
+        if head and line.isdigit():
+            return head, int(line), int(line)
+    m = re.match(r"(\d+)(?:\.\d+)?(?:-(\d+)(?:\.\d+)?)?$", rest)
+    if m is None:
+        return None
+    lo = int(m.group(1))
+    hi = int(m.group(2) or lo)
+    return file, lo, hi
+
+
+# --------------------------------------------------------------------------
 # IR dataclasses
 # --------------------------------------------------------------------------
 
