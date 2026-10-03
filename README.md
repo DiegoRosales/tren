@@ -183,7 +183,7 @@ pane.
 | `arrows` | aliases: down/up = j/k, right/left = l/h |
 | `enter` | tree: show the highlighted module in the centre RTL pane, with context |
 | `ctrl+u` | tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent |
-| `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, up/down to move, enter to jump) |
+| `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, ctrl+enter to jump) |
 | `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
 | `Y` | cycle the yank format: sv -> vivado -> yosys -> vcd |
 | `d` `L` | trace drivers / loads of the selected net (opens the trace modal) |
@@ -228,12 +228,21 @@ narrow to it - fuzzy, so `alr` finds it too. The results list shows the kind
 first: `net top.u_core.alu_result`, `port alu.op`, `module core`,
 `instance top.u_core.u_sram -> core`. Up/down (the j/k aliases) move the
 cursor, and the right column previews the source at that result's
-declaration. `enter` jumps the tree to the highlighted result and closes;
-`escape` dismisses. The query box holds focus, so every letter types - the
-letters `j`/`k` move the list only when you let the arrows do it for you.
-The list renders the top 200 matches in rank order; the counter below it
-always shows how many matched in full, so a broad query like a single letter
-counts tens of thousands of results while the list stays responsive.
+declaration. The query box holds focus, so every letter types - the letters
+`j`/`k` move the list only when you let the arrows do it for you.
+
+The walk is vim-style. `enter` commits the query and keeps the finder open:
+`n`/`N` then step to the next / previous match through the whole result set,
+wrap-arounds included, and `enter` again returns to the query box to refine.
+`ctrl+enter` drops you back into the tree with the highlighted result
+selected, `escape` dismisses without jumping. While the finder is committed
+no other key reaches the tree behind it, so `q`, `y`, `X` and friends are
+safe to hit.
+
+The list renders the top 200 matches in rank order; walking past the edge
+slides the window and the counter always shows how many matched in full, so
+a broad query like a single letter counts tens of thousands of results while
+the list stays responsive.
 
 ### Yanking paths
 

@@ -197,7 +197,18 @@ to commit messages.
   non-priority arrow aliases. That pairing is what lets the / search modal
   (card 244) treat j/k/d/L as text while up/down move the results. It also
   means the user cannot type a query containing j or k *as movement*: the
-  arrows are the j/k aliases, documented as such.
+  arrows are the j/k aliases, documented as such. The moment the Input is
+  *blurred* the printable-key filter is gone: the app's `priority=True`
+  bindings fire for any key the modal does not bind (q would quit, y would
+  yank), so a committed modal must stop unwanted keys in `TrenApp.on_event`.
+- textual 8.2 key **names** differ from the `Binding`/`event.key` spelling:
+  `N` is event name `upper_n`, `?` is `question_mark`, and `ctrl+enter` is
+  `ctrl_enter` while the binding and `event.key` keep their original form.
+  Gate an app-level key filter on `event.key`, not `event.name`.
+- textual 8.2 `Input.select_on_focus` defaults to **True**: refocusing an
+  Input selects the whole value, so the next keystroke REPLACES the text.
+  A committed search that returns focus to the query box keeps the caret by
+  `select_on_focus=False`, so a letter appends instead of wiping the query.
 - textual 8.2 `Tree.auto_expand` runs in an async `@on(NodeSelected)`
   handler that **toggles** - under a key burst (autorepeat / scripted paste)
   it re-orders against the app's own visible-walk, and pre-expanding the node

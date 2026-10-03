@@ -27,6 +27,7 @@ from tren.tui import (  # noqa: E402
     PANE_BG_ACTIVE,
     PANE_BG_IDLE,
     PANE_WIDTHS,
+    SearchScreen,
     TrenApp,
     load_design,
 )
@@ -255,16 +256,61 @@ async def drive_fixture() -> None:
             f"alu_result rows: {[(e.kind, e.path) for e in rows]}"
         )
         assert all(e.path == "core.alu_result" for e in rows)
-        # down moves to the net row; enter jumps to it and closes
+        # down moves to the net row; enter commits; ctrl+enter selects it
         await pilot.press("down")
         await pilot.press("enter")
-        assert app._search is None, "enter should dismiss the search"
+        assert app._search is not None, "enter commits, never dismisses"
+        assert app._search._committed, "enter should commit the query"
+        assert app.focused is None, f"commit must blur the query box: {app.focused}"
+        await pilot.press("ctrl+enter")
+        assert app._search is None, "ctrl+enter should dismiss the search"
         node = app._current_node
         assert node is not None and node.data is not None, "no selection"
         assert node.data["kind"] == "net", node.data
         # the fixture is module-keyed: core's own scope row owns the leaf
         assert status_path(app) == "core.alu_result", status_path(app)
         assert app._focus == ("rtl/demo.sv", 48, 48), f"focus: {app._focus}"
+
+        # vim-style walking: n/N move through the matches, everything else is
+        # swallowed while the finder is committed
+        await pilot.press("slash")
+        await pilot.press(*"alu")
+        rows = app._search.rows
+        assert rows[0].kind == "module" and rows[0].path == "alu", rows
+        await pilot.press("enter")
+        search = app._search
+        assert search._committed, "enter should commit"
+        assert search._cursor == 0, f"commit keeps the cursor: {search._cursor}"
+        await pilot.press("n")
+        assert search._cursor == 1, "n steps to the next match"
+        await pilot.press("n")
+        await pilot.press("N")
+        assert search._cursor == 1, "N steps back one match"
+        before_index = app._index
+        await pilot.press("q")  # must not quit, yank, or move the tree
+        assert app._search is not None, "q must not quit a committed search"
+        assert app._index == before_index, "a blocked key must not reach the tree"
+        assert search._cursor == 1, "a blocked key must not move the match"
+        await pilot.press("ctrl+enter")
+        assert app._search is None, "ctrl+enter should close the search"
+        assert status_path(app) == "alu.a", status_path(app)
+
+        # the committed list wraps at the end, and enter returns to the query
+        await pilot.press("slash")
+        await pilot.press(*"alu")
+        nrow = len(app._search.rows)
+        await pilot.press("enter")
+        search = app._search
+        for _ in range(nrow):
+            await pilot.press("n")
+        assert search._cursor == 0, "n wraps through the whole match set"
+        await pilot.press("enter")
+        assert not search._committed, "enter returns to the query box"
+        assert app.focused is search.inputwidget, "query box refocused"
+        await pilot.press("x")  # a letter types again
+        assert search.rows == [], f"typing must re-filter: {search.rows}"
+        await pilot.press("escape")
+        assert app._search is None, "escape dismisses from editing too"
 
         # instance search returns the expected item for the demo IR
         await pilot.press("slash")
@@ -686,8 +732,12 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert [e.kind for e in rows if e.path == "top.u_core.alu_result"] == [
             "port", "net"], rows
         await pilot.press("down")  # -> the net row
-        await pilot.press("enter")
-        assert app._search is None, "enter should dismiss the search"
+        await pilot.press("enter")  # commit; the finder stays open
+        assert app._search is not None and app._search._committed, \
+            "enter commits the query"
+        assert app.focused is None, f"commit blurs the query box: {app.focused}"
+        await pilot.press("ctrl+enter")  # select the highlighted result
+        assert app._search is None, "ctrl+enter should dismiss the search"
         assert status_path(app) == "top.u_core.alu_result", status_path(app)
         # yosys attributes the net to the declaration line (the output port)
         assert app._focus == ("rtl/demo.sv", 48, 48), f"focus: {app._focus}"
@@ -697,7 +747,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press(*"demo.sv")
         rows = app._search.rows
         assert any(e.kind == "file" and e.path == "rtl/demo.sv" for e in rows), rows
-        await pilot.press("enter")
+        await pilot.press("ctrl+enter")
         assert app._search is None
         assert status_path(app) == "top", status_path(app)
 
@@ -707,7 +757,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         rows = app._search.rows
         assert any(e.kind == "module" and e.path == "top.u_core.u_sram" for e in rows), rows
         assert any(e.kind == "instance" and e.path == "top.u_core.u_sram" for e in rows), rows
-        await pilot.press("enter")  # first row is the module
+        await pilot.press("ctrl+enter")  # first row is the module
         assert app._search is None
         assert status_path(app) == "top.u_core.u_sram", status_path(app)
         assert "BLACK BOX" in str(ports.content), "black box marker after jump"
@@ -715,6 +765,36 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         out = Path(__file__).resolve().parent / "out"
         out.mkdir(exist_ok=True)
         (out / "shot-real.svg").write_text(app.export_screenshot())
+
+
+async def drive_search_window() -> None:
+    """Committed search over more matches than the window: n/N slide it.
+
+    The fixture design matches "alu" ten times while the finder materialises
+    at most three rows here, so walking the whole match set must slide the
+    window and keep the ListView cursor tracking the walk.
+    """
+    SearchScreen.MAX_ROWS = 3
+    app = TrenApp(load_design(), root=Path.cwd())
+    async with app.run_test(size=(110, 32)) as pilot:
+        await pilot.press("slash")
+        await pilot.press(*"alu")
+        search = app._search
+        assert len(search.rows) > 3, "the window must actually bind"
+        await pilot.press("enter")
+        assert search._committed, "enter should commit"
+        seen_wstarts: set[int] = set()
+        for _ in range(len(search.rows) * 2):
+            seen_wstarts.add(search._wstart)
+            assert search._shown[0] is search.rows[search._wstart], (
+                "the shown list must open at the window start"
+            )
+            assert search.listwidget.index == search._cursor - search._wstart, (
+                "the ListView cursor must track the walk"
+            )
+            await pilot.press("n")
+        assert search._cursor == 0, "n wraps the whole match set"
+        assert len(seen_wstarts) > 1, "the window must slide over a long match set"
 
 
 async def main(argv: list[str] | None = None) -> None:
@@ -732,6 +812,7 @@ async def main(argv: list[str] | None = None) -> None:
     else:
         await drive_fixture()
         await drive_unreadable_src()
+        await drive_search_window()
     print("PASS")
 
 

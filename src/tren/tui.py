@@ -16,7 +16,8 @@ at the selection's declaration line, `E` at the module definition.
 
 Keys: j/k move, l expand, h collapse, enter shows the module in the centre,
 ctrl+u jumps up a level, 1/2/3 pane select, z zoom the active pane, y yank,
-/ global search (modules, instances, ports, nets, files; card 244),
+/ global search (modules, instances, ports, nets, files; card 244; enter
+commits, n/N walk the matches, ctrl+enter selects and closes),
 ? navigation cheatsheet, e editor at the selection's declaration, E editor at
 the module definition, q quit. The arrow keys are aliases: down/up = j/k,
 right/left = l/h (card 267); in the trace modal right descends and left goes
@@ -69,6 +70,23 @@ PANE_WIDTHS = {"tree": "32%", "source": "48%", "ports": "20%"}
 ZOOM_WIDTH = "100%"
 # port leaf column (card 253): "inout" is the longest direction
 PORT_DIR_WIDTH = 5
+# keys the *committed* finder handles itself (event.key form). Everything
+# else is stopped while it is up: the query box no longer holds focus there,
+# so a printable key would otherwise fire the app's priority bindings behind
+# the modal (q quit, y yank, X cut, ...). Compare event.key, not event.name:
+# textual spells 'N' as name 'upper_n' while the binding and event.key stay
+# 'N'.
+SEARCH_COMMITTED_KEYS = frozenset(
+    {"n", "N", "up", "down", "enter", "escape", "ctrl+enter"}
+)
+
+# First row a window of `window` rows shows with `cursor` centred in it.
+# The finder materialises at most MAX_ROWS rows; committed, n/N walk the
+# whole result list and the window slides to keep the cursor visible.
+def _window_start(cursor: int, total: int, window: int) -> int:
+    if total <= window:
+        return 0
+    return max(0, min(cursor - window // 2, total - window))
 
 
 def load_design(fixture: Path | None = None) -> Design:
@@ -264,23 +282,35 @@ class TraceScreen(ModalScreen[None]):
 class SearchScreen(ModalScreen[None]):
     """Global fuzzy search: modules, instances, ports, nets, files (card 244).
 
-    The query Input holds focus, so every printable key - j and k included -
-    types text and never reaches the app bindings behind the modal (textual
-    strips printable keys from the binding chain while an Input is focused;
-    verified). Navigation is up/down, the arrow aliases of j/k (card 267),
-    bound here: the modal binding chain truncates at this screen, so they win
-    over the app's own arrow aliases. Enter (Input.Submitted) jumps to the
-    highlighted result and dismisses; escape dismisses.
+    Two modes, vim-style. While the query Input holds focus, every printable
+    key - j and k included - types text and never reaches the app bindings
+    behind the modal (textual strips printable keys from the binding chain
+    while an Input is focused; verified). up/down, the arrow aliases of j/k
+    (card 267), move the cursor there; the modal binding chain truncates at
+    this screen, so they beat the app's own arrow aliases. `enter` (Input
+    Submitted) commits the query: the Input is blurred and the finder stays
+    open, and `n` / `N` step to the next / previous match through the whole
+    result list. `enter` again returns to the query box to refine.
+    `ctrl+enter` leaves the finder and selects the highlighted result in the
+    tree; `escape` dismisses without jumping. Nothing holds focus while the
+    finder is committed, so TrenApp.on_event swallows every key except the
+    finder's own - otherwise the app's priority printable bindings (q quit,
+    y yank, X cut, ...) would fire under the modal.
 
     The right column previews the result's source focus by reusing the
     centre pane's renderer with a private scroll offset, so the pane state
-    behind the modal is untouched. The result list renders at most
-    `MAX_ROWS` rows; the count label shows how many matched.
+    behind the modal is untouched. The result list materialises at most
+    `MAX_ROWS` rows at once; walking past the edge slides the window, and
+    the count label always shows the real total.
     """
 
     BINDINGS = [
         Binding("up", "search_prev", "up", show=False),
         Binding("down", "search_next", "down", show=False),
+        Binding("n", "search_next_match", "next match", show=False),
+        Binding("N", "search_prev_match", "prev match", show=False),
+        Binding("enter", "search_edit_query", "edit query", show=False),
+        Binding("ctrl+enter", "search_jump", "open", show=False),
         Binding("escape", "dismiss", "close", show=False),
     ]
 
@@ -293,9 +323,13 @@ class SearchScreen(ModalScreen[None]):
     MAX_ROWS = 200
 
     def compose(self) -> ComposeResult:
+        # select_on_focus=False: returning to the query box after a commit
+        # must keep the caret at the end, so a letter APPENDS to the query
+        # instead of replacing the whole text (textual selects all on focus).
         yield Input(
             placeholder="search modules, instances, ports, nets, files",
             id="search-input",
+            select_on_focus=False,
         )
         with Horizontal():
             yield ListView(id="search-results")
@@ -311,10 +345,11 @@ class SearchScreen(ModalScreen[None]):
         self.preview = self.query_one("#search-preview", Static)
         self.countlabel = self.query_one("#search-count", Label)
         self.rows = filter_and_rank(self._app._search_index, "")  # type: ignore[attr-defined]
-        self._shown: list[SearchEntry] = []
         self._cursor = 0
+        self._wstart = 0
+        self._committed = False
         self._preview_entry: SearchEntry | None = None
-        self._rebuild()
+        self._show_window()
         self.inputwidget.focus()
 
     def on_unmount(self) -> None:
@@ -323,54 +358,106 @@ class SearchScreen(ModalScreen[None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         self.rows = filter_and_rank(self._app._search_index, event.value)  # type: ignore[attr-defined]
         self._cursor = 0
-        self._rebuild()
+        self._committed = False
+        self._show_window()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if not self._shown:
-            self._app.bell()
+        """enter: commit the query so n/N walk the matches, vim-style."""
+        if not self.rows:
+            self._app.bell()  # type: ignore[attr-defined]
             return
-        entry = self._shown[self._cursor]
+        self._committed = True
+        self._render_preview()
+        self._render_count()
+        self.set_focus(None)
+
+    def action_search_next(self) -> None:
+        self._move(1)
+
+    def action_search_prev(self) -> None:
+        self._move(-1)
+
+    def action_search_next_match(self) -> None:
+        self._move(1)
+
+    def action_search_prev_match(self) -> None:
+        self._move(-1)
+
+    def action_search_jump(self) -> None:
+        """ctrl+enter: select the highlighted result in the tree and close."""
+        if not self.rows:
+            self._app.bell()  # type: ignore[attr-defined]
+            return
+        entry = self.rows[self._cursor]
         if self._app._select_entry(entry):  # type: ignore[attr-defined]
             self._app.pop_screen()
         else:
             self._app.bell()
 
-    def action_search_next(self) -> None:
-        self._move_cursor(1)
+    def action_search_edit_query(self) -> None:
+        """enter (committed): give the query box focus back to refine it."""
+        self._committed = False
+        self._render_count()
+        self.inputwidget.focus()
 
-    def action_search_prev(self) -> None:
-        self._move_cursor(-1)
-
-    def _move_cursor(self, delta: int) -> None:
-        if not self._shown:
-            self._app.bell()
+    def _move(self, delta: int) -> None:
+        if not self.rows:
+            self._app.bell()  # type: ignore[attr-defined]
             return
-        self._cursor = (self._cursor + delta) % len(self._shown)
-        self.listwidget.index = self._cursor
+        if self._committed and len(self.rows) > self.MAX_ROWS:
+            # committed over a list longer than the window: walk the whole
+            # result set, sliding the materialised window over the cursor
+            self._cursor = (self._cursor + delta) % len(self.rows)
+            self._advance_window()
+        else:
+            # editing (or a small committed list): walk the shown window
+            total = len(self._shown)
+            local = (self._cursor - self._wstart + delta) % total if total else 0
+            self._cursor = self._wstart + local
+        self.listwidget.index = self._cursor - self._wstart
+        self._render_preview()
+        if self._committed:
+            self._render_count()
+
+    def _advance_window(self) -> None:
+        """Slide the materialised window over the cursor (committed mode)."""
+        want = _window_start(self._cursor, len(self.rows), self.MAX_ROWS)
+        if want == self._wstart:
+            return
+        self._wstart = want
+        self._shown = self.rows[want : want + self.MAX_ROWS]
+        self.listwidget.clear()
+        self.listwidget.extend(ListItem(Static(search_row_label(e))) for e in self._shown)
+
+    def _show_window(self) -> None:
+        """(Re)materialise the top window after the query changed."""
+        self._wstart = 0
+        self._shown = self.rows[: self.MAX_ROWS]
+        self.listwidget.clear()
+        self.listwidget.extend(ListItem(Static(search_row_label(e))) for e in self._shown)
+        if self._shown:
+            self.listwidget.index = min(self._cursor, len(self._shown) - 1)
+        self._render_count()
         self._render_preview()
 
-    def _rebuild(self) -> None:
-        self._shown = self.rows[: self.MAX_ROWS] if self.rows else []
-        if self._cursor >= len(self._shown):
-            self._cursor = max(0, len(self._shown) - 1)
+    def _render_count(self) -> None:
         total = len(self.rows)
-        self.countlabel.update(
-            f"{total} result{'s' if total != 1 else ''}" if total else "no results"
-        )
-        self.listwidget.clear()
-        self.listwidget.extend(
-            ListItem(Static(search_row_label(e))) for e in self._shown
-        )
-        if self._shown:
-            self.listwidget.index = self._cursor
-        self._render_preview()
+        if not total:
+            self.countlabel.update("no results")
+        elif self._committed:
+            self.countlabel.update(
+                f"match {self._cursor + 1} of {total} - n/N next/prev, "
+                "ctrl+enter open"
+            )
+        else:
+            self.countlabel.update(f"{total} result{'s' if total != 1 else ''}")
 
     def _render_preview(self) -> None:
         if not self._shown:
             self.preview.update("")
             self._preview_entry = None
             return
-        entry = self._shown[self._cursor]
+        entry = self._shown[self._cursor - self._wstart]
         if entry is self._preview_entry:
             return
         self._preview_entry = entry
@@ -1173,6 +1260,11 @@ class TrenApp(App[None]):
         the layer below (the panes, or the trace modal it was opened from).
         escape and `?` only dismiss: escape must not close the trace modal
         underneath too, and `?` must not reopen the sheet.
+
+        A *committed* search blurs the query box, so no widget guards the
+        app's priority printable bindings (q quit, y yank, X cut, ...).
+        Stop every key except the finder's own there, or it would act on the
+        tree behind the modal.
         """
         if isinstance(event, events.Key) and not event.is_forwarded:
             if self._cheat is not None and self.screen is self._cheat:
@@ -1183,6 +1275,14 @@ class TrenApp(App[None]):
                 if key in ("escape", "question_mark"):
                     event.stop()
                     return
+            search = self._search
+            if (
+                search is not None
+                and getattr(search, "_committed", False)
+                and event.key not in SEARCH_COMMITTED_KEYS
+            ):
+                event.stop()
+                return
         await super().on_event(event)
 
     def action_next_item(self) -> None:

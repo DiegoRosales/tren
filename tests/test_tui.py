@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tren.ir import Net, Port
-from tren.tui import _parse_src, net_leaf_label, port_leaf_label
+from tren.tui import _parse_src, _window_start, net_leaf_label, port_leaf_label
 
 
 class ParseSrcYosysSpanTests(unittest.TestCase):
@@ -138,6 +138,35 @@ class DeclaredRangeLabelTests(unittest.TestCase):
         self.assertEqual(
             net_leaf_label(Net(name="n", width=4, range=None)), "net n[3:0]"
         )
+
+
+class SearchWindowStartTests(unittest.TestCase):
+    """Committed search: the first row of the sliding match window.
+
+    The finder materialises MAX_ROWS rows at once; n/N always keep the cursor
+    visible, so the window start is the cursor centred and clamped to the
+    list. A list that fits needs no window.
+    """
+
+    def test_a_list_that_fits_has_no_window(self) -> None:
+        self.assertEqual(_window_start(5, 200, 200), 0)
+        self.assertEqual(_window_start(5, 9, 200), 0)
+
+    def test_cursor_centred_when_the_list_is_longer(self) -> None:
+        # 200 // 2 = 100 rows above the cursor, so the window opens at 300-100
+        self.assertEqual(_window_start(300, 500, 200), 200)
+
+    def test_window_clamped_at_the_top(self) -> None:
+        self.assertEqual(_window_start(0, 500, 200), 0)
+        self.assertEqual(_window_start(99, 500, 200), 0)
+
+    def test_window_clamped_at_the_tail(self) -> None:
+        self.assertEqual(_window_start(499, 500, 200), 300)
+        self.assertEqual(_window_start(400, 500, 200), 300)
+
+    def test_even_window_window_rounds_down(self) -> None:
+        # 200 // 2 = 100 rows above; the cursor sits just past the middle
+        self.assertEqual(_window_start(299, 400, 200), 199)
 
 
 if __name__ == "__main__":
