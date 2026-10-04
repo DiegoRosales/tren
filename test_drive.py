@@ -317,6 +317,44 @@ async def drive_fixture() -> None:
         await pilot.press("escape")
         assert app._search is None, "escape dismisses from editing too"
 
+        # card 280: committed search shows a bottom pane of the matched lines
+        await pilot.press("slash")
+        await pilot.press(*"alu_result")
+        rows = app._search.rows
+        assert [e.kind for e in rows] == ["port", "net"], rows
+        await pilot.press("down")  # onto the net row
+        await pilot.press("enter")
+        await pilot.pause()
+        search = app._search
+        assert search._committed, "enter should commit"
+        assert search.matchlist.display, "the matched-lines pane appears"
+        # one source line per shown result: the net row is line 48
+        match_rows = "\n".join(str(c.content) for c in search.matchlist.query("ListItem > Static"))
+        assert "alu_result" in match_rows, f"match pane rows: {match_rows!r}"
+        assert search.matchlist.index == search._cursor - search._wstart, (
+            "the pane cursor must track the shared match"
+        )
+        # tab switches the active pane; up/down move the shared cursor either
+        # way, and the results list follows
+        assert search._pane == "results", "results is active first"
+        await pilot.press("tab")
+        assert search._pane == "matches", "tab switches to the matches pane"
+        await pilot.press("down")
+        # the pane walks the shared match position (2 rows wrap: 1 -> 0)
+        assert search._cursor == 0, f"down in the pane walks the results: {search._cursor}"
+        assert search.listwidget.index == search._cursor - search._wstart, (
+            "the results cursor must follow the pane"
+        )
+        assert search.preview.content, "the preview follows the moved cursor"
+        await pilot.press("tab")
+        assert search._pane == "results", "tab switches back"
+        await pilot.press("slash")  # / un-commits: the pane collapses
+        assert not search._committed, "/ un-commits the finder"
+        assert not search.matchlist.display, "the pane hides on un-commit"
+        await pilot.press("ctrl+enter")
+        assert app._search is None
+        assert status_path(app) == "core.alu_result", status_path(app)
+
         # instance search returns the expected item for the demo IR
         await pilot.press("slash")
         await pilot.press(*"u_sram")
@@ -741,6 +779,21 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._search is not None and app._search._committed, \
             "enter commits the query"
         assert app.focused is None, f"commit blurs the query box: {app.focused}"
+        await pilot.pause()
+        search = app._search
+        assert search.matchlist.display, "the matched-lines pane appears"
+        match_rows = "\n".join(str(c.content) for c in search.matchlist.query("ListItem > Static"))
+        assert "alu_result" in match_rows, f"match pane rows: {match_rows!r}"
+        await pilot.press("tab")
+        assert search._pane == "matches", "tab switches to the matches pane"
+        await pilot.press("down")
+        assert search.listwidget.index == search._cursor - search._wstart, (
+            "the results cursor must follow the pane"
+        )
+        await pilot.press("tab")
+        assert search._pane == "results", "tab switches back"
+        await pilot.press("N")  # back onto the net row before the jump below
+        assert search._cursor == 1, f"N returns to the net row: {search._cursor}"
         await pilot.press("slash")  # / returns to the query box (card 279)
         assert not app._search._committed, "/ un-commits the finder"
         assert app.focused is app._search.inputwidget, "/ refocuses the query box"
@@ -793,6 +846,7 @@ async def drive_search_window() -> None:
         assert len(search.rows) > 3, "the window must actually bind"
         await pilot.press("enter")
         assert search._committed, "enter should commit"
+        assert search.matchlist.display, "the matched-lines pane appears"
         seen_wstarts: set[int] = set()
         for _ in range(len(search.rows) * 2):
             seen_wstarts.add(search._wstart)
@@ -801,6 +855,9 @@ async def drive_search_window() -> None:
             )
             assert search.listwidget.index == search._cursor - search._wstart, (
                 "the ListView cursor must track the walk"
+            )
+            assert search.matchlist.index == search._cursor - search._wstart, (
+                "the matches-pane cursor must track the walk"
             )
             await pilot.press("n")
         assert search._cursor == 0, "n wraps the whole match set"

@@ -183,7 +183,7 @@ pane.
 | `arrows` | aliases: down/up = j/k, right/left = l/h |
 | `enter` | tree: show the highlighted module in the centre RTL pane, with context |
 | `ctrl+u` | tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent |
-| `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, ctrl+enter to jump) |
+| `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump) |
 | `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
 | `Y` | cycle the yank format: sv -> vivado -> yosys -> vcd |
 | `d` `L` | trace drivers / loads of the selected net (opens the trace modal) |
@@ -233,7 +233,10 @@ declaration. The query box holds focus, so every letter types - the letters
 
 The walk is vim-style. `enter` commits the query and keeps the finder open:
 `n`/`N` then step to the next / previous match through the whole result set,
-wrap-arounds included. `enter` or `/` returns to the query box to refine.
+wrap-arounds included. A bottom pane then lists one matched source line per
+result (like vim's `:g//p`); `tab` switches which pane is active and
+up/down always move the same highlighted match, so scrolling the lines walks
+the result list. `enter` or `/` returns to the query box to refine.
 `ctrl+enter` drops you back into the tree with the highlighted result
 selected, `escape` dismisses without jumping. While the finder is committed
 no other key reaches the tree behind it, so `q`, `y`, `X` and friends are

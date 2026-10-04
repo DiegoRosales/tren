@@ -32,7 +32,7 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
     KeyDoc("arrows", "aliases: down/up = j/k, right/left = l/h"),
     KeyDoc("enter", "tree: show the highlighted module in the centre RTL pane, with context"),
     KeyDoc("ctrl+u", "tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent"),
-    KeyDoc("/", "open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, ctrl+enter to jump)"),
+    KeyDoc("/", "open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump)"),
     KeyDoc("y", "yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard)"),
     KeyDoc("Y", "cycle the yank format: sv -> vivado -> yosys -> vcd"),
     KeyDoc("d L", "trace drivers / loads of the selected net (opens the trace modal)"),

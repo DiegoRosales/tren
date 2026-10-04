@@ -75,11 +75,13 @@ PORT_DIR_WIDTH = 5
 # so a printable key would otherwise fire the app's priority bindings behind
 # the modal (q quit, y yank, X cut, ...). '/' is NOT here: the app's own
 # priority open_search would steal it, so TrenApp.on_event intercepts it
-# before dispatch and returns to the query box instead. Compare event.key,
+# before dispatch and returns to the query box instead. up/down move the
+# highlighted match whatever pane is active (results or source-line bottom
+# pane); tab flips between those two panes (card 280). Compare event.key,
 # not event.name: textual spells 'N' as name 'upper_n' and '/' as 'slash'
 # while the binding and event.key keep their original form.
 SEARCH_COMMITTED_KEYS = frozenset(
-    {"n", "N", "up", "down", "enter", "escape", "ctrl+enter"}
+    {"n", "N", "up", "down", "enter", "escape", "ctrl+enter", "tab"}
 )
 
 # First row a window of `window` rows shows with `cursor` centred in it.
@@ -300,6 +302,12 @@ class SearchScreen(ModalScreen[None]):
     otherwise the app's priority printable bindings (q quit, y yank, X cut,
     ...) would fire under the modal.
 
+Committed, a bottom pane lists the matched source lines (vim's
+    `:g//p`): one row per result, showing the line of RTL the result means.
+    `tab` switches which pane is active; up/down and n/N always move a
+    single shared cursor, so scrolling the bottom pane walks the result
+    list and the highlight follows (card 280).
+
     The right column previews the result's source focus by reusing the
     centre pane's renderer with a private scroll offset, so the pane state
     behind the modal is untouched. The result list materialises at most
@@ -313,17 +321,23 @@ class SearchScreen(ModalScreen[None]):
         Binding("n", "search_next_match", "next match", show=False),
         Binding("N", "search_prev_match", "prev match", show=False),
         Binding("enter", "search_edit_query", "edit query", show=False),
+        Binding("tab", "search_cycle_pane", "match pane", show=False),
         Binding("ctrl+enter", "search_jump", "open", show=False),
         Binding("escape", "dismiss", "close", show=False),
     ]
 
     PREVIEW_ROWS = 12
 
-    # Rows the result ListView materialises. Creating a ListItem widget per
+    # Rows the results ListView materialises. Creating a ListItem widget per
     # row dominates the finder's latency on a large design (measured ~0.5 ms
     # per row), so the list is a window over the ranked rows and the count
     # label carries the real total.
     MAX_ROWS = 200
+
+    # Rows the match pane shows at once. The pane is the vim :g//p list of
+    # the matched source lines, height-capped so the finder keeps acting as
+    # a modal over the panes behind it (card 280).
+    MATCH_ROWS = 7
 
     def compose(self) -> ComposeResult:
         # select_on_focus=False: returning to the query box after a commit
@@ -337,6 +351,7 @@ class SearchScreen(ModalScreen[None]):
         with Horizontal():
             yield ListView(id="search-results")
             yield Static("", id="search-preview")
+        yield ListView(id="search-matches")
         yield Label("", id="search-count")
         yield Footer()
 
@@ -345,6 +360,7 @@ class SearchScreen(ModalScreen[None]):
         self._app._search = self  # type: ignore[attr-defined]
         self.inputwidget = self.query_one("#search-input", Input)
         self.listwidget = self.query_one("#search-results", ListView)
+        self.matchlist = self.query_one("#search-matches", ListView)
         self.preview = self.query_one("#search-preview", Static)
         self.countlabel = self.query_one("#search-count", Label)
         self.rows = filter_and_rank(self._app._search_index, "")  # type: ignore[attr-defined]
@@ -352,6 +368,16 @@ class SearchScreen(ModalScreen[None]):
         self._wstart = 0
         self._committed = False
         self._preview_entry: SearchEntry | None = None
+        self._pane = "results"  # up/down act on the results list or the matches
+        self.matchlist.styles.height = self.MATCH_ROWS
+        self.matchlist.display = False
+        # panes get a border so the active cue survives the items painting
+        # over a plain background (the ListItems own their rows)
+        self.listwidget.border_title = "results"
+        self.matchlist.border_title = "matches"
+        # the matches and results panes share one cursor: painting the active
+        # pane lifts it like the app's own pane cue (card 280)
+        self._paint_panes()
         self._show_window()
         self.inputwidget.focus()
 
@@ -362,6 +388,8 @@ class SearchScreen(ModalScreen[None]):
         self.rows = filter_and_rank(self._app._search_index, event.value)  # type: ignore[attr-defined]
         self._cursor = 0
         self._committed = False
+        self._pane = "results"
+        self._refresh_matches()
         self._show_window()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -370,6 +398,7 @@ class SearchScreen(ModalScreen[None]):
             self._app.bell()  # type: ignore[attr-defined]
             return
         self._committed = True
+        self._refresh_matches(rebuild=True)
         self._render_preview()
         self._render_count()
         self.set_focus(None)
@@ -397,9 +426,18 @@ class SearchScreen(ModalScreen[None]):
         else:
             self._app.bell()
 
+    def action_search_cycle_pane(self) -> None:
+        """tab: switch the active pane between results and matches (card 280)."""
+        if not self._committed:
+            return
+        self._pane = "matches" if self._pane == "results" else "results"
+        self._paint_panes()
+
     def action_search_edit_query(self) -> None:
         """enter (committed): give the query box focus back to refine it."""
         self._committed = False
+        self._pane = "results"
+        self._refresh_matches()
         self._render_count()
         self.inputwidget.focus()
 
@@ -417,10 +455,17 @@ class SearchScreen(ModalScreen[None]):
             total = len(self._shown)
             local = (self._cursor - self._wstart + delta) % total if total else 0
             self._cursor = self._wstart + local
-        self.listwidget.index = self._cursor - self._wstart
+        self._sync_cursor()
         self._render_preview()
         if self._committed:
             self._render_count()
+
+    def _sync_cursor(self) -> None:
+        """Point both panes' ListViews at the shared cursor (card 280)."""
+        row = self._cursor - self._wstart
+        self.listwidget.index = row
+        if self.matchlist.display:
+            self.matchlist.index = min(row, len(self._shown) - 1)
 
     def _advance_window(self) -> None:
         """Slide the materialised window over the cursor (committed mode)."""
@@ -431,6 +476,7 @@ class SearchScreen(ModalScreen[None]):
         self._shown = self.rows[want : want + self.MAX_ROWS]
         self.listwidget.clear()
         self.listwidget.extend(ListItem(Static(search_row_label(e))) for e in self._shown)
+        self._refresh_matches(rebuild=True)
 
     def _show_window(self) -> None:
         """(Re)materialise the top window after the query changed."""
@@ -440,6 +486,7 @@ class SearchScreen(ModalScreen[None]):
         self.listwidget.extend(ListItem(Static(search_row_label(e))) for e in self._shown)
         if self._shown:
             self.listwidget.index = min(self._cursor, len(self._shown) - 1)
+        self._refresh_matches(rebuild=True)
         self._render_count()
         self._render_preview()
 
@@ -450,10 +497,60 @@ class SearchScreen(ModalScreen[None]):
         elif self._committed:
             self.countlabel.update(
                 f"match {self._cursor + 1} of {total} - n/N next/prev, "
-                "ctrl+enter open"
+                "tab pane, ctrl+enter open"
             )
         else:
             self.countlabel.update(f"{total} result{'s' if total != 1 else ''}")
+
+    def _match_source(self, entry: SearchEntry) -> str:
+        """The source line the result matches (vim :g//p, card 280).
+
+        A real focus reads the file line at the span; a fixture scope with an
+        inline snippet reads its focused rtl line. Neither exists (a black
+        box's ports) -> fall back to the row label so the pane never blanks.
+        """
+        focus, scope = self._app._entry_preview(entry)  # type: ignore[attr-defined]
+        if focus is not None:
+            file, lo, _ = focus
+            lines = self._app._file_lines(file)  # type: ignore[attr-defined]
+            if lines and 1 <= lo <= len(lines):
+                return lines[lo - 1]
+        if scope is not None and scope.rtl:
+            lo, _ = scope.rtl_focus
+            if 1 <= lo <= len(scope.rtl):
+                return scope.rtl[lo - 1]
+        return search_row_label(entry)
+
+    def _refresh_matches(self, rebuild: bool = False) -> None:
+        """Show/hide and materialise the bottom matched-lines pane.
+
+        `rebuild` re-creates the ListItems; the pane only exists once the
+        query is committed (card 280), so cheap calls just keep the shared
+        cursor in sync.
+        """
+        if not self._committed:
+            self.matchlist.display = False
+            return
+        if rebuild:
+            self.matchlist.clear()
+            self.matchlist.extend(
+                ListItem(Static(self._match_source(e))) for e in self._shown
+            )
+        self.matchlist.display = True
+        if self._shown:
+            self.matchlist.index = min(
+                self._cursor - self._wstart, len(self._shown) - 1
+            )
+
+    def _paint_panes(self) -> None:
+        """Lift the active pane (results or matches) above the other."""
+        for widget, pid in (
+            (self.listwidget, "results"),
+            (self.matchlist, "matches"),
+        ):
+            active = pid == self._pane
+            widget.styles.border = ("solid", "#a6c9ff" if active else "#3a3a3a")
+            widget.styles.background = PANE_BG_ACTIVE if active else PANE_BG_IDLE
 
     def _render_preview(self) -> None:
         if not self._shown:
