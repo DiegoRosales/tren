@@ -141,6 +141,16 @@ async def drive_fixture() -> None:
         await pilot.press("up")
         assert app.port_index == before, f"up should move it back: {app.port_index}"
 
+        # card 281: enter in the I/O pane acts on the pane's selected port.
+        # Fixture ports carry no src, so the enclosing scope's inline RTL
+        # keeps the pane - the fallback a tree port leaf gets (cards 242/243).
+        await pilot.press("enter")
+        assert app.active == "ports", "enter must not switch the pane"
+        assert app._focus is None, f"src-less port must not resolve a focus: {app._focus}"
+        text = str(source.content)
+        assert "cannot read" not in text, f"src-less port hit the error path: {text[:120]!r}"
+        assert ".alu_result(out)" in text, f"inline snippet not shown: {text[:120]!r}"
+
         await pilot.press("1")
         assert app.active == "tree", "pressing 1 should reactivate the tree pane"
 
@@ -577,6 +587,33 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert status_path(app) == "top.u_core.u_alu0.result", f"out port status: {status_path(app)!r}"
         # the no-src fallback is exercised in drive_fixture, where ports
         # genuinely carry no src (every port in the real IR has one)
+
+        # ---- card 281: the I/O pane selection drives the centre pane -------
+        await pilot.press("3")
+        assert app.active == "ports", "pressing 3 should activate the ports pane"
+        assert app.port_index == 0, f"untouched pane-3 selection: {app.port_index}"
+        port = app.pane_ports[app.port_index]
+        assert port.name == "a", f"first I/O row of u_alu0: {port.name}"
+        assert app._focus == ("rtl/demo.sv", 22, 22), f"port {port.name} focus: {app._focus}"
+        assert "input  logic [W-1:0] a," in str(source.content), "a declaration not shown"
+        assert app.src_offset + 1 <= 22 <= app.src_offset + rows, (
+            f"port declaration out of view: offset {app.src_offset}"
+        )
+        # moving the I/O selection moves the highlight with it
+        await pilot.press("j")
+        port = app.pane_ports[app.port_index]
+        assert port.name == "b", f"second I/O row of u_alu0: {port.name}"
+        assert app._focus == ("rtl/demo.sv", 23, 23), f"port {port.name} focus: {app._focus}"
+        assert "input  logic [W-1:0] b," in str(source.content), "b declaration not shown"
+        await pilot.press("k")  # leave the I/O selection where it started
+        assert app.port_index == 0, f"restored pane-3 selection: {app.port_index}"
+        # back to the tree pane: the centre follows the tree selection again
+        # (the cursor still sits on the result leaf selected above)
+        await pilot.press("1")
+        assert app.active == "tree", "pressing 1 should reactivate the tree pane"
+        assert app._focus == ("rtl/demo.sv", 25, 25), (
+            f"tree selection focus after the pane switch: {app._focus}"
+        )
 
         # ---- card 213: d/L trace with hierarchy crossing ------------------
         # walk from top.out to its $xor driver and back; dump shows the path

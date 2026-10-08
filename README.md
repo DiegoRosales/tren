@@ -156,6 +156,11 @@ connectivity come from yosys. A port belonging to a module the slang pass
 never reached still shows the netlist's direction and width, just without a
 type.
 
+While the I/O pane is active, the source pane highlights the selected port's
+declaration and follows `j`/`k` through the list. `enter` re-centres the
+band. A port with no source location falls back to the module view, as a
+tree leaf does.
+
 ### Zooming a pane
 
 `z` zooms the active pane: it takes the full width and the other two panes go
@@ -181,7 +186,7 @@ pane.
 | `l` | tree: expand the highlighted scope (reveal its children) |
 | `h` | tree: collapse the highlighted scope (hide its children) |
 | `arrows` | aliases: down/up = j/k, right/left = l/h |
-| `enter` | tree: show the highlighted module in the centre RTL pane, with context |
+| `enter` | show the selection in the centre RTL pane with context - tree, the highlighted module; I/O, the selected port's declaration |
 | `ctrl+u` | tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent |
 | `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump) |
 | `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
@@ -205,7 +210,10 @@ expands the highlighted scope to reveal its children (file-manager model),
 and `h` collapses it again. The arrow keys do the same four things: `down`
 and `up` move, `right` expands, `left` collapses. `ctrl+u` steps up one granularity level, current
 scope first: from a port/net leaf it jumps to that module's row (not past it
-to the parent); pressed again it moves up to the parent module. `enter` puts the highlighted module into the centre. The center pane shows the **real RTL
+to the parent); pressed again it moves up to the parent module. `enter` puts
+the highlighted module into the centre. With the I/O pane active, `enter`
+re-centres the selected port's declaration instead. The center pane shows
+the **real RTL
 file** at the module's *instantiation in its parent* (or its declaration at
 the top), with the focused range highlighted and kept in view - `e` opens
 the editor at exactly that line, `E` at the module's own definition.

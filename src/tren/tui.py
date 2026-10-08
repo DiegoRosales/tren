@@ -14,7 +14,8 @@ Auto-follow: on scope change the focus band is kept in view
 (src_offset = focus_start - rows/2, clamped). `e` opens the editor (stub)
 at the selection's declaration line, `E` at the module definition.
 
-Keys: j/k move, l expand, h collapse, enter shows the module in the centre,
+Keys: j/k move, l expand, h collapse, enter shows the selection in the
+centre (the module, or the I/O pane's selected port declaration, card 281),
 ctrl+u jumps up a level, 1/2/3 pane select, z zoom the active pane, y yank,
 / global search (modules, instances, ports, nets, files; card 244; enter
 commits, n/N walk the matches, ctrl+enter selects and closes),
@@ -815,6 +816,30 @@ class TrenApp(App[None]):
             node = node.parent
         return None
 
+    def _effective_focus(self) -> tuple[str, int, int] | None:
+        """Source focus of the *effective* selection (card 281).
+
+        With the I/O pane active the selection is the port its marker sits
+        on, so the focus is that port's declaration - the same rule a port
+        leaf in the tree follows (cards 242/243). A port the backends gave
+        no src, an out-of-range index and every other pane fall back to the
+        tree selection's focus. While a modal screen owns the screen (the
+        d/L trace, the search finder) the tree selection stays the truth:
+        those modals move the tree rows and the centre pane must follow
+        them, whatever pane was active when they opened.
+        """
+        if (
+            self.active == "ports"
+            and self._modal is None
+            and self._search is None
+            and self.pane_ports
+            and 0 <= self.port_index < len(self.pane_ports)
+        ):
+            declared = _parse_src(self.pane_ports[self.port_index].src)
+            if declared is not None:
+                return declared
+        return self._focus_for(self._current_node)
+
     def _file_lines(self, file: str) -> list[str]:
         if file not in self._file_cache:
             p = Path(file)
@@ -901,13 +926,15 @@ class TrenApp(App[None]):
 
     def _render_panes(self) -> None:
         scope = self._scope_data(self._current_node)
-        focus = self._focus_for(self._current_node)
+        focus = self._effective_focus()
         # What the centre pane is showing: a file span, or (fixture IR) the
         # scope's inline snippet. Scroll position belongs to *that* target, so
         # compare both — focus alone stays None across a move between two
         # src-less scopes and used to carry the previous scope's scroll offset
         # into an unrelated snippet. Within one target (j in the source pane)
-        # nothing is reset.
+        # nothing is reset. The focus is the effective selection's (card 281):
+        # the I/O pane's selected port while that pane is active, so moving
+        # its marker re-centres the declaration like a tree leaf does.
         target = (focus, scope.name if scope is not None else None)
         if target != self._render_target:
             self._render_target = target
@@ -1469,12 +1496,14 @@ class TrenApp(App[None]):
         # no strict module ancestor (top-level scope): stay put
 
     def action_focus_source(self) -> None:
-        """enter (tree pane): show the highlighted module in the centre RTL
-        pane, band centred with surrounding context. The d/L trace modal owns
-        Enter while open (this binding is deliberately not priority=True)."""
+        """enter: show the effective selection in the centre RTL pane, band
+        centred with surrounding context - the tree's highlighted module, or
+        the I/O pane's selected port's declaration (card 281). The d/L trace
+        modal owns Enter while open (this binding is deliberately not
+        priority=True)."""
         if self._modal is not None:
             return
-        focus = self._focus_for(self._current_node)
+        focus = self._effective_focus()
         scope = self._scope_data(self._current_node)
         if focus is None and scope is None:
             self.bell()
@@ -1620,12 +1649,14 @@ class TrenApp(App[None]):
             self.bell()
 
     def action_open_editor(self) -> None:
-        """e: open $EDITOR at the selection's own declaration — for a scope
-        the *instantiation* in its parent (the line you'd edit to rewire the
-        port map), for a port/net leaf its own declaration (cards 242/243).
-        A top-level module has no parent: both e and E land on its definition.
+        """e: open $EDITOR at the effective selection's own declaration - for
+        a scope the *instantiation* in its parent (the line you'd edit to
+        rewire the port map), for a port/net leaf its own declaration
+        (cards 242/243), for the I/O pane's selected port its declaration
+        (card 281). A top-level module has no parent: both e and E land on
+        its definition.
         """
-        self._open_editor(self._focus_for(self._current_node))
+        self._open_editor(self._effective_focus())
 
     def action_open_module_definition(self) -> None:
         """E: open $EDITOR at the *module definition* — the scope's own src
