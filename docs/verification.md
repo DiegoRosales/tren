@@ -209,6 +209,7 @@ ceremony:
 | binding / navigation / pane | update Pilot drives, user guide, AGENTS gotchas; a key map change also runs `make guide` so the README table and the `?` cheatsheet (one list in `tren/keys.py`) cannot drift | `make check` + `make roundtrip` (tree/OSC) |
 | pane styling / anything the Tree renders | assert the style in the drives **and** capture a real terminal | `make check` + `make pane-cue` |
 | elaborator / CLI / importers | extend acceptance, re-run on demo + an HLS block | `make check` + `make hls-elaborate BLOCK=...` |
+| a new `slang_flags` / `yosys_flags` in the manifest | update argv-construction tests, re-run on the zybo reference design | `make check` + elaborate the zybo manifest under `.#tren-yosys-src` |
 | backend flag / format claim | **verify against the tool first** (AGENTS section 4) | run tool, then encode as test |
 | flake / tool versions | re-verify everything | full `make check` + update cache/version notes |
 

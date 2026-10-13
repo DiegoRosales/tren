@@ -2,14 +2,14 @@
 
 Wraps the pinned CLIs (versions recorded in README.md):
 
-- ``slang-hier --params`` — the scope tree (every instance path, generate
+- ``slang-hier --params`` - the scope tree (every instance path, generate
   scopes included) plus per-instance resolved parameters (``W=32'd32``).
-- ``yosys ... ; hierarchy -top <top>; proc; write_json`` — connectivity
+- ``yosys ... ; hierarchy -top <top>; proc; write_json`` - connectivity
   (per net bit, drivers/loads within the module), boundary links (submodule
   cell ports), black-box detection and ports, and net widths/src. The yosys
   rules from AGENTS.md apply: ``proc`` required, never ``opt``, never
   ``flatten``; bit IDs are positional-only across scopes.
-- ``slang --ast-json --ast-json-source-info --ast-json-detailed-types`` —
+- ``slang --ast-json --ast-json-source-info --ast-json-detailed-types`` -
   declarations: parameter kinds (parameter vs localparam) and source
   locations for ports.
 
@@ -31,6 +31,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -62,11 +63,29 @@ _HIER_RE = re.compile(
 )
 
 
+# Backend tolerance defaults (card 259). These only ever help a *viewer*:
+# TREN's premise is that unresolved modules are normal black boxes, and it
+# wants the net graph, not a synthesis result. The design-specific flags
+# (timescale, use-before-declare, copy-instantiation warnings) travel in the
+# manifest's `slang_flags` / `yosys_flags`.
+_SLANG_DEFAULT_FLAGS = ("--ignore-unknown-modules",)
+_YOSYS_DEFAULT_FLAGS = ("-nolatches",)
+
+
 def _run(cmd: list[str], cwd: Path) -> str:
     proc = subprocess.run(
         cmd, cwd=str(cwd), check=True, capture_output=True, text=True
     )
     return proc.stdout
+
+
+def _tool_diagnostics(proc: subprocess.CalledProcessError, limit: int = 40) -> str:
+    """Trimmed tool stderr for the user - the reason flames are shown TOK_ID."""
+    text = (proc.stderr or proc.stdout or "").strip()
+    lines = text.splitlines()
+    if len(lines) <= limit:
+        return text
+    return "..." + "\n".join(lines[-limit:])
 
 
 def parse_hier_line(line: str) -> dict[str, Any] | None:
@@ -90,11 +109,13 @@ def parse_hier_line(line: str) -> dict[str, Any] | None:
 def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
     """Scope tree + resolved params: ``slang-hier --params`` parsed.
 
-    Sources/incdirs are passed as manifest-relative paths — the subprocess
-    runs with ``cwd=root``, so tool-reported src stays ``rtl/demo.sv:…``
+    Sources/incdirs are passed as manifest-relative paths - the subprocess
+    runs with ``cwd=root``, so tool-reported src stays ``rtl/demo.sv:...``
     (relative) rather than absolute.
     """
-    args = ["slang-hier", "--params"]
+    args = ["slang-hier", "--params"] + list(_SLANG_DEFAULT_FLAGS)
+    for flag in manifest.slang_flags:
+        args.append(flag)
     for inc in manifest.incdirs:
         args += ["-I", str(inc)]
     for name, value in manifest.defines:
@@ -110,7 +131,9 @@ def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
 
 def run_yosys(manifest: Manifest, root: Path, out_json: str) -> None:
     """Netlist for connectivity/boundaries/black-box ports (srcs relative)."""
-    read_args: list[str] = []
+    read_args: list[str] = list(_YOSYS_DEFAULT_FLAGS)
+    for flag in manifest.yosys_flags:
+        read_args.append(flag)
     for name, value in manifest.defines:
         read_args.append(f"-D{name}={value}" if value else f"-D{name}")
     for inc in manifest.incdirs:
@@ -133,7 +156,9 @@ def run_slang_ast(manifest: Manifest, root: Path, out_json: str) -> dict:
         out_json,
         "--ast-json-source-info",
         "--ast-json-detailed-types",
-    ]
+    ] + list(_SLANG_DEFAULT_FLAGS)
+    for flag in manifest.slang_flags:
+        args.append(flag)
     for inc in manifest.incdirs:
         args += ["-I", str(inc)]
     for name, value in manifest.defines:
@@ -393,7 +418,7 @@ def _is_blackbox(mod: dict) -> bool:
 def _ports_for(mod: dict, decl: dict[str, Any] | None) -> tuple[Port, ...]:
     """Ports of one module: yosys for the bits, slang's declaration for the rest.
 
-    Direction comes from slang where it has an opinion (card 219 — the overlay
+    Direction comes from slang where it has an opinion (card 219 - the overlay
     is the source-faithful layer, yosys is connectivity), falling back to the
     netlist for modules the AST walk never reached. They agree on the demo;
     the declaration is simply the one that stays right when they don't.
@@ -424,7 +449,7 @@ def _ports_for(mod: dict, decl: dict[str, Any] | None) -> tuple[Port, ...]:
 
 def _bit_key(b: Any) -> int:
     """Bit id for IR use. Yosys emits non-integer tokens ('0', 'x') for
-    constant / don't-care positions of a net — those carry no connectivity
+    constant / don't-care positions of a net - those carry no connectivity
     and are represented as -1 (never a real node id, so they can never match
     a cell connection in the hit map)."""
     if isinstance(b, int):
@@ -523,7 +548,7 @@ def _build_boundaries(
         mod = netlist["modules"].get(key) or {}
         for cname, cell in sorted((mod.get("cells") or {}).items()):
             if cell.get("type") not in netlist["modules"]:
-                continue  # internal $cell or unresolved — not a hierarchy edge
+                continue  # internal $cell or unresolved - not a hierarchy edge
             child_path = f"{path}.{cname}"
             for port in (cell.get("connections") or {}):
                 out.append(
@@ -596,7 +621,7 @@ def build_design(
 
     # --- instances: direct child scopes; src = instantiation site ----------
     # The instance's src is the *instantiation in the parent* (the yosys cell
-    # src, e.g. rtl/demo.sv:77.14-77.65), not the child module's declaration —
+    # src, e.g. rtl/demo.sv:77.14-77.65), not the child module's declaration -
     # that is what the source pane focuses. Fall back to the child scope's own
     # src when the cell src is unknown (generate-block children). Children are
     # ordered by src line (source order), name as tiebreak.
@@ -670,12 +695,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     manifest = Manifest.read(args.manifest)
-    design = elaborate(
-        manifest,
-        args.root,
-        cache=IrCache(args.cache, root=args.root),
-        refresh=args.refresh,
-    )
+    try:
+        design = elaborate(
+            manifest,
+            args.root,
+            cache=IrCache(args.cache, root=args.root),
+            refresh=args.refresh,
+        )
+    except subprocess.CalledProcessError as e:
+        tool = (e.cmd[0] if isinstance(e.cmd, list) and e.cmd else "backend").split("/")[-1]
+        print(f"elaborate: {tool} failed (exit {e.returncode})", file=sys.stderr)
+        print(_tool_diagnostics(e), file=sys.stderr)
+        print(f"full command: {' '.join(str(a) for a in e.cmd)}", file=sys.stderr)
+        return 1
 
     n_scopes = len(design.scopes)
     n_modules = sum(1 for s in design.scopes if s.module is not None)

@@ -72,7 +72,11 @@ instead of the nixpkgs release. The `YosysHQ/yosys` flake input pins the
 revision and fetches the tool's git submodules (needs Nix >= 2.27); bump
 with `nix flake lock --update-input yosys`. The first entry compiles the
 whole tool, so allow some time. Verify a bumped source against the tests
-(`docs/verification.md`, layer 2) before relying on it.
+(`docs/verification.md`, layer 2) before relying on it. The pinned source
+carries the macro-argument token-pasting fix (card 262); nixpkgs 0.69 does
+not, so an RTL design that hits the multi-line macro-argument bug elaborates
+here and not in the default shell. The `slang_flags` / `yosys_flags`
+manifest fields work identically in both shells.
 
 Dependencies are declared once, in `pyproject.toml`, and read by both the nix
 build (through `pyproject.nix`) and pip.
@@ -314,6 +318,28 @@ elaborate / browse one block (`BLOCK` defaults to `fft_wrapper`). The
 elaborator handles the generated Verilog-2005 including yosys's constant / x
 bits. Example: `fft_wrapper` bundles 140 scopes, ~50k bit-links and 1763
 boundaries.
+
+## Manifest schema and backend tolerance flags
+
+`tren import` emits a manifest (`sources`, `incdirs`, `defines`, `params`,
+`top`, `blackboxes`). Two optional list fields carry backend tolerance flags
+(card 259) - real third-party RTL needs them, and they travel with the
+design, not the tool:
+
+| Field | Reaches | Example zybo_sampler value |
+|---|---|---|
+| `slang_flags` | `slang-hier --params` and `slang --ast-json` | `["--timescale=1ns/1ps", "--allow-use-before-declare", "-Wno-redefinition"]` |
+| `yosys_flags` | `read_verilog` before the sources | `["-nolatches"]` |
+
+Always on, no manifest needed: slang gets `--ignore-unknown-modules` (an
+unresolved module is a normal black box in TREN) and yosys gets `-nolatches`
+(TREN wants the net graph, not a synthesis result). The zybo_sampler design
+(39 scopes, 13566 bit-links) elaborates with only the two manifest edits
+above - and, where the source yosys is required, under `.#tren-yosys-src`.
+
+When a backend fails, `tren elaborate` prints that tool's own stderr
+(trimmed to 40 lines) followed by the full command line, then exits 1 - no
+Python traceback.
 
 ## Importers
 

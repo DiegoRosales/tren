@@ -9,6 +9,7 @@ Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s te
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,11 +23,15 @@ from tren.elaborate import (  # noqa: E402
     _decl_default,
     _nets_for,
     _src_pos,
+    _tool_diagnostics,
     _type_range,
     _type_string,
     build_design,
     elaborate,
     parse_hier_line,
+    run_slang_ast,
+    run_slang_hier,
+    run_yosys,
 )
 from tren.ir import BoundaryLink, Design, NetConnectivity, Port, Scope  # noqa: E402
 from tren.manifest import Manifest  # noqa: E402
@@ -62,6 +67,93 @@ class HierParseTests(unittest.TestCase):
 
     def test_non_matching_line_is_none(self) -> None:
         self.assertIsNone(parse_hier_line("Build succeeded: 0 errors, 0 warnings"))
+
+
+class BackendFlagTests(unittest.TestCase):
+    """Card 259: manifest flags reach every runner, without running tools."""
+
+    MANIFEST = Manifest(
+        sources=("rtl/demo.sv",),
+        slang_flags=("--timescale=1ns/1ps", "--allow-use-before-declare", "-Wno-redefinition"),
+        yosys_flags=("-DEXTRA=1",),
+    )
+
+    def _capture(self, runner: object) -> list[str]:
+        import json
+
+        captured: list[str] = []
+
+        def fake_run(cmd, cwd):
+            captured.append(cmd)
+            for i, a in enumerate(cmd):
+                if a == "--ast-json" and i + 1 < len(cmd):
+                    json.dump({}, open(cmd[i + 1], "w"))
+            return "Build succeeded: 0 errors, 0 warnings"
+
+        import tren.elaborate as elab
+
+        original = elab._run
+        try:
+            elab._run = fake_run
+            runner()  # type: ignore[operator]
+        finally:
+            elab._run = original
+        return captured
+
+    def test_slang_hier_carries_defaults_and_manifest_flags(self) -> None:
+        cmd = self._capture(lambda: run_slang_hier(self.MANIFEST, REPO))[0]
+        self.assertIn("--ignore-unknown-modules", cmd)
+        self.assertIn("--timescale=1ns/1ps", cmd)
+        self.assertIn("--allow-use-before-declare", cmd)
+        self.assertIn("-Wno-redefinition", cmd)
+        self.assertIn("rtl/demo.sv", cmd)
+
+    def test_slang_ast_carries_defaults_and_manifest_flags(self) -> None:
+        cmd = self._capture(
+            lambda: run_slang_ast(self.MANIFEST, REPO, "/tmp/ast.json")
+        )[0]
+        self.assertIn("--ignore-unknown-modules", cmd)
+        self.assertIn("--timescale=1ns/1ps", cmd)
+        self.assertIn("--ast-json-source-info", cmd)
+
+    def test_yosys_carries_defaults_and_manifest_flags(self) -> None:
+        script = self._capture(
+            lambda: run_yosys(self.MANIFEST, REPO, "/tmp/netlist.json")
+        )[0][3]
+        self.assertIn("read_verilog -sv -nolatches -DEXTRA=1 rtl/demo.sv", script)
+        self.assertIn("hierarchy -top top", script)
+        self.assertIn("proc;", script)
+
+    def test_default_slags_named_not_forced_off(self) -> None:
+        bare = Manifest(sources=("rtl/demo.sv",))
+        cmd = self._capture(lambda: run_slang_hier(bare, REPO))[0]
+        self.assertIn("--ignore-unknown-modules", cmd)
+        self.assertNotIn("--timescale", cmd)
+
+
+class DiagnosticTests(unittest.TestCase):
+    """Card 259: a failed backend shows its stderr, not a raw argv."""
+
+    def test_diagnostics_trim_long_output(self) -> None:
+        err = subprocess.CalledProcessError(
+            1,
+            ["slang-hier"],
+            output="",
+            stderr="\n".join(f"line {i}" for i in range(100)),
+        )
+        diag = _tool_diagnostics(err)
+        self.assertLessEqual(len(diag.splitlines()), 40)
+        self.assertIn("line 99", diag)
+
+    def test_diagnostics_prefers_stderr(self) -> None:
+        err = subprocess.CalledProcessError(
+            1, ["yosys"], output="stdout-noise", stderr="real: syntax error"
+        )
+        self.assertEqual(_tool_diagnostics(err), "real: syntax error")
+
+    def test_diagnostics_handles_empty_stderr(self) -> None:
+        err = subprocess.CalledProcessError(1, ["yosys"], output="oops")
+        self.assertEqual(_tool_diagnostics(err), "oops")
 
 
 class BuildDesignUnitTests(unittest.TestCase):
@@ -328,7 +420,7 @@ class DemoAcceptanceTests(unittest.TestCase):
 
     def test_overlay_survives_the_cache(self) -> None:
         """Card 219 end-to-end: the overlay is only delivered if it survives
-        a cache hit. It did not — blobs written before `Port.type` existed kept
+        a cache hit. It did not - blobs written before `Port.type` existed kept
         hitting, so the I/O pane showed no types on any warm cache."""
         with tempfile.TemporaryDirectory(prefix="tren-elab-overlay-") as td:
             cache = IrCache(Path(td) / "cache", root=REPO)

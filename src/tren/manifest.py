@@ -1,4 +1,4 @@
-"""The design manifest — what TREN elaborates.
+"""The design manifest - what TREN elaborates.
 
 A hand-written, checkable-in file (sources/incdirs/defines/params/top/
 blackboxes). Importers write one; the elaborator consumes one; the on-disk
@@ -21,6 +21,8 @@ class Manifest:
     params: tuple[tuple[str, str], ...] = ()  # (name, value) top-level overrides
     top: str = "top"
     blackboxes: tuple[str, ...] = ()  # globs/user cuts
+    slang_flags: tuple[str, ...] = ()  # extra slang-hier/slang args (card 259)
+    yosys_flags: tuple[str, ...] = ()  # extra read_verilog args (card 259)
 
     def defines_map(self) -> dict[str, str]:
         return dict(self.defines)
@@ -44,6 +46,8 @@ class Manifest:
             params=tuple(tuple(x) for x in data.get("params", ())),
             top=data.get("top", "top"),
             blackboxes=tuple(data.get("blackboxes", ())),
+            slang_flags=tuple(data.get("slang_flags", ())),
+            yosys_flags=tuple(data.get("yosys_flags", ())),
         )
 
     def write(self, path: str | Path) -> None:
@@ -66,6 +70,8 @@ class Manifest:
                 "params": sorted(self.params),
                 "top": self.top,
                 "blackboxes": sorted(self.blackboxes),
+                "slang_flags": sorted(self.slang_flags),
+                "yosys_flags": sorted(self.yosys_flags),
             },
             sort_keys=True,
             separators=(",", ":"),
