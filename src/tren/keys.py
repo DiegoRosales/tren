@@ -27,6 +27,7 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
     KeyDoc("1 2 3", "select the tree / source / I/O pane"),
     KeyDoc("z", "zoom the active pane to the full width, or restore the three columns"),
     KeyDoc("j k", "move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port"),
+    KeyDoc("pageup pagedown", "move a screen up/down in the active pane: in the tree, jump to the next/previous page of nodes; in source, scroll a screen; in I/O, select a port a page away (card 283)"),
     KeyDoc("l", "tree: expand the highlighted scope (reveal its children)"),
     KeyDoc("h", "tree: collapse the highlighted scope (hide its children)"),
     KeyDoc("arrows", "aliases: down/up = j/k, right/left = l/h"),

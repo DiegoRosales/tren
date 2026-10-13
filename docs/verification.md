@@ -78,7 +78,8 @@ Drives the actual `TrenApp` in-process with textual's `Pilot`, both in a
 fixture (no tools) and real-IR mode. Two flavours:
 
 - `make drive` - `test_drive.py` (fixture): tree nav, pane routing, yank,
-  l/h expand/collapse, ctrl+u, enter, `z` pane zoom; fast, no tools.
+  l/h expand/collapse, ctrl+u, enter, `z` pane zoom, pageup/pagedown paging
+  per pane (card 283); fast, no tools.
 - `make drive-real` - `test_drive.py --manifest rtl/demo.manifest.json`:
   the *real* elaboration, source-pane focus/auto-follow, trace crossing with
   positional matching down to `$xor`, black-box stops, `X` cuts, yank format

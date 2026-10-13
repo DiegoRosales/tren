@@ -205,6 +205,13 @@ to commit messages.
   `N` is event name `upper_n`, `?` is `question_mark`, and `ctrl+enter` is
   `ctrl_enter` while the binding and `event.key` keep their original form.
   Gate an app-level key filter on `event.key`, not `event.name`.
+- textual 8.2 `Tree` defines `action_page_up`/`action_page_down` but binds
+  neither (only up/down/enter/space/shift+... are in Tree.BINDINGS), and
+  ListViews bind nothing beyond up/down/enter. App-level paging (card 283)
+  must therefore be its own priority binding dispatching on `self.active`,
+  and `on_event` must stop the page keys while a modal owns the screen -
+  otherwise they page the tree behind the trace/search modal, whose lists
+  have no page handling to claim them.
 - textual 8.2 `Input.select_on_focus` defaults to **True**: refocusing an
   Input selects the whole value, so the next keystroke REPLACES the text.
   A committed search that returns focus to the query box keeps the caret by

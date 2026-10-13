@@ -90,7 +90,56 @@ async def drive_fixture() -> None:
         assert "u_core" in app._current_node.label.plain, \
             f"up should step back: {app._current_node}"
 
+        # card 283: pageup/pagedown move a screen in the active pane.
+        # in the tree, pagedown jumps `_page_rows` visible nodes (here the
+        # whole tree fits one screen, so one page clamps at the last row)
+        tree_rows = app._page_rows()
+        assert tree_rows >= 1, f"page rows: {tree_rows}"
+        before = app._index
+        await pilot.press("pagedown")
+        jumped = app._index
+        assert jumped == min(before + tree_rows, len(app._visible()) - 1), \
+            f"pagedown in tree: index {jumped}, page {tree_rows}"
+        await pilot.press("pageup")
+        assert app._index == max(0, jumped - tree_rows), \
+            f"pageup should move back a screen: {app._index}"
+        # restore the cursor to u_core (the page test moved it), so the
+        # following j -> port-leaf step sees the tree it expects
+        u_core_node = None
+        for node in app._visible():
+            if "u_core" in node.label.plain and not node.label.plain.startswith("port"):
+                u_core_node = node
+                break
+        assert u_core_node is not None, "u_core row missing after paging"
+        app._select(app._visible().index(u_core_node))
+
+        # in source, pagedown scrolls a screen and pageup returns
+        await pilot.press("2")
+        assert app.active == "source", "2 should activate the source pane"
+        prev_offset = app.src_offset
+        await pilot.press("pagedown")
+        page_down_offset = app.src_offset
+        assert page_down_offset == min(prev_offset + tree_rows, app._source_max_offset(tree_rows)), \
+            f"pagedown in source: {page_down_offset}"
+        await pilot.press("pageup")
+        assert app.src_offset == max(0, page_down_offset - tree_rows), \
+            f"pageup in source should restore: {app.src_offset}"
+
+        # in I/O, a page moves the port selection (wrapping, like j/k)
+        await pilot.press("3")
+        assert app.active == "ports", "3 should activate the ports pane"
+        port_rows = app._page_rows()
+        before = app.port_index
+        await pilot.press("pagedown")
+        assert app.port_index == (before + port_rows) % len(app.pane_ports), \
+            f"pagedown in I/O: {app.port_index}"
+        await pilot.press("pageup")
+        assert app.port_index == before, \
+            f"pageup in I/O should restore: {app.port_index}"
+
         # j -> first port leaf under u_core; panes stay on core
+        await pilot.press("1")  # back to the tree pane after the page tests
+        assert app.active == "tree", "1 should reactivate the tree pane"
         await pilot.press("j")
         assert app._current_node.label.plain.startswith("port"), f"cursor: {app._current_node}"
         # card 253: the leaf reads 'port <dir> <name>[msb:lsb]'
@@ -301,6 +350,9 @@ async def drive_fixture() -> None:
         assert app._search is not None, "q must not quit a committed search"
         assert app._index == before_index, "a blocked key must not reach the tree"
         assert search._cursor == 1, "a blocked key must not move the match"
+        await pilot.press("pagedown")  # card 283: must not page the tree behind
+        assert app._index == before_index, "pagedown must not reach the tree under the search"
+        assert search._cursor == 1, "pagedown must not move the match"
         await pilot.press("slash")  # / returns to the query box (card 279)
         assert search is app._search, "/ must keep the finder open"
         assert not search._committed, "/ un-commits the finder"
@@ -521,6 +573,39 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("j")  # back onto u_alu0
         assert app.src_offset + 1 <= 56 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
 
+        # card 283: pagedown scrolls the real source a full screen and the
+        # auto-follow band is not forced (the view moves, not the selection)
+        await pilot.press("2")  # page the source pane itself
+        assert app.active == "source", "2 should activate the source pane"
+        page_rows = app._page_rows()
+        assert page_rows >= 1, f"page rows: {page_rows}"
+        before = app.src_offset
+        await pilot.press("pagedown")
+        expected = min(before + page_rows, app._source_max_offset(page_rows))
+        assert app.src_offset == expected, \
+            f"pagedown in real source: {app.src_offset} != {expected}"
+        before = app.src_offset
+        await pilot.press("pagedown")
+        second = app.src_offset
+        assert second == min(before + page_rows, app._source_max_offset(page_rows)), \
+            f"pagedown in source pane: {second}"
+        await pilot.press("pageup")
+        up_again = max(0, second - page_rows)
+        assert app.src_offset == up_again, \
+            f"pageup in source should restore: {app.src_offset}"
+        # and pagedown restores exactly the pre-pageup position (round-trip)
+        await pilot.press("pagedown")
+        expected = min(up_again + page_rows, app._source_max_offset(page_rows))
+        assert app.src_offset == expected, \
+            f"pagedown after pageup: {app.src_offset}"
+        # pagedown past the end clamps at the last page (editor-style)
+        await pilot.press("pagedown")
+        await pilot.press("pagedown")
+        assert app.src_offset == app._source_max_offset(page_rows), \
+            f"pagedown must clamp at the end: {app.src_offset}"
+        await pilot.press("1")
+        assert app.active == "tree", "1 should reactivate the tree pane"
+
         # e/E (cards 241): on u_alu0, e = the instantiation line, E = the
         # module's own definition (alu begins at rtl/demo.sv:21)
         await pilot.press("e")
@@ -625,6 +710,12 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # card 268: the modal covers the panes, so z must not zoom behind it
         await pilot.press("z")
         assert not app.zoomed, "z must be refused while the trace modal is open"
+        # card 283: page keys must not move the tree behind the modal
+        tree_before = app._index
+        await pilot.press("pagedown")
+        await pilot.press("pageup")
+        assert app._index == tree_before, \
+            "page keys must not reach the tree under the trace modal"
         assert "drivers of top.out" in str(modal.query_one("#trace-title").content)
         assert app._trace == [("top", "out")], f"trace: {app._trace}"
         assert [r["label"] for r in modal.rows] == ["u_core.alu_result  → core"]

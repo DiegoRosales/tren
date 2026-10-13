@@ -44,6 +44,7 @@ class KeyMapContentsTests(unittest.TestCase):
             "1 2 3",
             "z",
             "j k",
+            "pageup pagedown",
             "l",
             "h",
             "arrows",

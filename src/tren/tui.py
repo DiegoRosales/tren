@@ -14,9 +14,10 @@ Auto-follow: on scope change the focus band is kept in view
 (src_offset = focus_start - rows/2, clamped). `e` opens the editor (stub)
 at the selection's declaration line, `E` at the module definition.
 
-Keys: j/k move, l expand, h collapse, enter shows the selection in the
-centre (the module, or the I/O pane's selected port declaration, card 281),
-ctrl+u jumps up a level, 1/2/3 pane select, z zoom the active pane, y yank,
+Keys: j/k move, pgup/pgdn page a screenful in the active pane (card 283),
+l expand, h collapse, enter shows the selection in the centre (the module,
+or the I/O pane's selected port declaration, card 281), ctrl+u jumps up a
+level, 1/2/3 pane select, z zoom the active pane, y yank,
 / global search (modules, instances, ports, nets, files; card 244; enter
 commits, n/N walk the matches, ctrl+enter selects and closes),
 ? navigation cheatsheet, e editor at the selection's declaration, E editor at
@@ -582,6 +583,12 @@ class TrenApp(App[None]):
         Binding("k", "prev_item", "up", priority=True),
         Binding("l", "expand", "expand", priority=True),
         Binding("h", "collapse", "collapse", priority=True),
+        # page up/down: editor-style, a screenful of the active pane
+        # (card 283). priority, like j/k: they must win even though nothing
+        # on the main screen holds focus. Under a trace/search modal the
+        # app must NOT page the tree behind it, so on_event stops them.
+        Binding("pageup", "prev_page", "page up", priority=True),
+        Binding("pagedown", "next_page", "page down", priority=True),
         # arrow aliases of j/k/l/h (card 267). NOT priority, and that is the
         # point: the trace modal's ListView owns up/down for its own list, and
         # the modal binds left/right itself. A priority alias here would take
@@ -1413,6 +1420,16 @@ class TrenApp(App[None]):
                 if event.key not in SEARCH_COMMITTED_KEYS:
                     event.stop()
                     return
+            # page up/down are priority app bindings. Under a trace or search
+            # modal the list owns up/down, but neither ListView binds page
+            # keys, so the app's page actions would fire and move the tree
+            # behind the modal. Stop them (card 283); the cheatsheet above
+            # already popped itself and lets the pane take the page key.
+            if (self._modal is not None or self._search is not None) and (
+                event.key in ("pageup", "pagedown")
+            ):
+                event.stop()
+                return
         await super().on_event(event)
 
     def action_next_item(self) -> None:
@@ -1436,6 +1453,69 @@ class TrenApp(App[None]):
             self._render_panes()
         else:
             self._select(getattr(self, "_index", 1) - 1)
+
+    def _page_rows(self) -> int:
+        """Rows a page move covers: the active pane's visible height minus one.
+
+        Editors keep one line of context across a page flip; so does this.
+        A hidden pane (the zoom, card 268) reports zero, so floor the page
+        at 1 rather than freezing the move.
+        """
+        if self.active == "tree":
+            height = self._tree_widget.size.height
+        elif self.active == "ports":
+            height = self._ports_widget.size.height
+        else:
+            height = self._source_widget.size.height or self._source_rows
+        return max(1, height - 1)
+
+    def _source_max_offset(self, height: int) -> int:
+        """Last scroll offset that still leaves a full page of lines visible."""
+        focus = self._effective_focus()
+        if focus is not None:
+            lines = self._file_lines(focus[0])
+            if lines:
+                return max(0, len(lines) - height)
+        scope = self._scope_data(self._current_node)
+        if scope is not None and scope.rtl:
+            return max(0, len(scope.rtl) - height)
+        return 0
+
+    def action_next_page(self) -> None:
+        """pagedown: a screenful of the active pane, editor-style (card 283).
+
+        In the tree the cursor jumps `_page_rows` visible nodes and clamps at
+        the last one; in source the view scrolls by the pane height and
+        clamps at the bottom of the file; in I/O the port marker moves by the
+        same amount and wraps, as j/k do.
+        """
+        if self.active == "ports":
+            if self.pane_ports:
+                rows = self._page_rows()
+                self.port_index = (self.port_index + rows) % len(self.pane_ports)
+            self._render_panes()
+        elif self.active == "source":
+            rows = self._page_rows()
+            self.src_offset = min(self.src_offset + rows, self._source_max_offset(rows))
+            self._render_panes()
+        else:
+            nodes = self._visible()
+            if not nodes:
+                return
+            self._select(min(getattr(self, "_index", -1) + self._page_rows(), len(nodes) - 1))
+
+    def action_prev_page(self) -> None:
+        """pageup: a screenful back of the active pane, editor-style (283)."""
+        if self.active == "ports":
+            if self.pane_ports:
+                rows = self._page_rows()
+                self.port_index = (self.port_index - rows) % len(self.pane_ports)
+            self._render_panes()
+        elif self.active == "source":
+            self.src_offset = max(0, self.src_offset - self._page_rows())
+            self._render_panes()
+        else:
+            self._select(max(0, getattr(self, "_index", 1) - self._page_rows()))
 
     def action_expand(self) -> None:
         """l: expand the highlighted scope (reveal its children)."""
