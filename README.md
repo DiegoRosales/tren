@@ -51,6 +51,10 @@ tmux) so they cannot drift apart on tool versions. They differ in how
 | `nix develop .#tren-yosys-src` | the checkout's `src/` | yosys git (`github:YosysHQ/yosys`, flake pin) | verifying against yosys main. The first entry builds the whole tool from source |
 | `nix develop .#xilinx` | the checkout's `src/` | nixpkgs (0.69) | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
 
+Every `make` target runs under the shell named by `TREN_SHELL` (default: the
+default shell). Point the gates at the source build with
+`make check TREN_SHELL=.#tren-yosys-src`.
+
 `.#tren` is the one that catches what the others hide: nothing on its path
 reads the checkout, so a module that only ever imported because `src/` was on
 `PYTHONPATH`, or a dependency the code uses but `pyproject.toml` does not

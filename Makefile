@@ -1,11 +1,16 @@
-# TREN — runnable examples + Vitis HLS example build flow.
+# TREN - runnable examples + Vitis HLS example build flow.
 #
 # Everything in `make help` WORKS on a stock checkout, with nothing but the
 # nix flake (every command runs under `nix develop . -c ...`, no host tools).
 # The Vitis HLS section at the bottom additionally needs a Xilinx/Vitis
 # install and the flake's `#xilinx` FHS sandbox.
 
-NIX := nix develop . -c
+# Dev shell every target runs under. Override to point at another shell, e.g.
+# `make check TREN_SHELL=.#tren-yosys-src` to run the gates against a yosys
+# built from upstream source (see README "Dev shells").
+TREN_SHELL ?= .
+
+NIX := nix develop $(TREN_SHELL) -c
 HLS_EXAMPLES_PATH := test/hls_examples
 
 .DEFAULT_GOAL := help
@@ -29,6 +34,9 @@ help:
 	@echo "  make bom            regenerate docs/sw-bom.md from the dev shell (card 263)"
 	@echo "  make guide          regenerate the README keys block from tren/keys.py (card 248)"
 	@echo "  make check          unit + both drives (what CI runs)"
+	@echo
+	@echo "  TREN_SHELL          dev shell for the gates; default = nix develop ."
+	@echo "                      e.g. make check TREN_SHELL=.#tren-yosys-src (source yosys)"
 	@echo
 	@echo "  make hls-import     import the HLS RTL export: test/hls_examples/hls/<BLOCK>/rtl_output"
 	@echo "  make hls-elaborate  elaborate <BLOCK>'s HLS RTL into the IR (read-only, no Xilinx)"
@@ -103,7 +111,7 @@ hls-run: hls-import
 	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui --manifest $(HLS_RTL_MANIFEST)'
 
 # --- Vitis HLS example build flow (port from ipyfuse; needs a Xilinx
-#      install — run inside `nix develop .#xilinx`) ------------------------
+#      install - run inside `nix develop .#xilinx`) ------------------------
 
 HLS_EXAMPLES_PATH := test/hls_examples
 
