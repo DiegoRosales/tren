@@ -1,5 +1,5 @@
 {
-  description = "TREN — TUI RTL explorer implementation shell";
+  description = "TREN - TUI RTL explorer implementation shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -7,10 +7,17 @@
       url = "github:pyproject-nix/pyproject.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Upstream source builds of yosys, used by the #tren-yosys-src shell.
+    # The flake pins its own self.submodules; requires Nix >= 2.27. The
+    # github URL scheme rejects a submodule attribute, so fetch through git.
+    yosys = {
+      url = "git+https://github.com/YosysHQ/yosys";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs, pyproject-nix, ... }:
+    { self, nixpkgs, pyproject-nix, yosys, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -63,7 +70,7 @@
 
       # An interpreter with tren *installed*: `import tren` and the `tren` /
       # `tren-tui` console scripts resolve into the store, exactly as they
-      # would for someone who installed the package — no PYTHONPATH, no venv,
+      # would for someone who installed the package - no PYTHONPATH, no venv,
       # and no dependence on the directory you happen to be standing in.
       trenEnv =
         pkgs:
@@ -74,12 +81,20 @@
           }
         );
 
-      # Everything TREN shells out to. Shared by all three shells so they
-      # cannot drift apart on tool versions — the thing every gate assumes.
-      trenTools =
+      # yosys built from upstream source via the YosysHQ flake, for the
+      # #tren-yosys-src shell. It tracks the revision pinned in flake.lock;
+      # bump with `nix flake lock --update-input yosys`. `yosys-gcc` keeps
+      # the same compiler as the nixpkgs build, so a behaviour difference
+      # is the source's, not the toolchain's.
+      yosysSrc = sys: yosys.packages.${sys}.yosys-gcc;
+
+      # Everything TREN shells out to except yosys. The default / tren /
+      # tren-venv shells add nixpkgs' packaged yosys; #tren-yosys-src adds
+      # the source build above. Sharing the rest keeps the shells from
+      # drifting apart on tool versions - the thing every gate assumes.
+      trenToolsWithoutYosys =
         pkgs: with pkgs; [
           # Elaboration backends TREN shells out to
-          yosys # write_json netlist (proc, never opt)
           sv-lang # slang / slang-hier / slang --ast-json scope tree + params
           verilator # optional: manifest importer test subject, -E/--json-only
 
@@ -92,11 +107,20 @@
           tmux # real-terminal OSC 52 round-trip (card 214 acceptance, tools/osc52_roundtrip.sh)
         ];
 
+      # Everything TREN shells out to. Shared by all three shells so they
+      # cannot drift apart on tool versions - the thing every gate assumes.
+      # `pkgs.yosys` is spelled out: the `yosys` flake input shadows the
+      # `with pkgs` name, and receives a flake set, not a derivation.
+      trenTools =
+        pkgs: [
+          pkgs.yosys # write_json netlist (proc, never opt)
+        ] ++ trenToolsWithoutYosys pkgs;
+
       # Shell banner. `where` names the shell and says how tren got here, so a
       # stray `nix develop` in the wrong shell is visible in one line.
       trenBanner = where: ''
         echo
-        echo "  TREN dev shell — ${where}"
+        echo "  TREN dev shell - ${where}"
         echo "  --------------"
         printf '  %-10s %s\n' yosys    "$(yosys -V 2>/dev/null | head -1)"
         printf '  %-10s %s\n' slang    "$(slang --version 2>/dev/null | head -1)"
@@ -121,7 +145,7 @@
         '';
     in
     {
-      # `nix build` / `nix run .#tren` — the same store path .#tren shells in.
+      # `nix build` / `nix run .#tren` - the same store path .#tren shells in.
       packages = forAllSystems (pkgs: rec {
         tren = trenPackage pkgs;
         default = tren;
@@ -131,7 +155,7 @@
         let
           base = forAllSystems (pkgs: {
 
-            # Default: the working shell. tren is *not* installed — the `tren`
+            # Default: the working shell. tren is *not* installed - the `tren`
             # wrapper and every `make` target read the checkout's src/ through
             # PYTHONPATH, so an edit is live on the next command. This is the
             # shell all the gates in docs/verification.md assume.
@@ -139,7 +163,7 @@
             default = pkgs.mkShell {
               name = "tren";
               packages = [
-                # UI framework (pinned: textual 8.2.8 — see README)
+                # UI framework (pinned: textual 8.2.8 - see README)
                 (trenPython pkgs)
                 (trenFromSource pkgs)
               ] ++ trenTools pkgs;
@@ -150,7 +174,7 @@
             # project into the store with its declared dependencies, so
             # `import tren` and the `tren` / `tren-tui` console scripts behave
             # exactly as they would for a consumer of the package. Nothing
-            # here reads the checkout, which is the point — it is how you
+            # here reads the checkout, which is the point - it is how you
             # catch a module that only ever worked because src/ was on the
             # path, or a dependency the code uses but pyproject.toml forgot.
             # Edits need a re-entry (or `nix develop .#tren --refresh`).
@@ -164,7 +188,7 @@
             # The venv counterpart of .#tren. Instead of building tren and
             # resolving its dependencies through nix, this shell creates a
             # plain Python venv on first entry, pip-installs the project
-            # *editable* from the current directory, and activates it — the
+            # *editable* from the current directory, and activates it - the
             # textbook Python flow, on top of nix's interpreter and backends.
             #
             # Enter it from the project root: the hook installs from `.` and
@@ -195,6 +219,24 @@
                 . "$VENV_DIR/bin/activate"
               ''
               + trenBanner "#tren-venv (editable install in .venv)";
+            };
+
+            # `default` with yosys built from upstream source through the
+            # YosysHQ flake instead of nixpkgs' packaged release. For
+            # verifying tren against yosys main. The first entry fetches the
+            # source and its submodules and builds the whole tool, so allow
+            # the time. Refresh the source with `nix flake lock
+            # --update-input yosys`, then re-verify layer 2 of
+            # docs/verification.md.
+            # Usage: nix develop .#tren-yosys-src
+            tren-yosys-src = pkgs.mkShell {
+              name = "tren-yosys-src";
+              packages = [
+                (trenPython pkgs)
+                (trenFromSource pkgs)
+                (yosysSrc pkgs.system)
+              ] ++ trenToolsWithoutYosys pkgs;
+              shellHook = trenBanner "#tren-yosys-src (yosys built from YosysHQ source)";
             };
           });
         in
@@ -304,7 +346,7 @@
 
                     # BitBake strips unknown env vars before forking subprocesses.
                     # The NixOS gcc wrapper needs these to locate glibc startup files
-                    # (Scrt1.o, crti.o) and libgcc_s in the Nix store — without them
+                    # (Scrt1.o, crti.o) and libgcc_s in the Nix store - without them
                     # host-tool compilation (e.g. u-boot fixdep) fails.
                     export NIX_DONT_SET_RPATH_${ccSalt}=1
                     export NIX_DYNAMIC_LINKER_${ccSalt}=/lib/ld-linux-x86-64.so.2

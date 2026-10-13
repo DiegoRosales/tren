@@ -39,16 +39,17 @@ nix develop . -c make run                   # start the TUI (keys: see 'User gui
 
 ### Dev shells
 
-Four shells, all carrying the same backends (yosys, slang, verilator, rust,
-tmux) so they cannot drift apart on tool versions. They differ only in how
-`tren` itself reaches the interpreter:
+Five shells, all carrying the same backends (yosys, slang, verilator, rust,
+tmux) so they cannot drift apart on tool versions. They differ in how
+`tren` itself reaches the interpreter, and in which yosys build they carry:
 
-| Shell | tren comes from | Use it for |
-|---|---|---|
-| `nix develop` | the checkout's `src/`, via `PYTHONPATH` | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
-| `nix develop .#tren` | the nix store (`buildPythonPackage`) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
-| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | the textbook Python flow on nix's interpreter - an editable install, so edits are live too |
-| `nix develop .#xilinx` | the checkout's `src/` | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
+| Shell | tren comes from | yosys build | Use it for |
+|---|---|---|---|
+| `nix develop` | the checkout's `src/`, via `PYTHONPATH` | nixpkgs (0.69) | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
+| `nix develop .#tren` | the nix store (`buildPythonPackage`) | nixpkgs (0.69) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
+| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | nixpkgs (0.69) | the textbook Python flow on nix's interpreter - an editable install, so edits are live too |
+| `nix develop .#tren-yosys-src` | the checkout's `src/` | yosys git (`github:YosysHQ/yosys`, flake pin) | verifying against yosys main. The first entry builds the whole tool from source |
+| `nix develop .#xilinx` | the checkout's `src/` | nixpkgs (0.69) | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
 
 `.#tren` is the one that catches what the others hide: nothing on its path
 reads the checkout, so a module that only ever imported because `src/` was on
@@ -61,6 +62,13 @@ pip-installs the project editable from `.` - so enter it from the project
 root. First entry needs network (pip fetches `textual` and `rich` from PyPI);
 later entries just activate. `TREN_VENV_DIR` overrides the location; reset
 with `rm -rf .venv/` and re-enter.
+
+`.#tren-yosys-src` is `nix develop` with a yosys built from upstream source
+instead of the nixpkgs release. The `YosysHQ/yosys` flake input pins the
+revision and fetches the tool's git submodules (needs Nix >= 2.27); bump
+with `nix flake lock --update-input yosys`. The first entry compiles the
+whole tool, so allow some time. Verify a bumped source against the tests
+(`docs/verification.md`, layer 2) before relying on it.
 
 Dependencies are declared once, in `pyproject.toml`, and read by both the nix
 build (through `pyproject.nix`) and pip.
@@ -364,7 +372,7 @@ docs/                verification.md + notes/ mirrors; tech-concepts.md and
 tools/               osc52_roundtrip.sh, pane_cue_capture.sh, profile_1k_scopes.py,
                      bom.py (SW BOM generator, card 263)
 pyproject.toml       PEP 621 metadata + deps - read by both nix and pip
-flake.nix            dev shells (default / #tren / #tren-venv / #xilinx)
+flake.nix            dev shells (default / #tren / #tren-venv / #tren-yosys-src / #xilinx)
 ```
 
 ## Decisions already made (verified - do not re-derive)
