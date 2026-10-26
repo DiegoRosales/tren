@@ -160,19 +160,17 @@ def _default_incdirs(sources: list[str], anchor: Path | None, root: Path) -> lis
     """Directories holding the sources, root-relative, deduped, sorted.
 
     Card 260: slang and Vivado resolve a `` `include `` relative to the
-    including file's directory; yosys `read_verilog` searches only its ``-I``
-    dirs (verified against yosys 0.69 - a same-directory include resolves
-    anyway, a cross-directory one does not). The importer therefore records
-    every source's directory as an incdir, so a sibling ``.svh`` needs no
-    explicit entry. Explicit filelist incdirs still win: they are merged, not
-    replaced (the caller unions them after this).
+    including file's directory; yosys `read_verilog` searches the cwd and that
+    directory before its ``-I`` dirs (verified against yosys 0.69 - a
+    cross-directory include needs ``-I``). slang does not search the cwd, so a
+    source at the root records ``.``: a root header included from a
+    subdirectory source needs ``-I.``. Explicit filelist incdirs are merged
+    in, not replaced (the caller unions them after this).
     """
     dirs: set[str] = set()
     for s in sources:
         stored = _store(s, anchor, root)
-        parent = os.path.dirname(stored)
-        if parent and parent != ".":
-            dirs.add(parent)
+        dirs.add(os.path.dirname(stored) or ".")
     return sorted(dirs)
 
 

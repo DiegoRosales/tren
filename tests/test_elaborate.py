@@ -22,6 +22,7 @@ from tren.importer import import_manifest  # noqa: E402
 from tren.elaborate import (  # noqa: E402
     _bit_key,
     _decl_default,
+    _effective_incdirs,
     _nets_for,
     _src_pos,
     _tool_diagnostics,
@@ -121,9 +122,17 @@ class BackendFlagTests(unittest.TestCase):
         script = self._capture(
             lambda: run_yosys(self.MANIFEST, REPO, "/tmp/netlist.json")
         )[0][3]
-        self.assertIn("read_verilog -sv -nolatches -DEXTRA=1 rtl/demo.sv", script)
+        self.assertIn(
+            "read_verilog -sv -nolatches -DEXTRA=1 -Irtl rtl/demo.sv", script
+        )
         self.assertIn("hierarchy -top top", script)
         self.assertIn("proc;", script)
+
+    def test_effective_incdirs_adds_source_dirs(self) -> None:
+        """Card 260: a hand-written manifest listing only sources gets the
+        source directories, including '.' for a root source."""
+        manifest = Manifest(sources=("top.sv", "rtl/sub.sv"), incdirs=("inc",))
+        self.assertEqual(_effective_incdirs(manifest), (".", "inc", "rtl"))
 
     def test_default_slags_named_not_forced_off(self) -> None:
         bare = Manifest(sources=("rtl/demo.sv",))
@@ -508,6 +517,41 @@ class IncludeElaborationAcceptanceTests(unittest.TestCase):
             self.assertIsNotNone(scope, "incdata must survive elaboration")
             helper = design.scope("helper")
             self.assertIsNotNone(helper)
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_root_include_from_subdirectory_elaborates(self) -> None:
+        """Card 260: slang does not search the cwd, so a source at the root
+        records ``.`` and a root header resolves from a subdirectory."""
+        td = tempfile.mkdtemp(prefix="tren-inc-root-")
+        root = Path(td)
+        try:
+            (root / "rtl").mkdir()
+            (root / "defs.svh").write_text("`define ROOT_W 8\n")
+            (root / "top.sv").write_text("module top; sub u(); endmodule\n")
+            (root / "rtl" / "sub.sv").write_text(
+                "`include \"defs.svh\"\n"
+                "module sub; logic [`ROOT_W-1:0] x; endmodule\n"
+            )
+            manifest = import_manifest(root, root=root, top="top")
+            self.assertIn(".", manifest.incdirs)
+            design = elaborate(manifest, root, cache=None)
+            self.assertIsNotNone(design.scope("top.u"))
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_handwritten_manifest_gets_source_dir_floor(self) -> None:
+        """Card 260: the elaborator applies the source-dir floor, so a
+        manifest that only lists sources needs no manual incdir."""
+        td, root = self._tree()
+        try:
+            manifest = Manifest(
+                name="incdata",
+                sources=("rtl/inc/helper.sv", "rtl/incdata.sv"),
+                top="incdata",
+            )
+            design = elaborate(manifest, root, cache=None)
+            self.assertIsNotNone(design.scope("incdata"))
         finally:
             shutil.rmtree(td, ignore_errors=True)
 

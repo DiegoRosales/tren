@@ -359,15 +359,18 @@ Manifest producers - bootstrap, not a dependency (`tren import`).
   `--top fft_wrapper` (or add the lib dir) to elaborate the HLS core.
 
 **incdirs default to the source directories.** Every importer records the
-directory holding each source as an incdir, so a `` `include `` next to its
-source (or in a sibling source dir) resolves without a manual entry. The
-reason is a backend mismatch: slang and Vivado resolve a relative
-`` `include `` against the including file's directory, while yosys
-`read_verilog` searches only its `-I` dirs (verified - a same-directory
-include resolves anyway, a cross-directory one does not). Explicit `+incdir+`
-filelist entries and Vivado header-typed FileSet entries (`.vh`/`.svh`) add
-their dirs too - the default is a floor, not a replacement. A manifest that
-only hand-writes sources carries the same floor for free.
+directory holding each source as an incdir, including `.` for a source at the
+root. A `` `include `` next to its source, or in a sibling source directory,
+therefore resolves without a manual entry. The reason is a backend mismatch:
+slang and Vivado resolve a relative `` `include `` against the including
+file's directory. yosys `read_verilog` searches the cwd and that directory
+before its `-I` dirs (verified on yosys 0.69: a cross-directory include needs
+`-I`). slang does not search the cwd, so the root is an incdir when a source
+sits there. Explicit `+incdir+` filelist entries and Vivado header-typed
+FileSet entries (`.vh`/`.svh`) add their dirs too - the default is a floor,
+not a replacement. `tren elaborate` applies the same source-dir floor to any
+manifest, so a manifest that only hand-writes sources needs no manual incdir
+either.
 
 ## Vitis HLS examples and the #xilinx sandbox
 

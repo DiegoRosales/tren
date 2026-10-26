@@ -228,9 +228,11 @@ def to_manifest_layout(
 ) -> tuple[tuple[str, ...], tuple[str, ...], str | None]:
     """Turn parsed sources into root-relative manifest paths + incdirs.
 
-    Card 260: the manifest defaults ``incdirs`` to the source directories
-    (yosys needs them spelled out as ``-I``; slang/Vivado imply them), and
-    adds the directories of header-typed FileSet entries on top.
+    Card 260: the manifest records the directory of every source (yosys needs
+    them spelled out as ``-I``; slang/Vivado imply the including file's own
+    directory only), and adds the directories of header-typed FileSet entries
+    on top. A source at the root records ``.`` - slang does not search the
+    cwd, so a root header included from a subdirectory needs ``-I.``.
     """
     rel: list[str] = []
     incdirs: set[str] = set()
@@ -242,6 +244,6 @@ def to_manifest_layout(
         incdirs.add(os.path.relpath(Path(d).resolve(), root))
     return (
         tuple(sorted(set(rel))),
-        tuple(sorted(i for i in incdirs if i not in ("", "."))),
+        tuple(sorted(i for i in incdirs if i)),
         proj.top,
     )

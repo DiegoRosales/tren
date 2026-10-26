@@ -161,6 +161,13 @@ class ParseVivadoTests(unittest.TestCase):
         self.assertIn("rtl/inc", manifest.incdirs)
         self.assertNotIn("rtl/inc/defs.svh", manifest.sources)
 
+    def test_root_source_dir_feeds_dot_incdir(self) -> None:
+        """Card 260: a source at the root records ``.`` (slang does not
+        search the cwd)."""
+        (self.root / "top_root.v").write_text("module top_root; endmodule\n")
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn(".", manifest.incdirs)
+
     def test_manifest_from_directory_with_xpr(self) -> None:
         self.assertEqual(detect_format(self.root), "vivado")
         manifest = import_manifest(self.root, root=self.root, fmt="auto")

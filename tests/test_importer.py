@@ -87,6 +87,14 @@ class ImportManifestTests(unittest.TestCase):
         self.assertIn("rtl", m.incdirs)
         self.assertNotIn("defs.svh", m.sources)
 
+    def test_root_source_dir_becomes_dot_incdir(self) -> None:
+        """Card 260: slang does not search the cwd, so a root source records
+        ``.`` and a root header resolves from a subdirectory source."""
+        _, root = self._tree()
+        (root / "root.sv").write_text("module root; endmodule\n")
+        m = import_manifest(root, root=root)
+        self.assertIn(".", m.incdirs)
+
     def test_dir_name_default(self) -> None:
         _, root = self._tree()
         self.assertEqual(import_manifest(root / "rtl", root=root).name, "rtl")

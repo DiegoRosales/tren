@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -88,6 +89,21 @@ def _tool_diagnostics(proc: subprocess.CalledProcessError, limit: int = 40) -> s
     return "..." + "\n".join(lines[-limit:])
 
 
+def _effective_incdirs(manifest: Manifest) -> tuple[str, ...]:
+    """Manifest incdirs plus the directory of every manifest source (card 260).
+
+    The importers write this floor into a new manifest. A hand-written
+    manifest lists only sources, so the elaborator applies the floor again:
+    yosys searches the cwd and the including file's directory, slang searches
+    only that directory and the ``-I`` dirs. ``.`` covers a source at the
+    root, because slang does not search the cwd.
+    """
+    dirs = {d for d in manifest.incdirs if d}
+    for source in manifest.sources:
+        dirs.add(os.path.dirname(source) or ".")
+    return tuple(sorted(dirs))
+
+
 def parse_hier_line(line: str) -> dict[str, Any] | None:
     """Parse one slang-hier ``Module=... Instance=...`` line."""
     m = _HIER_RE.match(line.strip())
@@ -116,7 +132,7 @@ def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
     args = ["slang-hier", "--params"] + list(_SLANG_DEFAULT_FLAGS)
     for flag in manifest.slang_flags:
         args.append(flag)
-    for inc in manifest.incdirs:
+    for inc in _effective_incdirs(manifest):
         args += ["-I", str(inc)]
     for name, value in manifest.defines:
         args += ["-D", f"{name}={value}" if value else name]
@@ -136,7 +152,7 @@ def run_yosys(manifest: Manifest, root: Path, out_json: str) -> None:
         read_args.append(flag)
     for name, value in manifest.defines:
         read_args.append(f"-D{name}={value}" if value else f"-D{name}")
-    for inc in manifest.incdirs:
+    for inc in _effective_incdirs(manifest):
         read_args.append(f"-I{inc}")
     sources = " ".join(read_args + [str(s) for s in manifest.sources])
     script = (
@@ -159,7 +175,7 @@ def run_slang_ast(manifest: Manifest, root: Path, out_json: str) -> dict:
     ] + list(_SLANG_DEFAULT_FLAGS)
     for flag in manifest.slang_flags:
         args.append(flag)
-    for inc in manifest.incdirs:
+    for inc in _effective_incdirs(manifest):
         args += ["-I", str(inc)]
     for name, value in manifest.defines:
         args += ["-D", f"{name}={value}" if value else name]
