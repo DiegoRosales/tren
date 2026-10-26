@@ -76,6 +76,17 @@ class ImportManifestTests(unittest.TestCase):
         self.assertEqual(m.sources, ("rtl/top.sv",))
         self.assertEqual(m.name, "top")
 
+    def test_sibling_include_dir_becomes_incdir(self) -> None:
+        """Card 260: a `` `include `` next to its source needs no manual incdir."""
+        _, root = self._tree()
+        (root / "rtl" / "defs.svh").write_text("`define FOO 1\n")
+        (root / "rtl" / "top.sv").write_text(
+            "`include \"defs.svh\"\nmodule top;\nendmodule\n"
+        )
+        m = import_manifest(root / "rtl", root=root)
+        self.assertIn("rtl", m.incdirs)
+        self.assertNotIn("defs.svh", m.sources)
+
     def test_dir_name_default(self) -> None:
         _, root = self._tree()
         self.assertEqual(import_manifest(root / "rtl", root=root).name, "rtl")
@@ -88,7 +99,9 @@ class ImportManifestTests(unittest.TestCase):
         (root / "rtl" / "inc").mkdir()
         m = import_manifest(root / "rtl", root=root)
         self.assertEqual(m.sources, ("rtl/top.sv", "rtl/sub/leaf.sv"))
-        self.assertEqual(m.incdirs, ("rtl/inc",))
+        # card 260: explicit +incdir+ is kept, and the source directories are
+        # added on top (yosys needs them spelled out as -I)
+        self.assertEqual(m.incdirs, ("rtl", "rtl/inc", "rtl/sub"))
         self.assertEqual(m.defines, (("DEMO", "1"),))
 
     def test_multiple_filelists_raise(self) -> None:

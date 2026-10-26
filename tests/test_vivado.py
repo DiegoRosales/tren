@@ -129,6 +129,38 @@ class ParseVivadoTests(unittest.TestCase):
         (self.root / "rtl" / "core.v").write_text("module core; endmodule\n")
         write_xpr(self.root, files=["$PPRDIR/rtl/core.v"])
 
+    def test_header_fileset_entry_feeds_incdirs(self) -> None:
+        """Card 260: a Verilog-header FileSet entry supplies an incdir, not a
+        source."""
+        (self.root / "rtl" / "inc" / "defs.svh").parent.mkdir(parents=True)
+        (self.root / "rtl" / "inc" / "defs.svh").write_text("`define FOO 1\n")
+        xpr = write_xpr(
+            self.root,
+            files=["$PPRDIR/rtl/inc/defs.svh", "$PPRDIR/rtl/core.v"],
+        )
+        warnings: list[str] = []
+        incdirs: list[str] = []
+        sources, _ = _parse_xpr_file_lists(xpr, warnings, incdirs_out=incdirs)
+        self.assertEqual([p.name for p in sources], ["core.v"])
+        self.assertEqual(
+            [str(p) for p in incdirs], [str(self.root / "rtl" / "inc")]
+        )
+        self.assertEqual(warnings, [])
+
+    def test_manifest_incdirs_default_to_source_dirs(self) -> None:
+        """Card 260: the manifest records the source directories as incdirs
+        (yosys needs them as -I); header entries add their own dirs."""
+        (self.root / "rtl" / "inc").mkdir()
+        (self.root / "rtl" / "inc" / "defs.svh").write_text("`define FOO 1\n")
+        write_xpr(
+            self.root,
+            files=["$PPRDIR/rtl/inc/defs.svh", "$PPRDIR/rtl/core.v"],
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn("rtl", manifest.incdirs)
+        self.assertIn("rtl/inc", manifest.incdirs)
+        self.assertNotIn("rtl/inc/defs.svh", manifest.sources)
+
     def test_manifest_from_directory_with_xpr(self) -> None:
         self.assertEqual(detect_format(self.root), "vivado")
         manifest = import_manifest(self.root, root=self.root, fmt="auto")

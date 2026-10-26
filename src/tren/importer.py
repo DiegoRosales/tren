@@ -156,6 +156,26 @@ def _store(path: str, anchor: Path | None, root: Path) -> str:
     return os.path.relpath(p.resolve(), root)
 
 
+def _default_incdirs(sources: list[str], anchor: Path | None, root: Path) -> list[str]:
+    """Directories holding the sources, root-relative, deduped, sorted.
+
+    Card 260: slang and Vivado resolve a `` `include `` relative to the
+    including file's directory; yosys `read_verilog` searches only its ``-I``
+    dirs (verified against yosys 0.69 - a same-directory include resolves
+    anyway, a cross-directory one does not). The importer therefore records
+    every source's directory as an incdir, so a sibling ``.svh`` needs no
+    explicit entry. Explicit filelist incdirs still win: they are merged, not
+    replaced (the caller unions them after this).
+    """
+    dirs: set[str] = set()
+    for s in sources:
+        stored = _store(s, anchor, root)
+        parent = os.path.dirname(stored)
+        if parent and parent != ".":
+            dirs.add(parent)
+    return sorted(dirs)
+
+
 def import_manifest(
     target: str | Path,
     *,
@@ -214,10 +234,19 @@ def import_manifest(
     if name is None:
         name = target.stem if target.is_file() else target.name
 
+    stored_sources = tuple(_store(s, anchor, root) for s in sources)
+    stored_incdirs = tuple(_store(i, anchor, root) for i in incdirs)
+    # Card 260: yosys needs a `` `include ``'s directory spelled out with -I;
+    # slang/Vivado imply it. Source dirs are the floor - explicit filelist
+    # incdirs stay merged in, never replaced.
+    incdirs_all = tuple(
+        sorted(set(stored_incdirs) | set(_default_incdirs(sources, anchor, root)))
+    )
+
     return Manifest(
         name=name,
-        sources=tuple(_store(s, anchor, root) for s in sources),
-        incdirs=tuple(_store(i, anchor, root) for i in incdirs),
+        sources=stored_sources,
+        incdirs=incdirs_all,
         defines=tuple(defines),
         top=top or "top",
     )
@@ -235,10 +264,11 @@ def _import_vivado(
     proj = parse_vivado(
         target, name=name, top=top, warnings_out=warnings
     )
-    sources, parsed_top = to_manifest_layout(proj, root)
+    sources, incdirs, parsed_top = to_manifest_layout(proj, root)
     return Manifest(
         name=proj.name,
         sources=sources,
+        incdirs=incdirs,
         top=parsed_top or "top",
     )
 

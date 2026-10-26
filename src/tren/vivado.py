@@ -45,6 +45,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _VERILOG_SUFFIXES = (".v", ".sv")  # .vh are `include`-files (pulled in by parents)
+_HEADER_SUFFIXES = (".vh", ".svh")  # FileSet entries typed as Verilog Headers
 _SKIP_DIRS = {
     "project.cache",
     "project.hw",
@@ -74,6 +75,7 @@ class VivadoProject:
     sources: tuple[str, ...]  # paths relative to the importer root
     top: str | None
     warnings: tuple[str, ...]
+    incdirs: tuple[str, ...] = ()  # dirs of FileSet entries typed as headers
 
 
 def _project_dir(xpr: Path) -> Path:
@@ -90,8 +92,16 @@ def _resolve(path: str, project_dir: Path) -> Path:
     return p if p.is_absolute() else project_dir / p
 
 
-def _parse_xpr_file_lists(xpr: Path, warnings: list[str]) -> tuple[list[Path], str | None]:
-    """(design-source file paths, top module) from the .xpr FileSets."""
+def _parse_xpr_file_lists(
+    xpr: Path, warnings: list[str], incdirs_out: list[Path] | None = None
+) -> tuple[list[Path], str | None]:
+    """(design-source file paths, top module) from the .xpr FileSets.
+
+    ``incdirs_out``, when given, collects the directories of FileSet entries
+    that are Verilog headers (``.vh``/``.svh``): Vivado records real include
+    dirs as header-typed files (card 260). Without it those entries fall back
+    to the generic non-Verilog warning (the low-level reader's default).
+    """
     try:
         root = ET.parse(xpr).getroot()
     except ET.ParseError as exc:
@@ -113,6 +123,14 @@ def _parse_xpr_file_lists(xpr: Path, warnings: list[str]) -> tuple[list[Path], s
             if not raw:
                 continue
             resolved = _resolve(raw, project_dir)
+            if resolved.suffix.lower() in _HEADER_SUFFIXES:
+                if incdirs_out is not None:
+                    incdirs_out.append(resolved.parent)
+                else:
+                    warnings.append(
+                        f"dropping Verilog-header DesignSrcs entry (no incdir sink): {raw}"
+                    )
+                continue
             if resolved.suffix.lower() not in _VERILOG_SUFFIXES:
                 warnings.append(f"dropping non-Verilog DesignSrcs entry: {raw}")
                 continue
@@ -180,9 +198,10 @@ def parse_vivado(
         raise FileNotFoundError(f"no Vivado project.xpr under {target}")
 
     warnings: list[str] = []
+    incdirs: list[Path] = []
     project_dir = _project_dir(xpr)
 
-    listed, xpr_top = _parse_xpr_file_lists(xpr, warnings)
+    listed, xpr_top = _parse_xpr_file_lists(xpr, warnings, incdirs_out=incdirs)
     scanned = _scan_verilog(project_dir)
     sources = _dedupe_by_basename([*listed, *scanned])
 
@@ -200,12 +219,29 @@ def parse_vivado(
         sources=tuple(str(s) for s in sources),
         top=xpr_top or recorded if top is None else top,
         warnings=tuple(warnings),
+        incdirs=tuple(str(d) for d in sorted(set(incdirs))),
     )
 
 
-def to_manifest_layout(proj: VivadoProject, root: Path) -> tuple[tuple[str, ...], str | None]:
-    """Turn parsed sources into root-relative manifest paths."""
+def to_manifest_layout(
+    proj: VivadoProject, root: Path
+) -> tuple[tuple[str, ...], tuple[str, ...], str | None]:
+    """Turn parsed sources into root-relative manifest paths + incdirs.
+
+    Card 260: the manifest defaults ``incdirs`` to the source directories
+    (yosys needs them spelled out as ``-I``; slang/Vivado imply them), and
+    adds the directories of header-typed FileSet entries on top.
+    """
     rel: list[str] = []
+    incdirs: set[str] = set()
     for s in proj.sources:
-        rel.append(os.path.relpath(Path(s).resolve(), root))
-    return tuple(sorted(set(rel))), proj.top
+        resolved = Path(s).resolve()
+        rel.append(os.path.relpath(resolved, root))
+        incdirs.add(os.path.relpath(resolved.parent, root))
+    for d in proj.incdirs:
+        incdirs.add(os.path.relpath(Path(d).resolve(), root))
+    return (
+        tuple(sorted(set(rel))),
+        tuple(sorted(i for i in incdirs if i not in ("", "."))),
+        proj.top,
+    )

@@ -358,6 +358,17 @@ Manifest producers - bootstrap, not a dependency (`tren import`).
   the block-level `bd_0_sv.sv`, which the workspace does not ship - pass
   `--top fft_wrapper` (or add the lib dir) to elaborate the HLS core.
 
+**incdirs default to the source directories.** Every importer records the
+directory holding each source as an incdir, so a `` `include `` next to its
+source (or in a sibling source dir) resolves without a manual entry. The
+reason is a backend mismatch: slang and Vivado resolve a relative
+`` `include `` against the including file's directory, while yosys
+`read_verilog` searches only its `-I` dirs (verified - a same-directory
+include resolves anyway, a cross-directory one does not). Explicit `+incdir+`
+filelist entries and Vivado header-typed FileSet entries (`.vh`/`.svh`) add
+their dirs too - the default is a floor, not a replacement. A manifest that
+only hand-writes sources carries the same floor for free.
+
 ## Vitis HLS examples and the #xilinx sandbox
 
 `test/hls_examples/` mirrors ipyfuse's structure: `cpp/` (the C/C++ sources),

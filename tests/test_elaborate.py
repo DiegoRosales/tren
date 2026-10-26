@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tren.cache import IrCache  # noqa: E402
+from tren.importer import import_manifest  # noqa: E402
 from tren.elaborate import (  # noqa: E402
     _bit_key,
     _decl_default,
@@ -462,6 +463,53 @@ class DemoAcceptanceTests(unittest.TestCase):
         # gives it, 'g[0].gr'
         self.assertEqual(nets["g[0].gr"].range, "[31:0]")
         self.assertEqual(nets["g[1].gr"].range, "[31:0]")
+
+
+@unittest.skipUnless(
+    shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
+    "requires the nix dev shell (yosys/slang on PATH)",
+)
+class IncludeElaborationAcceptanceTests(unittest.TestCase):
+    """Card 260: a manifest from a source tree whose `` `include `` lives in a
+    sibling source directory elaborates through both backends.
+
+    The source-dir incdir default is what makes yosys find it: yosys 0.69
+    resolves a *same-directory* include natively but needs ``-I`` for one in
+    another source dir (verified). slang resolves against the including file's
+    directory and needs the incdir too once the header moves out of it.
+    """
+
+    def _tree(self) -> tuple[Path, Path]:
+        td = tempfile.mkdtemp(prefix="tren-inc-")
+        root = Path(td)
+        (root / "rtl").mkdir()
+        (root / "rtl" / "inc").mkdir()
+        (root / "rtl" / "inc" / "incparams.svh").write_text("`define INC_W 8\n")
+        (root / "rtl" / "inc" / "helper.sv").write_text("module helper; endmodule\n")
+        (root / "rtl" / "incdata.sv").write_text(
+            "`include \"incparams.svh\"\n"
+            "module incdata #(parameter int W = `INC_W) (\n"
+            "  input  logic [W-1:0] i,\n"
+            "  output logic [W-1:0] o\n"
+            ");\n"
+            "  assign o = i;\n"
+            "endmodule\n"
+        )
+        return td, root
+
+    def test_manifest_from_sibling_include_tree_elaborates(self) -> None:
+        td, root = self._tree()
+        try:
+            manifest = import_manifest(root / "rtl", root=root, top="incdata")
+            self.assertIn("rtl/inc", manifest.incdirs)
+            design = elaborate(manifest, root, cache=None)
+            self.assertEqual(design.top, "incdata")
+            scope = design.scope("incdata")
+            self.assertIsNotNone(scope, "incdata must survive elaboration")
+            helper = design.scope("helper")
+            self.assertIsNotNone(helper)
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
 
 
 @unittest.skipUnless(
