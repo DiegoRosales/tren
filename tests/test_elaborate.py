@@ -24,6 +24,7 @@ from tren.elaborate import (  # noqa: E402
     _decl_default,
     _effective_incdirs,
     _nets_for,
+    _parse_ast_decls,
     _src_pos,
     _tool_diagnostics,
     _type_range,
@@ -35,7 +36,14 @@ from tren.elaborate import (  # noqa: E402
     run_slang_hier,
     run_yosys,
 )
-from tren.ir import BoundaryLink, Design, NetConnectivity, Port, Scope  # noqa: E402
+from tren.ir import (  # noqa: E402
+    BoundaryLink,
+    Design,
+    NetConnectivity,
+    Port,
+    Scope,
+    parse_src,
+)
 from tren.manifest import Manifest  # noqa: E402
 from tren.tui import net_leaf_label, port_leaf_label  # noqa: E402
 
@@ -321,6 +329,59 @@ class SlangOverlayUnitTests(unittest.TestCase):
         self.assertIsNone(nets["unknown"].range)
 
 
+def _decl_ast_instance(module: str, ports: list[str]) -> dict:
+    """One top-level Instance as slang --ast-json spells it."""
+    return {
+        "kind": "Instance",
+        "name": module,
+        "body": {
+            "kind": "InstanceBody",
+            "name": module,
+            "members": [
+                {
+                    "kind": "Port",
+                    "name": port,
+                    "direction": "In",
+                    "source_file": f"rtl/{module}.sv",
+                    "source_line": i + 2,  # below the module header line
+                    "source_column": 12,
+                    "type": {"kind": "ScalarType", "name": "logic"},
+                }
+                for i, port in enumerate(ports)
+            ],
+        },
+    }
+
+
+class AstDeclWalkTests(unittest.TestCase):
+    """The slang decl overlay walks every top-level instance."""
+
+    DESIGN = {
+        "design": {
+            "members": [
+                {"kind": "CompilationUnit", "name": "", "members": []},
+                _decl_ast_instance("other", ["x"]),
+                _decl_ast_instance("t", ["clk", "rst", "data"]),
+            ]
+        }
+    }
+
+    def test_declarations_of_every_top_level_module(self) -> None:
+        # slang lists one Instance per top-level module. A source set whose
+        # modules no single top reaches has several; the second one used to
+        # be skipped, so its ports carried no src to highlight.
+        decls, _ = _parse_ast_decls(self.DESIGN)
+        self.assertEqual(sorted(decls), ["other", "t"])
+
+    def test_ports_carry_the_declaration_span(self) -> None:
+        decls, _ = _parse_ast_decls(self.DESIGN)
+        self.assertEqual(decls["t"]["ports"]["clk"]["src"], "rtl/t.sv:2:12")
+        # the TUI focuses the line the port name sits on
+        self.assertEqual(
+            parse_src(decls["t"]["ports"]["data"]["src"]), ("rtl/t.sv", 4, 4)
+        )
+
+
 class BitKeyTests(unittest.TestCase):
     """Yosys JSON uses non-integer tokens for constant / don't-care bits."""
 
@@ -552,6 +613,52 @@ class IncludeElaborationAcceptanceTests(unittest.TestCase):
             )
             design = elaborate(manifest, root, cache=None)
             self.assertIsNotNone(design.scope("incdata"))
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+
+@unittest.skipUnless(
+    shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
+    "requires the nix dev shell (yosys/slang on PATH)",
+)
+class MultiRootDeclAcceptanceTests(unittest.TestCase):
+    """An inlined port declaration is highlightable in a multi-root source set.
+
+    Two modules that no single top reaches make slang --ast-json list two
+    design members. Reading only the first left the top's ports without a src
+    span, so selecting a port focused nothing that the source pane could
+    highlight.
+    """
+
+    def test_ports_of_a_second_root_carry_a_source_span(self) -> None:
+        td = tempfile.mkdtemp(prefix="tren-roots-")
+        root = Path(td)
+        try:
+            (root / "rtl").mkdir()
+            (root / "rtl" / "a_other.sv").write_text(
+                "module other(input wire x, output wire y);\n"
+                "  assign y = x;\n"
+                "endmodule\n"
+            )
+            (root / "rtl" / "t.sv").write_text(
+                "module t(\n"
+                "input wire clk,\n"
+                "input wire rst,\n"
+                "output wire data\n"
+                ");\n"
+                "  assign data = clk & rst;\n"
+                "endmodule\n"
+            )
+            manifest = import_manifest(root / "rtl", root=root, top="t")
+            design = elaborate(manifest, root, cache=None)
+            self.assertIsNotNone(design.scope("other"))  # the second root
+            scope = design.scope("t")
+            self.assertIsNotNone(scope)
+            assert scope is not None
+            spans = {p.name: parse_src(p.src) for p in scope.ports}
+            self.assertEqual(spans["clk"], ("rtl/t.sv", 2, 2))
+            self.assertEqual(spans["rst"], ("rtl/t.sv", 3, 3))
+            self.assertEqual(spans["data"], ("rtl/t.sv", 4, 4))
         finally:
             shutil.rmtree(td, ignore_errors=True)
 

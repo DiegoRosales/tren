@@ -240,6 +240,12 @@ to commit messages.
   `Variable` members (a `wire` is a `Net`); a port appears a second time as a
   `Variable` with the same type. A generate block's name is empty in the AST
   while yosys spells the net `g[0].gr` - index the blocks in order to join.
+- slang `--ast-json` lists one design `Instance` member per **top-level
+  module**, not one per design. A source set whose modules no single top
+  reaches has several. Walk every one: reading only the first leaves the other
+  modules without port `src` spans, so the TUI has no declaration to
+  highlight. A change in what an existing IR field means needs a
+  `SCHEMA_VERSION` bump (`ir.py`), or old cache blobs keep serving it.
 - slang **normalises an integer literal**: the source text `3'b000` comes
   back as `3'b0` and `2'd1` as `2'b1`. Never compare a resolved value with a
   source-text default as strings (that is what put a false override marker on

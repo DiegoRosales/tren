@@ -411,14 +411,19 @@ def _parse_ast_decls(
             elif kind == "GenerateBlock":
                 visit_members(m.get("members"), module, prefix)
 
-    root_instance = next(
-        (m for m in (ast.get("design") or {}).get("members") or [] if m.get("kind") == "Instance"),
-        None,
-    )
-    if root_instance is not None:
+    # The design lists one Instance per top-level module, not one per design:
+    # a source set whose modules are not all reachable from a single top gets
+    # several. Walking only the first left every other module without
+    # declarations, so its ports carried no src and the TUI could not
+    # highlight a port declaration.
+    members = (ast.get("design") or {}).get("members") or []
+    for root_instance in (m for m in members if m.get("kind") == "Instance"):
         body = root_instance.get("body")
-        if isinstance(body, dict):
-            visit_members(body.get("members"), root_instance.get("name"))
+        if not isinstance(body, dict):
+            continue
+        visit_members(
+            body.get("members"), _body_module(root_instance) or root_instance.get("name")
+        )
     return decls, generates
 
 

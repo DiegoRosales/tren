@@ -242,7 +242,7 @@ class Design:
 # Schema identity (what makes a cached blob stale)
 # --------------------------------------------------------------------------
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 """Bump by hand when the *meaning* of an unchanged field changes.
 
 The structural fingerprint below catches added/renamed/retyped fields on its
