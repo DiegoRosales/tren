@@ -104,7 +104,7 @@
 
           jq
           ripgrep
-          tmux # real-terminal OSC 52 round-trip (card 214 acceptance, tools/osc52_roundtrip.sh)
+          tmux # real-terminal OSC 52 round-trip (tools/osc52_roundtrip.sh)
         ];
 
       # Everything TREN shells out to. Shared by all three shells so they

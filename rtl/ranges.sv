@@ -1,4 +1,4 @@
-// Declared-range fixture (card 219).
+// Declared-range fixture.
 //
 // Every signal here is declared with a range that is not [width-1:0]:
 // a descending range that does not end at 0, an ascending range, and a

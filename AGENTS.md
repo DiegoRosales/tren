@@ -189,7 +189,7 @@ to commit messages.
   still reads `"?"`). A modal screen cannot beat an App `priority=True`
   binding: `App.on_event` runs `_check_bindings` app-first, so the `?`
   cheatsheet pops itself in `TrenApp.on_event` before dispatch - that is how
-  one nav key both dismisses the sheet and keeps acting (card 248).
+  one nav key both dismisses the sheet and keeps acting.
 - The cheatsheet (`?`) and the README "Keys" table render from the same list
   in `tren/keys.py`; change a binding and run `make guide` (asserted by
   `tests/test_keys.py`).
@@ -199,7 +199,7 @@ to commit messages.
   chain truncates at the last `ModalScreen` (`_modal_binding_chain`), so a
   non-priority binding there (the / search modal's up/down) beats the app's
   non-priority arrow aliases. That pairing is what lets the / search modal
-  (card 244) treat j/k/d/L as text while up/down move the results. It also
+  treat j/k/d/L as text while up/down move the results. It also
   means the user cannot type a query containing j or k *as movement*: the
   arrows are the j/k aliases, documented as such. The moment the Input is
   *blurred* the printable-key filter is gone: the app's `priority=True`
@@ -211,8 +211,8 @@ to commit messages.
   Gate an app-level key filter on `event.key`, not `event.name`.
 - textual 8.2 `Tree` defines `action_page_up`/`action_page_down` but binds
   neither (only up/down/enter/space/shift+... are in Tree.BINDINGS), and
-  ListViews bind nothing beyond up/down/enter. App-level paging (card 283)
-  must therefore be its own priority binding dispatching on `self.active`,
+  ListViews bind nothing beyond up/down/enter. App-level paging must
+  therefore be its own priority binding dispatching on `self.active`,
   and `on_event` must stop the page keys while a modal owns the screen -
   otherwise they page the tree behind the trace/search modal, whose lists
   have no page handling to claim them.

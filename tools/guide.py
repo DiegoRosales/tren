@@ -2,7 +2,7 @@
 """Regenerate the README "Keys" block from the key map: `make guide`.
 
 The user guide's key table and the `?` cheatsheet both render from the same
-declarative list in `tren/keys.py` (deck card 248), so they cannot drift.
+declarative list in `tren/keys.py`, so they cannot drift.
 Run this after you change a binding, then commit the README change together
 with the code. `tests/test_keys.py` asserts the committed README still
 matches, so forgetting to run it fails `make test`.

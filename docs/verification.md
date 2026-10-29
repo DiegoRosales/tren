@@ -79,7 +79,7 @@ fixture (no tools) and real-IR mode. Two flavours:
 
 - `make drive` - `test_drive.py` (fixture): tree nav, pane routing, yank,
   l/h expand/collapse, ctrl+u, enter, `z` pane zoom, pageup/pagedown paging
-  per pane (card 283); fast, no tools.
+  per pane; fast, no tools.
 - `make drive-real` - `test_drive.py --manifest rtl/demo.manifest.json`:
   the *real* elaboration, source-pane focus/auto-follow, trace crossing with
   positional matching down to `$xor`, black-box stops, `X` cuts, yank format
@@ -94,7 +94,7 @@ spot: they don't prove *rendering* - see layer 4.
 Two tools, both on a real ptty inside a **private** tmux server (never
 touching the user's tmux).
 
-#### `make roundtrip` (`-L trenosc214`)
+#### `make roundtrip` (`-L trenosc`)
 
 Pipe-panes the raw output bytes and asserts:
 
@@ -107,7 +107,7 @@ Why pipe-pane instead of `set-clipboard`/`show-buffer`: a client-less tmux
 server relays OSC 52 to nothing (no attached `Ms`-capable terminal), so the
 buffer stays empty; `pipe-pane` captures what a terminal really receives.
 
-#### `make pane-cue` (`-L trencue245`)
+#### `make pane-cue` (`-L trencue`)
 
 `capture-pane -e` after each of `1`/`2`/`3`, decoding the SGR stream to the
 background colour in effect at a column inside each pane. Asserts exactly one
@@ -123,7 +123,7 @@ nodes** - the two bugs it pins both hid on precisely those rows while
   picks up `Tree:focus { background-tint: $foreground 5% }` and reads as
   highlighted even when idle.
 
-It also asserts the top status line (card 246) renders the selection's full
+It also asserts the top status line renders the selection's full
 path on row 0 of a real terminal - the drives assert the *value*, this asserts
 the terminal actually paints it.
 

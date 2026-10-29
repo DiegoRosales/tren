@@ -14,15 +14,15 @@ Auto-follow: on scope change the focus band is kept in view
 (src_offset = focus_start - rows/2, clamped). `e` opens the editor (stub)
 at the selection's declaration line, `E` at the module definition.
 
-Keys: j/k move, pgup/pgdn page a screenful in the active pane (card 283),
+Keys: j/k move, pgup/pgdn page a screenful in the active pane,
 l expand, h collapse, enter shows the selection in the centre (the module,
-or the I/O pane's selected port declaration, card 281), ctrl+u jumps up a
+or the I/O pane's selected port declaration), ctrl+u jumps up a
 level, 1/2/3 pane select, z zoom the active pane, y yank,
-/ global search (modules, instances, ports, nets, files; card 244; enter
+/ global search (modules, instances, ports, nets, files; enter
 commits, n/N walk the matches, ctrl+enter selects and closes),
 ? navigation cheatsheet, e editor at the selection's declaration, E editor at
 the module definition, q quit. The arrow keys are aliases: down/up = j/k,
-right/left = l/h (card 267); in the trace modal right descends and left goes
+right/left = l/h; in the trace modal right descends and left goes
 back.
 Headless Pilot tests:  python test_drive.py [--manifest …]
 """
@@ -65,12 +65,12 @@ FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.
 # active-pane cue: the pane 1/2/3 acts on is lifted out of the background
 PANE_BG_ACTIVE = "#262626"
 PANE_BG_IDLE = "#121212"
-# status line background (card 246): distinctly a chrome bar, not a pane
+# status line background: distinctly a chrome bar, not a pane
 STATUS_BG = "#1e1e1e"
-# three-column layout (card 268 restores these widths when the zoom ends)
+# three-column layout (the zoom restores these widths when it ends)
 PANE_WIDTHS = {"tree": "32%", "source": "48%", "ports": "20%"}
 ZOOM_WIDTH = "100%"
-# port leaf column (card 253): "inout" is the longest direction
+# port leaf column: "inout" is the longest direction
 PORT_DIR_WIDTH = 5
 # keys the *committed* finder handles itself (event.key form). Everything
 # else is stopped while it is up: the query box no longer holds focus there,
@@ -79,7 +79,7 @@ PORT_DIR_WIDTH = 5
 # priority open_search would steal it, so TrenApp.on_event intercepts it
 # before dispatch and returns to the query box instead. up/down move the
 # highlighted match whatever pane is active (results or source-line bottom
-# pane); tab flips between those two panes (card 280). Compare event.key,
+# pane); tab flips between those two panes. Compare event.key,
 # not event.name: textual spells 'N' as name 'upper_n' and '/' as 'slash'
 # while the binding and event.key keep their original form.
 SEARCH_COMMITTED_KEYS = frozenset(
@@ -108,7 +108,7 @@ def _bit_range(width: int, declared: str | None = None) -> str:
     """Bit range suffix for a leaf: '[msb:lsb]', empty for a scalar.
 
     The declared range comes from the slang overlay and reads as the source
-    writes it, ``[7:1]`` and ``[0:7]`` included (card 219). A signal the
+    writes it, ``[7:1]`` and ``[0:7]`` included. A signal the
     overlay never reached carries none, and the range falls back to the
     width as ``[width-1:0]``.
     """
@@ -118,7 +118,7 @@ def _bit_range(width: int, declared: str | None = None) -> str:
 
 
 def port_leaf_label(port: Port) -> str:
-    """Hierarchy leaf text for a port: 'port <dir> <name>[msb:lsb]' (card 253).
+    """Hierarchy leaf text for a port: 'port <dir> <name>[msb:lsb]'.
 
     The direction is left-aligned in a fixed column, so in / out / inout all
     start the name at the same offset.
@@ -128,7 +128,7 @@ def port_leaf_label(port: Port) -> str:
 
 
 def net_leaf_label(net: Net) -> str:
-    """Hierarchy leaf text for a net: 'net <name>[msb:lsb]' (card 253).
+    """Hierarchy leaf text for a net: 'net <name>[msb:lsb]'.
 
     The range reads the same as a port's. A net has no direction column.
     """
@@ -136,12 +136,12 @@ def net_leaf_label(net: Net) -> str:
 
 
 def cheat_line(doc: KeyDoc) -> str:
-    """Cheatsheet row: the keys in a fixed column, then the effect (card 248)."""
+    """Cheatsheet row: the keys in a fixed column, then the effect."""
     return f"{doc.keys:<16} {doc.effect}"
 
 
 def search_row_label(entry: SearchEntry) -> str:
-    """One result row of the global finder: kind, then the full path (card 244)."""
+    """One result row of the global finder: kind, then the full path."""
     if entry.kind == "module":
         return f"module {entry.path}"
     if entry.kind == "instance":
@@ -165,7 +165,7 @@ class PortsPane(Static):
 
 
 class StatusBar(Static):
-    """Top line: the selection's full hierarchical path (yazi-style, card 246).
+    """Top line: the selection's full hierarchical path (yazi-style).
 
     A plain Static is never focusable, so it cannot steal input — it is only a
     display seam, updated by the app as the selection moves.
@@ -175,7 +175,7 @@ class StatusBar(Static):
 
 
 class CheatSheet(ModalScreen[None]):
-    """Navigation cheatsheet: the full key map on one screen (card 248).
+    """Navigation cheatsheet: the full key map on one screen.
 
     Escape dismisses. Every other key also dismisses first and then continues
     to the layer below - TrenApp.on_event pops the sheet before dispatching,
@@ -221,7 +221,7 @@ class TraceScreen(ModalScreen[None]):
     List navigation uses arrow keys: the App's j/k bindings are
     priority=True and would shadow same-letter modal bindings (verified).
     The focused ListView keeps up/down for the list, because the App's arrow
-    aliases (card 267) are not priority. Left/right are free there, so the
+    aliases are not priority. Left/right are free there, so the
     modal binds them to back/descend: an arrow in the trace never reaches the
     tree behind the modal.
     """
@@ -286,13 +286,13 @@ class TraceScreen(ModalScreen[None]):
 
 
 class SearchScreen(ModalScreen[None]):
-    """Global fuzzy search: modules, instances, ports, nets, files (card 244).
+    """Global fuzzy search: modules, instances, ports, nets, files.
 
     Two modes, vim-style. While the query Input holds focus, every printable
     key - j and k included - types text and never reaches the app bindings
     behind the modal (textual strips printable keys from the binding chain
-    while an Input is focused; verified). up/down, the arrow aliases of j/k
-    (card 267), move the cursor there; the modal binding chain truncates at
+    while an Input is focused; verified). up/down, the arrow aliases of j/k,
+    move the cursor there; the modal binding chain truncates at
     this screen, so they beat the app's own arrow aliases. `enter` (Input
     Submitted) commits the query: the Input is blurred and the finder stays
     open, and `n` / `N` step to the next / previous match through the whole
@@ -308,7 +308,7 @@ Committed, a bottom pane lists the matched source lines (vim's
     `:g//p`): one row per result, showing the line of RTL the result means.
     `tab` switches which pane is active; up/down and n/N always move a
     single shared cursor, so scrolling the bottom pane walks the result
-    list and the highlight follows (card 280).
+    list and the highlight follows.
 
     The right column previews the result's source focus by reusing the
     centre pane's renderer with a private scroll offset, so the pane state
@@ -338,7 +338,7 @@ Committed, a bottom pane lists the matched source lines (vim's
 
     # Rows the match pane shows at once. The pane is the vim :g//p list of
     # the matched source lines, height-capped so the finder keeps acting as
-    # a modal over the panes behind it (card 280).
+    # a modal over the panes behind it.
     MATCH_ROWS = 7
 
     def compose(self) -> ComposeResult:
@@ -378,7 +378,7 @@ Committed, a bottom pane lists the matched source lines (vim's
         self.listwidget.border_title = "results"
         self.matchlist.border_title = "matches"
         # the matches and results panes share one cursor: painting the active
-        # pane lifts it like the app's own pane cue (card 280)
+        # pane lifts it like the app's own pane cue
         self._paint_panes()
         self._show_window()
         self.inputwidget.focus()
@@ -429,7 +429,7 @@ Committed, a bottom pane lists the matched source lines (vim's
             self._app.bell()
 
     def action_search_cycle_pane(self) -> None:
-        """tab: switch the active pane between results and matches (card 280)."""
+        """tab: switch the active pane between results and matches."""
         if not self._committed:
             return
         self._pane = "matches" if self._pane == "results" else "results"
@@ -463,7 +463,7 @@ Committed, a bottom pane lists the matched source lines (vim's
             self._render_count()
 
     def _sync_cursor(self) -> None:
-        """Point both panes' ListViews at the shared cursor (card 280)."""
+        """Point both panes' ListViews at the shared cursor."""
         row = self._cursor - self._wstart
         self.listwidget.index = row
         if self.matchlist.display:
@@ -505,7 +505,7 @@ Committed, a bottom pane lists the matched source lines (vim's
             self.countlabel.update(f"{total} result{'s' if total != 1 else ''}")
 
     def _match_source(self, entry: SearchEntry) -> str:
-        """The source line the result matches (vim :g//p, card 280).
+        """The source line the result matches (vim :g//p).
 
         A real focus reads the file line at the span; a fixture scope with an
         inline snippet reads its focused rtl line. Neither exists (a black
@@ -527,7 +527,7 @@ Committed, a bottom pane lists the matched source lines (vim's
         """Show/hide and materialise the bottom matched-lines pane.
 
         `rebuild` re-creates the ListItems; the pane only exists once the
-        query is committed (card 280), so cheap calls just keep the shared
+        query is committed, so cheap calls just keep the shared
         cursor in sync.
         """
         if not self._committed:
@@ -583,13 +583,13 @@ class TrenApp(App[None]):
         Binding("k", "prev_item", "up", priority=True),
         Binding("l", "expand", "expand", priority=True),
         Binding("h", "collapse", "collapse", priority=True),
-        # page up/down: editor-style, a screenful of the active pane
-        # (card 283). priority, like j/k: they must win even though nothing
+        # page up/down: editor-style, a screenful of the active pane.
+        # priority, like j/k: they must win even though nothing
         # on the main screen holds focus. Under a trace/search modal the
         # app must NOT page the tree behind it, so on_event stops them.
         Binding("pageup", "prev_page", "page up", priority=True),
         Binding("pagedown", "next_page", "page down", priority=True),
-        # arrow aliases of j/k/l/h (card 267). NOT priority, and that is the
+        # arrow aliases of j/k/l/h. NOT priority, and that is the
         # point: the trace modal's ListView owns up/down for its own list, and
         # the modal binds left/right itself. A priority alias here would take
         # all four away from the modal, exactly as j/k/l/h are taken.
@@ -622,7 +622,7 @@ class TrenApp(App[None]):
         self.osc_events: list[str] = []
         self.active = "tree"  # which pane j/k/l/h/y act on: tree | source | ports
         self._cue: str | None = None  # pane the background cue is painted for
-        self.zoomed = False  # z: the active pane fills the screen (card 268)
+        self.zoomed = False  # z: the active pane fills the screen
         self.src_offset = 0
         self._source_rows = 30  # last known source-pane height (see _follow)
         self.port_index = 0
@@ -640,9 +640,9 @@ class TrenApp(App[None]):
         self.trace_dump: str = ""
         # user cuts (X): scope paths made opaque at runtime
         self._user_cut: set[str] = set()
-        # the ? cheatsheet when it is on screen (card 248)
+        # the ? cheatsheet when it is on screen
         self._cheat: "CheatSheet | None" = None
-        # the / global search when it is on screen (card 244)
+        # the / global search when it is on screen
         self._search: "SearchScreen | None" = None
         self._search_index = build_search_index(design)
 
@@ -793,7 +793,7 @@ class TrenApp(App[None]):
     def _focus_for(self, node: Tree.Node | None) -> tuple[str, int, int] | None:
         """Source focus of a node: the module's instantiation in its parent.
 
-        A port or net leaf focuses its own *declaration* (cards 242/243):
+        A port or net leaf focuses its own *declaration*:
         Port.src comes from slang --ast-json, Net.src from the yosys netname
         attributes. Either may be missing (black boxes, synthesised nets), in
         which case the walk continues up and the module-level focus stands.
@@ -824,11 +824,11 @@ class TrenApp(App[None]):
         return None
 
     def _effective_focus(self) -> tuple[str, int, int] | None:
-        """Source focus of the *effective* selection (card 281).
+        """Source focus of the *effective* selection.
 
         With the I/O pane active the selection is the port its marker sits
         on, so the focus is that port's declaration - the same rule a port
-        leaf in the tree follows (cards 242/243). A port the backends gave
+        leaf in the tree follows. A port the backends gave
         no src, an out-of-range index and every other pane fall back to the
         tree selection's focus. While a modal screen owns the screen (the
         d/L trace, the search finder) the tree selection stays the truth:
@@ -860,7 +860,7 @@ class TrenApp(App[None]):
 
     def _follow(self, focus: tuple[str, int, int]) -> None:
         # floor the viewport: early renders report a tiny/zero height, and a
-        # pane hidden by the zoom (card 268) reports zero for as long as it
+        # pane hidden by the zoom reports zero for as long as it
         # stays hidden — keep the last real height so the band is centred for
         # the viewport the pane gets back.
         height = self._source_widget.size.height
@@ -893,7 +893,7 @@ class TrenApp(App[None]):
     ) -> RichText:
         """Render the source view.
 
-        offset overrides the pane scroll: the search preview (card 244) passes
+        offset overrides the pane scroll: the search preview passes
         a per-entry offset so browsing results never disturbs the pane state.
         """
         off = self.src_offset if offset is None else offset
@@ -916,7 +916,7 @@ class TrenApp(App[None]):
                 return src
             # the file is gone but the scope carries an inline snippet: prefer
             # showing RTL over an error. Reachable since port/net leaves began
-            # resolving their own src (cards 242/243) — fixture nets carry a
+            # resolving their own src — fixture nets carry a
             # src pointing at a file that need not be checked out.
         if scope is not None:
             # fixture fallback: inline rtl snippet with the rtl_focus band
@@ -939,7 +939,7 @@ class TrenApp(App[None]):
         # compare both — focus alone stays None across a move between two
         # src-less scopes and used to carry the previous scope's scroll offset
         # into an unrelated snippet. Within one target (j in the source pane)
-        # nothing is reset. The focus is the effective selection's (card 281):
+        # nothing is reset. The focus is the effective selection's:
         # the I/O pane's selected port while that pane is active, so moving
         # its marker re-centres the declaration like a tree leaf does.
         target = (focus, scope.name if scope is not None else None)
@@ -992,7 +992,7 @@ class TrenApp(App[None]):
         )
 
     def _apply_layout(self) -> None:
-        """Size the panes for the current zoom state (card 268).
+        """Size the panes for the current zoom state.
 
         Zoomed, the active pane takes the full width and the other two are
         undisplayed: a hidden widget claims no space, so a plain width change
@@ -1139,7 +1139,7 @@ class TrenApp(App[None]):
     def _select_path(self, scope_path: str, net_name: str | None = None) -> bool:
         """Select the tree row for a scope (or one of its nets); True on hit.
 
-        The search finder (card 244) keys on the return value: False means
+        The search finder keys on the return value: False means
         the scope has no tree row and the caller tries a fixture fallback.
         """
         scope_node = self._find_scope_node(scope_path)
@@ -1155,7 +1155,7 @@ class TrenApp(App[None]):
         self._select(self._visible().index(scope_node))
         return True
 
-    # ---- global search: jump + preview helpers (card 244) ---------------
+    # ---- global search: jump + preview helpers ---------------
 
     def _select_instance_row(self, parent_path: str, inst_name: str) -> bool:
         """Select an instance row under a scope row (the fixture shape: the
@@ -1333,7 +1333,7 @@ class TrenApp(App[None]):
     # ---- actions ----------------------------------------------------------
 
     def _select_pane(self, pane: str) -> None:
-        """Make a pane active. Zoomed, the zoom moves with it (card 268)."""
+        """Make a pane active. Zoomed, the zoom moves with it."""
         self.active = pane
         if self.zoomed:
             self._apply_layout()
@@ -1363,7 +1363,7 @@ class TrenApp(App[None]):
         self._render_panes()
 
     def action_show_cheatsheet(self) -> None:
-        """?: open the navigation cheatsheet (full key map, card 248).
+        """?: open the navigation cheatsheet (full key map).
 
         The sheet lists the trace-modal keys too when a trace is open. It is
         also reachable from inside the trace modal, where the trace is still
@@ -1400,7 +1400,7 @@ class TrenApp(App[None]):
         Stop every key except the finder's own there, or it would act on the
         tree behind the modal. '/' is the one exception, intercepted here
         before the app's priority open_search can steal it: the finder is
-        already open, so '/' returns to the query box instead (card 279).
+        already open, so '/' returns to the query box instead.
         """
         if isinstance(event, events.Key) and not event.is_forwarded:
             if self._cheat is not None and self.screen is self._cheat:
@@ -1423,7 +1423,7 @@ class TrenApp(App[None]):
             # page up/down are priority app bindings. Under a trace or search
             # modal the list owns up/down, but neither ListView binds page
             # keys, so the app's page actions would fire and move the tree
-            # behind the modal. Stop them (card 283); the cheatsheet above
+            # behind the modal. Stop them; the cheatsheet above
             # already popped itself and lets the pane take the page key.
             if (self._modal is not None or self._search is not None) and (
                 event.key in ("pageup", "pagedown")
@@ -1458,7 +1458,7 @@ class TrenApp(App[None]):
         """Rows a page move covers: the active pane's visible height minus one.
 
         Editors keep one line of context across a page flip; so does this.
-        A hidden pane (the zoom, card 268) reports zero, so floor the page
+        A hidden pane (the zoom) reports zero, so floor the page
         at 1 rather than freezing the move.
         """
         if self.active == "tree":
@@ -1482,7 +1482,7 @@ class TrenApp(App[None]):
         return 0
 
     def action_next_page(self) -> None:
-        """pagedown: a screenful of the active pane, editor-style (card 283).
+        """pagedown: a screenful of the active pane, editor-style.
 
         In the tree the cursor jumps `_page_rows` visible nodes and clamps at
         the last one; in source the view scrolls by the pane height and
@@ -1578,7 +1578,7 @@ class TrenApp(App[None]):
     def action_focus_source(self) -> None:
         """enter: show the effective selection in the centre RTL pane, band
         centred with surrounding context - the tree's highlighted module, or
-        the I/O pane's selected port's declaration (card 281). The d/L trace
+        the I/O pane's selected port's declaration. The d/L trace
         modal owns Enter while open (this binding is deliberately not
         priority=True)."""
         if self._modal is not None:
@@ -1731,10 +1731,9 @@ class TrenApp(App[None]):
     def action_open_editor(self) -> None:
         """e: open $EDITOR at the effective selection's own declaration - for
         a scope the *instantiation* in its parent (the line you'd edit to
-        rewire the port map), for a port/net leaf its own declaration
-        (cards 242/243), for the I/O pane's selected port its declaration
-        (card 281). A top-level module has no parent: both e and E land on
-        its definition.
+        rewire the port map), for a port/net leaf its own declaration,
+        for the I/O pane's selected port its declaration. A top-level
+        module has no parent: both e and E land on its definition.
         """
         self._open_editor(self._effective_focus())
 

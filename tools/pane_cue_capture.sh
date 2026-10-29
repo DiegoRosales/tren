@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Real-terminal render check of the active-pane cue (deck card 245 acceptance).
+# Real-terminal render check of the active-pane cue.
 #
-# Runs on a PRIVATE tmux server (`-L trencue245`) so nothing here touches your
+# Runs on a PRIVATE tmux server (`-L trencue`) so nothing here touches your
 # own tmux state — never `tmux kill-server` without the `-L` socket.
 #
 # Why this exists as a layer-4 gate (docs/verification.md): Pilot can assert
@@ -27,7 +27,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-SOCK="trencue245"
+SOCK="trencue"
 SESS="panecue"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/tren-panecue.XXXXXX")"
 trap 'tmux -L "$SOCK" kill-server 2>/dev/null || true; rm -rf "$TMP"' EXIT
@@ -113,7 +113,7 @@ for pane, active in (("1", "tree"), ("2", "source"), ("3", "ports")):
             + "  ".join(f"{n}={background_at(lines[row], c)}" for n, c in COLUMNS.items())
         )
 
-# card 246: the status line (row 0) renders the selection's full path. The
+# the status line (row 0) renders the selection's full path. The
 # keys pressed above leave the cursor on u_core, so row 0 must read the
 # hierarchical path, not the bare module name.
 row0 = SGR.sub("", (tmp / "pane-1.ansi").read_text().splitlines()[0])

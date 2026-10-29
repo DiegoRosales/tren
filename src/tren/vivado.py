@@ -1,4 +1,4 @@
-"""Vivado project importer (deck card 217).
+"""Vivado project importer.
 
 Parses the parts of a Vivado workspace that survive non-interactive use and
 emits the design manifest (sources / top) the elaborator consumes.
@@ -99,7 +99,7 @@ def _parse_xpr_file_lists(
 
     ``incdirs_out``, when given, collects the directories of FileSet entries
     that are Verilog headers (``.vh``/``.svh``): Vivado records real include
-    dirs as header-typed files (card 260). Without it those entries fall back
+    dirs as header-typed files. Without it those entries fall back
     to the generic non-Verilog warning (the low-level reader's default).
     """
     try:
@@ -228,7 +228,7 @@ def to_manifest_layout(
 ) -> tuple[tuple[str, ...], tuple[str, ...], str | None]:
     """Turn parsed sources into root-relative manifest paths + incdirs.
 
-    Card 260: the manifest records the directory of every source (yosys needs
+    the manifest records the directory of every source (yosys needs
     them spelled out as ``-I``; slang/Vivado imply the including file's own
     directory only), and adds the directories of header-typed FileSet entries
     on top. A source at the root records ``.`` - slang does not search the

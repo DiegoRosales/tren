@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Card 215 acceptance: 1k-scope lazy-load + cache-hit profile.
+"""1k-scope lazy-load + cache-hit profile.
 
 Prints, for a synthetic 1100-scope IR:
   - how many scope *tree nodes* exist at mount (lazy: only the roots)

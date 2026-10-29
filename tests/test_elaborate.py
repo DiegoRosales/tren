@@ -1,4 +1,4 @@
-"""Tests for the elaboration runner (card 208).
+"""Tests for the elaboration runner.
 
 Parser unit tests run without tools; the acceptance integration test shells
 out to yosys/slang-hier/slang and is skipped outside the nix dev shell.
@@ -72,7 +72,7 @@ class HierParseTests(unittest.TestCase):
 
 
 class BackendFlagTests(unittest.TestCase):
-    """Card 259: manifest flags reach every runner, without running tools."""
+    """Manifest flags reach every runner, without running tools."""
 
     MANIFEST = Manifest(
         sources=("rtl/demo.sv",),
@@ -129,7 +129,7 @@ class BackendFlagTests(unittest.TestCase):
         self.assertIn("proc;", script)
 
     def test_effective_incdirs_adds_source_dirs(self) -> None:
-        """Card 260: a hand-written manifest listing only sources gets the
+        """A hand-written manifest listing only sources gets the
         source directories, including '.' for a root source."""
         manifest = Manifest(sources=("top.sv", "rtl/sub.sv"), incdirs=("inc",))
         self.assertEqual(_effective_incdirs(manifest), (".", "inc", "rtl"))
@@ -142,7 +142,7 @@ class BackendFlagTests(unittest.TestCase):
 
 
 class DiagnosticTests(unittest.TestCase):
-    """Card 259: a failed backend shows its stderr, not a raw argv."""
+    """A failed backend shows its stderr, not a raw argv."""
 
     def test_diagnostics_trim_long_output(self) -> None:
         err = subprocess.CalledProcessError(
@@ -252,7 +252,7 @@ class BuildDesignUnitTests(unittest.TestCase):
 
 
 class SlangOverlayUnitTests(unittest.TestCase):
-    """Pure-function tests for the slang decl overlay (card 219)."""
+    """Pure-function tests for the slang decl overlay."""
 
     def test_src_pos(self) -> None:
         self.assertEqual(_src_pos("rtl/demo.sv:45:38"), ("rtl/demo.sv", 45, 38))
@@ -344,7 +344,7 @@ class BitKeyTests(unittest.TestCase):
     "requires the nix dev shell (yosys/slang on PATH)",
 )
 class DemoAcceptanceTests(unittest.TestCase):
-    """Card 208 acceptance: rtl/demo.sv -> IR with generate scopes, resolved
+    """rtl/demo.sv -> IR with generate scopes, resolved
     params, black-box ports; deterministic and cached."""
 
     @classmethod
@@ -373,7 +373,7 @@ class DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual(by_name["W"].kind, "parameter")
         self.assertEqual(by_name["OP"].kind, "localparam")
 
-        # card 219: declared defaults + override at full fidelity
+        # declared defaults + override at full fidelity
         self.assertEqual(by_name["W"].default, "8")
         self.assertTrue(by_name["W"].overridden, "W resolves 32 vs default 8")
         self.assertEqual(by_name["OP"].default, "3")
@@ -384,7 +384,7 @@ class DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual((alu_w.value, alu_w.default), ("32'd32", "8"))
         self.assertTrue(alu_w.overridden)
 
-        # card 219: source-faithful port types from slang --ast-json
+        # source-faithful port types from slang --ast-json
         self.assertEqual(
             [(p.name, p.type) for p in top.ports],
             [("hi", "logic [31:0]"), ("lo", "logic [31:0]"), ("out", "logic [31:0]")],
@@ -429,7 +429,7 @@ class DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_overlay_survives_the_cache(self) -> None:
-        """Card 219 end-to-end: the overlay is only delivered if it survives
+        """The overlay is only delivered if it survives
         a cache hit. It did not - blobs written before `Port.type` existed kept
         hitting, so the I/O pane showed no types on any warm cache."""
         with tempfile.TemporaryDirectory(prefix="tren-elab-overlay-") as td:
@@ -479,7 +479,7 @@ class DemoAcceptanceTests(unittest.TestCase):
     "requires the nix dev shell (yosys/slang on PATH)",
 )
 class IncludeElaborationAcceptanceTests(unittest.TestCase):
-    """Card 260: a manifest from a source tree whose `` `include `` lives in a
+    """A manifest from a source tree whose `` `include `` lives in a
     sibling source directory elaborates through both backends.
 
     The source-dir incdir default is what makes yosys find it: yosys 0.69
@@ -521,7 +521,7 @@ class IncludeElaborationAcceptanceTests(unittest.TestCase):
             shutil.rmtree(td, ignore_errors=True)
 
     def test_root_include_from_subdirectory_elaborates(self) -> None:
-        """Card 260: slang does not search the cwd, so a source at the root
+        """Slang does not search the cwd, so a source at the root
         records ``.`` and a root header resolves from a subdirectory."""
         td = tempfile.mkdtemp(prefix="tren-inc-root-")
         root = Path(td)
@@ -541,7 +541,7 @@ class IncludeElaborationAcceptanceTests(unittest.TestCase):
             shutil.rmtree(td, ignore_errors=True)
 
     def test_handwritten_manifest_gets_source_dir_floor(self) -> None:
-        """Card 260: the elaborator applies the source-dir floor, so a
+        """The elaborator applies the source-dir floor, so a
         manifest that only lists sources needs no manual incdir."""
         td, root = self._tree()
         try:
@@ -561,7 +561,7 @@ class IncludeElaborationAcceptanceTests(unittest.TestCase):
     "requires the nix dev shell (yosys/slang on PATH)",
 )
 class DeclaredRangeAcceptanceTests(unittest.TestCase):
-    """Card 219: the range a leaf paints is the one the source declares.
+    """The range a leaf paints is the one the source declares.
 
     yosys carries a bit count only, so the range used to be derived as
     [width-1:0] and every descending range that does not end at 0, and every

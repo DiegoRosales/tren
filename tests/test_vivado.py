@@ -1,4 +1,4 @@
-"""Unit tests for the Vivado importer (card 217). Pure text/XML.
+"""Unit tests for the Vivado importer. Pure text/XML.
 
 Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"
 """
@@ -130,7 +130,7 @@ class ParseVivadoTests(unittest.TestCase):
         write_xpr(self.root, files=["$PPRDIR/rtl/core.v"])
 
     def test_header_fileset_entry_feeds_incdirs(self) -> None:
-        """Card 260: a Verilog-header FileSet entry supplies an incdir, not a
+        """A Verilog-header FileSet entry supplies an incdir, not a
         source."""
         (self.root / "rtl" / "inc" / "defs.svh").parent.mkdir(parents=True)
         (self.root / "rtl" / "inc" / "defs.svh").write_text("`define FOO 1\n")
@@ -148,7 +148,7 @@ class ParseVivadoTests(unittest.TestCase):
         self.assertEqual(warnings, [])
 
     def test_manifest_incdirs_default_to_source_dirs(self) -> None:
-        """Card 260: the manifest records the source directories as incdirs
+        """The manifest records the source directories as incdirs
         (yosys needs them as -I); header entries add their own dirs."""
         (self.root / "rtl" / "inc").mkdir()
         (self.root / "rtl" / "inc" / "defs.svh").write_text("`define FOO 1\n")
@@ -162,7 +162,7 @@ class ParseVivadoTests(unittest.TestCase):
         self.assertNotIn("rtl/inc/defs.svh", manifest.sources)
 
     def test_root_source_dir_feeds_dot_incdir(self) -> None:
-        """Card 260: a source at the root records ``.`` (slang does not
+        """A source at the root records ``.`` (slang does not
         search the cwd)."""
         (self.root / "top_root.v").write_text("module top_root; endmodule\n")
         manifest = import_manifest(self.root, root=self.root)

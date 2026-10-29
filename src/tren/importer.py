@@ -1,4 +1,4 @@
-"""Manifest importer: turn a source layout into a design manifest (card 211).
+"""Manifest importer: turn a source layout into a design manifest.
 
 The first importer is the plain SystemVerilog filelist (``.f``) — the
 least-work option. slang consumes these natively as *command files* (``-f``
@@ -159,7 +159,7 @@ def _store(path: str, anchor: Path | None, root: Path) -> str:
 def _default_incdirs(sources: list[str], anchor: Path | None, root: Path) -> list[str]:
     """Directories holding the sources, root-relative, deduped, sorted.
 
-    Card 260: slang and Vivado resolve a `` `include `` relative to the
+    slang and Vivado resolve a `` `include `` relative to the
     including file's directory; yosys `read_verilog` searches the cwd and that
     directory before its ``-I`` dirs (verified against yosys 0.69 - a
     cross-directory include needs ``-I``). slang does not search the cwd, so a
@@ -234,7 +234,7 @@ def import_manifest(
 
     stored_sources = tuple(_store(s, anchor, root) for s in sources)
     stored_incdirs = tuple(_store(i, anchor, root) for i in incdirs)
-    # Card 260: yosys needs a `` `include ``'s directory spelled out with -I;
+    # yosys needs a `` `include ``'s directory spelled out with -I;
     # slang/Vivado imply it. Source dirs are the floor - explicit filelist
     # incdirs stay merged in, never replaced.
     incdirs_all = tuple(

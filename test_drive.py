@@ -4,8 +4,8 @@ Run:  nix develop . -c python test_drive.py                  # fixture path
       nix develop . -c python test_drive.py --manifest rtl/demo.manifest.json
                                                              # real IR + file source
 
-Default (card 209): drives the fixture-loaded IR tree + source spans and the
-verified keys. With --manifest (card 210): elaborates the real IR, the source
+Default: drives the fixture-loaded IR tree + source spans and the
+verified keys. With --manifest: elaborates the real IR, the source
 pane shows *real file lines* from the scope's src, the focus band moves with
 selection and follows on descend, and `e` records the editor target at the
 line. Both modes regenerate out/shot.svg.
@@ -34,7 +34,7 @@ from tren.tui import (  # noqa: E402
 
 
 async def drive_fixture() -> None:
-    """Card 209: fixture path, IR-loaded tree + source spans, verified keys."""
+    """Fixture path, IR-loaded tree + source spans, verified keys."""
     app = TrenApp(load_design(), root=Path.cwd())
     async with app.run_test(size=(110, 32)) as pilot:
         tree = app._tree()
@@ -78,7 +78,7 @@ async def drive_fixture() -> None:
         await pilot.press("l")
         assert app._current_node.is_expanded, "l should re-expand u_core"
 
-        # card 267: the arrow keys are aliases of j/k/l/h in the tree
+        # the arrow keys are aliases of j/k/l/h in the tree
         await pilot.press("left")
         assert not app._current_node.is_expanded, "left should collapse u_core"
         await pilot.press("right")
@@ -90,7 +90,7 @@ async def drive_fixture() -> None:
         assert "u_core" in app._current_node.label.plain, \
             f"up should step back: {app._current_node}"
 
-        # card 283: pageup/pagedown move a screen in the active pane.
+        # pageup/pagedown move a screen in the active pane.
         # in the tree, pagedown jumps `_page_rows` visible nodes (here the
         # whole tree fits one screen, so one page clamps at the last row)
         tree_rows = app._page_rows()
@@ -142,7 +142,7 @@ async def drive_fixture() -> None:
         assert app.active == "tree", "1 should reactivate the tree pane"
         await pilot.press("j")
         assert app._current_node.label.plain.startswith("port"), f"cursor: {app._current_node}"
-        # card 253: the leaf reads 'port <dir> <name>[msb:lsb]'
+        # the leaf reads 'port <dir> <name>[msb:lsb]'
         assert app._current_node.label.plain == "port in    a[31:0]", \
             f"port leaf label: {app._current_node.label.plain!r}"
         assert "core #(32) u_core(" in str(source.content), "pane unlinked from selection"
@@ -170,7 +170,7 @@ async def drive_fixture() -> None:
         prev_offset = app.src_offset
         await pilot.press("j")
         assert app.src_offset == prev_offset + 1, "j in source pane should scroll the source"
-        # card 267: the arrows scroll the source pane too
+        # the arrows scroll the source pane too
         await pilot.press("down")
         assert app.src_offset == prev_offset + 2, "down should scroll the source pane"
         await pilot.press("up")
@@ -182,7 +182,7 @@ async def drive_fixture() -> None:
         assert app.port_index == 1, "j in ports pane should move the I/O selection"
         await pilot.press("y")
         assert "b" in app.yanked[-1], f"yank in ports pane should name the selected port: {app.yanked[-1]}"
-        # card 267: the arrows move the I/O selection too
+        # the arrows move the I/O selection too
         before = app.port_index
         await pilot.press("down")
         assert app.port_index == (before + 1) % len(app.pane_ports), \
@@ -190,9 +190,9 @@ async def drive_fixture() -> None:
         await pilot.press("up")
         assert app.port_index == before, f"up should move it back: {app.port_index}"
 
-        # card 281: enter in the I/O pane acts on the pane's selected port.
+        # enter in the I/O pane acts on the pane's selected port.
         # Fixture ports carry no src, so the enclosing scope's inline RTL
-        # keeps the pane - the fallback a tree port leaf gets (cards 242/243).
+        # keeps the pane - the fallback a tree port leaf gets.
         await pilot.press("enter")
         assert app.active == "ports", "enter must not switch the pane"
         assert app._focus is None, f"src-less port must not resolve a focus: {app._focus}"
@@ -203,7 +203,7 @@ async def drive_fixture() -> None:
         await pilot.press("1")
         assert app.active == "tree", "pressing 1 should reactivate the tree pane"
 
-        # card 245: the active-pane cue must be symmetric — exactly one pane
+        # the active-pane cue must be symmetric — exactly one pane
         # lifted to PANE_BG_ACTIVE, the other two at PANE_BG_IDLE. Pilot can
         # only assert the style value; that the *tree* actually repaints is a
         # real-terminal check (tools/pane_cue_capture.sh), because textual's
@@ -224,7 +224,7 @@ async def drive_fixture() -> None:
         assert not tree.has_focus, "the tree must not hold focus"
         await pilot.press("1")
 
-        # card 268: z zooms the active pane to the full width and hides the
+        # z zooms the active pane to the full width and hides the
         # other two; z again restores the three columns
         assert not app.zoomed, "the app must start unzoomed"
         await pilot.press("z")
@@ -259,7 +259,7 @@ async def drive_fixture() -> None:
             )
         await pilot.press("1")
 
-        # cards 242/243, the no-src fallback: fixture ports carry no src, so a
+        # the no-src fallback: fixture ports carry no src, so a
         # port leaf resolves no declaration of its own and the enclosing
         # scope's inline RTL keeps the pane (no error, no jump).
         scrolled = app.src_offset  # the source pane was scrolled by `j` above
@@ -276,7 +276,7 @@ async def drive_fixture() -> None:
         assert app._focus is None, f"fixture scopes carry no file src: {app._focus}"
         assert app.src_offset == 0, f"new snippet must start at the top: {app.src_offset}"
 
-        # ---- card 248: ? opens the navigation cheatsheet ------------------
+        # ---- ? opens the navigation cheatsheet ------------------
         await pilot.press("?")
         assert app._cheat is not None, "? should open the cheatsheet"
         assert not app._cheat.include_trace, "no trace open: no trace keys listed"
@@ -301,7 +301,7 @@ async def drive_fixture() -> None:
             f"the nav key should still act: index {app._index}"
         )
 
-        # ---- card 244: / global fuzzy search -----------------------------
+        # ---- / global fuzzy search -----------------------------
         await pilot.press("slash")
         assert app._search is not None, "/ should open the search modal"
         # the query Input must hold focus or the printable keys behind the
@@ -350,10 +350,10 @@ async def drive_fixture() -> None:
         assert app._search is not None, "q must not quit a committed search"
         assert app._index == before_index, "a blocked key must not reach the tree"
         assert search._cursor == 1, "a blocked key must not move the match"
-        await pilot.press("pagedown")  # card 283: must not page the tree behind
+        await pilot.press("pagedown")  # must not page the tree behind
         assert app._index == before_index, "pagedown must not reach the tree under the search"
         assert search._cursor == 1, "pagedown must not move the match"
-        await pilot.press("slash")  # / returns to the query box (card 279)
+        await pilot.press("slash")  # / returns to the query box
         assert search is app._search, "/ must keep the finder open"
         assert not search._committed, "/ un-commits the finder"
         assert app.focused is search.inputwidget, "/ refocuses the query box"
@@ -379,7 +379,7 @@ async def drive_fixture() -> None:
         await pilot.press("escape")
         assert app._search is None, "escape dismisses from editing too"
 
-        # card 280: committed search shows a bottom pane of the matched lines
+        # committed search shows a bottom pane of the matched lines
         await pilot.press("slash")
         await pilot.press(*"alu_result")
         rows = app._search.rows
@@ -453,7 +453,7 @@ async def drive_fixture() -> None:
         await pilot.press("escape")
         assert app._search is None
 
-        # card 268 interplay: z must be refused while the search is open
+        # z must be refused while the search is open
         await pilot.press("slash")
         assert app._search is not None
         await pilot.press("z")
@@ -472,7 +472,7 @@ def select_leaf(app: TrenApp, scope_path: str, kind: str, name: str) -> None:
     """Select a port/net leaf under a scope.
 
     The app's own `_select_path` resolves nets only (it exists for the trace
-    modal's boundary crossing), so the port half of card 242 needs this.
+    modal's boundary crossing), so the port half needs this.
     """
     scope_node = app._find_scope_node(scope_path)
     assert scope_node is not None, f"no scope node for {scope_path}"
@@ -488,7 +488,7 @@ def select_leaf(app: TrenApp, scope_path: str, kind: str, name: str) -> None:
 
 
 def width_percent(widget) -> float:
-    """Percentage a pane's width style carries (card 268).
+    """Percentage a pane's width style carries.
 
     Textual stores a percentage width as `Unit.WIDTH` ('32w'), so a plain
     comparison with `Scalar.parse('32%')` (`Unit.PERCENT`) never matches.
@@ -498,12 +498,12 @@ def width_percent(widget) -> float:
 
 
 def status_path(app: TrenApp) -> str:
-    """Plain text of the top status line (card 246)."""
+    """Plain text of the top status line."""
     return str(app.query_one("#status").content)
 
 
 async def drive_unreadable_src() -> None:
-    """Cards 242/243: a leaf src naming a file that is not on disk.
+    """A leaf src naming a file that is not on disk.
 
     Fixture nets carry `src: rtl/demo.sv:NN`, which only resolves when the
     repo is the working root. Rooted elsewhere the file is unreadable — the
@@ -524,7 +524,7 @@ async def drive_unreadable_src() -> None:
 
 
 async def drive_real(root: Path, manifest_path: Path) -> None:
-    """Card 210: real IR, source pane loads the actual RTL file, auto-follow."""
+    """Real IR, source pane loads the actual RTL file, auto-follow."""
     design = elaborate(Manifest.read(root / manifest_path), root)
     app = TrenApp(design, root=root)
     async with app.run_test(size=(110, 32)) as pilot:
@@ -573,7 +573,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("j")  # back onto u_alu0
         assert app.src_offset + 1 <= 56 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
 
-        # card 283: pagedown scrolls the real source a full screen and the
+        # pagedown scrolls the real source a full screen and the
         # auto-follow band is not forced (the view moves, not the selection)
         await pilot.press("2")  # page the source pane itself
         assert app.active == "source", "2 should activate the source pane"
@@ -606,7 +606,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("1")
         assert app.active == "tree", "1 should reactivate the tree pane"
 
-        # e/E (cards 241): on u_alu0, e = the instantiation line, E = the
+        # e/E: on u_alu0, e = the instantiation line, E = the
         # module's own definition (alu begins at rtl/demo.sv:21)
         await pilot.press("e")
         assert app.editor_target == "rtl/demo.sv:56", f"editor target: {app.editor_target}"
@@ -632,11 +632,11 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app.src_offset <= 77 <= app.src_offset + rows, f"band out of view: offset {app.src_offset}"
         assert status_path(app) == "top.u_core", f"status after enter: {status_path(app)!r}"
 
-        # ---- cards 242/243: leaves focus their own DECLARATION -------------
+        # ---- leaves focus their own DECLARATION -------------
         # The two backends spell the span differently and both land here:
         # Port.src is slang's file:line:col, Net.src the yosys file:l.c-l.c.
         select_leaf(app, "top.u_core.u_alu0", "port", "op")
-        # card 253: a real port leaf reads 'port <dir> <name>[msb:lsb]'
+        # a real port leaf reads 'port <dir> <name>[msb:lsb]'
         assert app._current_node.label.plain == "port in    op[3:0]", \
             f"port leaf label: {app._current_node.label.plain!r}"
         assert app._focus == ("rtl/demo.sv", 24, 24), f"port op focus: {app._focus}"
@@ -648,7 +648,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         )
 
         select_leaf(app, "top.u_core", "net", "x")
-        # card 253: a net leaf carries the port's range spelling
+        # a net leaf carries the port's range spelling
         assert app._current_node.label.plain == "net x[31:0]", \
             f"net leaf label: {app._current_node.label.plain!r}"
         assert app._focus == ("rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
@@ -673,7 +673,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # the no-src fallback is exercised in drive_fixture, where ports
         # genuinely carry no src (every port in the real IR has one)
 
-        # ---- card 281: the I/O pane selection drives the centre pane -------
+        # ---- the I/O pane selection drives the centre pane -------
         await pilot.press("3")
         assert app.active == "ports", "pressing 3 should activate the ports pane"
         assert app.port_index == 0, f"untouched pane-3 selection: {app.port_index}"
@@ -700,17 +700,17 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
             f"tree selection focus after the pane switch: {app._focus}"
         )
 
-        # ---- card 213: d/L trace with hierarchy crossing ------------------
+        # ---- d/L trace with hierarchy crossing ------------------
         # walk from top.out to its $xor driver and back; dump shows the path
         app._select_path("top", "out")
         assert status_path(app) == "top.out", f"net under top status: {status_path(app)!r}"
         await pilot.press("d")
         modal = app._modal
         assert modal is not None, "d should open the trace modal"
-        # card 268: the modal covers the panes, so z must not zoom behind it
+        # the modal covers the panes, so z must not zoom behind it
         await pilot.press("z")
         assert not app.zoomed, "z must be refused while the trace modal is open"
-        # card 283: page keys must not move the tree behind the modal
+        # page keys must not move the tree behind the modal
         tree_before = app._index
         await pilot.press("pagedown")
         await pilot.press("pageup")
@@ -731,7 +731,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("backspace")  # pop back to top.out
         assert app._trace == [("top", "out")], f"trace after pop: {app._trace}"
 
-        # card 267: in the modal right descends and left goes back, so an
+        # in the modal right descends and left goes back, so an
         # arrow never falls through to the tree behind it
         await pilot.press("right")
         assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], \
@@ -742,7 +742,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("escape")
         assert app._modal is None, "escape should close the trace modal"
 
-        # ---- card 248: ? cheatsheet, incl. opened from inside a trace -----
+        # ---- ? cheatsheet, incl. opened from inside a trace -----
         await pilot.press("?")
         assert app._cheat is not None, "? should open the cheatsheet"
         assert not app._cheat.include_trace, "no trace open: no trace keys"
@@ -770,14 +770,14 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("escape")
         assert app._modal is None, "escape then closes the trace modal"
 
-        # ---- card 212: black boxes + user cuts ----------------------------
+        # ---- black boxes + user cuts ----------------------------
         # sram_stub renders as an opaque scope: marker + its ports
         app._select_path("top.u_core.u_sram")
         ports_text = str(ports.content)
         assert "BLACK BOX" in ports_text, f"no black box marker: {ports_text!r}"
         assert "rdata" in ports_text, "black box ports missing"
         assert status_path(app) == "top.u_core.u_sram", f"black box status: {status_path(app)!r}"
-        # card 253: a scalar port carries no range, and out lines up with in
+        # a scalar port carries no range, and out lines up with in
         select_leaf(app, "top.u_core.u_sram", "port", "we")
         assert app._current_node.label.plain == "port in    we", \
             f"scalar port leaf label: {app._current_node.label.plain!r}"
@@ -791,7 +791,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # X toggles a user cut on core (opaque and back)
         app._select_path("top.u_core")
         assert status_path(app) == "top.u_core", f"status: {status_path(app)!r}"
-        # card 219: I/O pane shows the slang overlay — resolved value,
+        # I/O pane shows the slang overlay — resolved value,
         # declared default, override marker and the source-faithful type
         ports_text = str(ports.content)
         assert "W = 32'd32" in ports_text, f"params missing: {ports_text!r}"
@@ -821,7 +821,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert len(app._trace) == n_before, "trace must stop at a black box"
         await pilot.press("escape")
 
-        # ---- card 214: yank formats + OSC 52 + editor jump ----------------
+        # ---- yank formats + OSC 52 + editor jump ----------------
         # current selection after the box-stop section: core's `x` net
         parts = app._selection_parts()
         assert parts == (["top", "u_core"], "x"), f"parts: {parts}"
@@ -853,7 +853,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app.yanked[-1] == "top.u_core.g[0].u_alu_g.a", app.yanked[-1]
         await pilot.press("1")
 
-        # ---- card 239: ctrl+u jumps to the next upper level ----------------
+        # ---- ctrl+u jumps to the next upper level ----------------
         # from a deep generate-block scope, one ctrl+u lands on its parent
         app._select_path("top.u_core.g[0].u_alu_g")
         assert status_path(app) == "top.u_core.g[0].u_alu_g", f"deep scope status: {status_path(app)!r}"
@@ -876,14 +876,14 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._current_node.data.get("scope", {}).name == "top", \
             f"top-level ctrl+u should not wrap: {app._current_node.data}"
 
-        # ---- card 241: on a top-level module e and E both land on the
+        # ---- on a top-level module e and E both land on the
         #      definition (no parent instantiation to jump to)
         await pilot.press("e")
         assert app.editor_target == "rtl/demo.sv:70", f"e on top: {app.editor_target}"
         await pilot.press("E")
         assert app.editor_target == "rtl/demo.sv:70", f"E on top: {app.editor_target}"
 
-        # ---- card 238: enter shows the module; the d/L modal keeps Enter ----
+        # ---- enter shows the module; the d/L modal keeps Enter ----
         app._select_path("top", "out")
         await pilot.press("d")
         modal = app._modal
@@ -892,7 +892,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], f"trace: {app._trace}"
         await pilot.press("escape")
 
-        # ---- card 244: / global search on the real IR ---------------------
+        # ---- / global search on the real IR ---------------------
         await pilot.press("slash")
         assert app._search is not None, "/ should open the search modal"
         assert app.focused is app._search.inputwidget, \
@@ -922,7 +922,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert search._pane == "results", "tab switches back"
         await pilot.press("N")  # back onto the net row before the jump below
         assert search._cursor == 1, f"N returns to the net row: {search._cursor}"
-        await pilot.press("slash")  # / returns to the query box (card 279)
+        await pilot.press("slash")  # / returns to the query box
         assert not app._search._committed, "/ un-commits the finder"
         assert app.focused is app._search.inputwidget, "/ refocuses the query box"
         await pilot.press("enter")  # commit again before opening

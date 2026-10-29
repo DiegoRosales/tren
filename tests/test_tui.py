@@ -1,4 +1,4 @@
-"""Unit tests for the TUI's pure text helpers (cards 242/243, 253).
+"""Unit tests for the TUI's pure text helpers.
 
 `_parse_src` is the one piece of tui.py with no UI in it, and it has to read
 *two* span spellings because two backends feed the IR: yosys writes
@@ -67,7 +67,7 @@ class ParseSrcEdgeTests(unittest.TestCase):
 
 
 class PortLeafLabelTests(unittest.TestCase):
-    """Card 253: 'port <dir> <name>[msb:lsb]', the names in one column."""
+    """'port <dir> <name>[msb:lsb]', the names in one column."""
 
     def test_input_port(self) -> None:
         port = Port(name="a", direction="in", width=32)
@@ -98,7 +98,7 @@ class PortLeafLabelTests(unittest.TestCase):
 
 
 class NetLeafLabelTests(unittest.TestCase):
-    """Card 253: 'net <name>[msb:lsb]' - the port's range, no direction."""
+    """'net <name>[msb:lsb]' - the port's range, no direction."""
 
     def test_multi_bit_net(self) -> None:
         self.assertEqual(net_leaf_label(Net(name="x", width=32)), "net x[31:0]")
@@ -114,7 +114,7 @@ class NetLeafLabelTests(unittest.TestCase):
 
 
 class DeclaredRangeLabelTests(unittest.TestCase):
-    """Card 219: the slang overlay carries the range the source writes.
+    """The slang overlay carries the range the source writes.
 
     The width alone spells every range [width-1:0], which is wrong for a
     descending range that does not end at 0 and for an ascending one.

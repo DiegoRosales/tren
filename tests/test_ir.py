@@ -1,4 +1,4 @@
-"""Tests for the IR model, manifest and on-disk cache (card 207).
+"""Tests for the IR model, manifest and on-disk cache.
 
 Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"
 """
@@ -86,7 +86,7 @@ class RoundTripTests(unittest.TestCase):
 
 
 class LiteralIntTests(unittest.TestCase):
-    """The two layers spell one number differently (card 219)."""
+    """The two layers spell one number differently."""
 
     def test_plain_decimal(self) -> None:
         self.assertEqual(literal_int("8"), 8)
@@ -113,7 +113,7 @@ class LiteralIntTests(unittest.TestCase):
 
 
 class ParamOverrideTests(unittest.TestCase):
-    """Card 219: the override marker states a fact, so it compares numbers.
+    """The override marker states a fact, so it compares numbers.
 
     slang-hier resolves "3'b000" to "3'b0" and "2'd1" to "2'b1". A text
     compare reads those as an override of a parameter nobody overrides.
@@ -224,7 +224,7 @@ class _After:
 
 
 class SchemaInvalidationTests(unittest.TestCase):
-    """Card 219: a blob is only reusable by the code that wrote it.
+    """A blob is only reusable by the code that wrote it.
 
     `Port.type` reached the IR while caches in the wild kept answering
     `type=None`, because the key knew the inputs but not the IR's own shape.

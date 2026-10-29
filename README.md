@@ -34,8 +34,8 @@ nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"  
 nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
 nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
 nix develop . -c bash tools/pane_cue_capture.sh   # real-terminal check: active-pane cue + top status line (tmux, private server)
-nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR, card 215)
-nix develop . -c make bom                   # regenerate docs/sw-bom.md from the dev shell (card 263)
+nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR)
+nix develop . -c make bom                   # regenerate docs/sw-bom.md from the dev shell
 nix develop .#xilinx                        # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
 nix develop . -c make run                   # start the TUI (keys: see 'User guide' below)
 ```
@@ -76,7 +76,7 @@ revision and fetches the tool's git submodules (needs Nix >= 2.27); bump
 with `nix flake lock --update-input yosys`. The first entry compiles the
 whole tool, so allow some time. Verify a bumped source against the tests
 (`docs/verification.md`, layer 2) before relying on it. The pinned source
-carries the macro-argument token-pasting fix (card 262); nixpkgs 0.69 does
+carries the macro-argument token-pasting fix; nixpkgs 0.69 does
 not, so an RTL design that hits the multi-line macro-argument bug elaborates
 here and not in the default shell. The `slang_flags` / `yosys_flags`
 manifest fields work identically in both shells.
@@ -211,7 +211,7 @@ pane.
 | `1` `2` `3` | select the tree / source / I/O pane |
 | `z` | zoom the active pane to the full width, or restore the three columns |
 | `j` `k` | move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port |
-| `pageup` `pagedown` | move a screen up/down in the active pane: in the tree, jump to the next/previous page of nodes; in source, scroll a screen; in I/O, select a port a page away (card 283) |
+| `pageup` `pagedown` | move a screen up/down in the active pane: in the tree, jump to the next/previous page of nodes; in source, scroll a screen; in I/O, select a port a page away |
 | `l` | tree: expand the highlighted scope (reveal its children) |
 | `h` | tree: collapse the highlighted scope (hide its children) |
 | `arrows` | aliases: down/up = j/k, right/left = l/h |
@@ -337,9 +337,8 @@ boundaries.
 `tren import` emits a manifest (`sources`, `incdirs`, `defines`, `params`,
 `top`, `blackboxes`). The one-command `tren <target>` imports in memory and
 writes a manifest only when `--out` is given. Two optional list fields carry
-backend tolerance flags
-(card 259) - real third-party RTL needs them, and they travel with the
-design, not the tool:
+backend tolerance flags - real third-party RTL needs them, and they travel
+with the design, not the tool:
 
 | Field | Reaches | Example zybo_sampler value |
 |---|---|---|
@@ -428,9 +427,9 @@ rtl/                 small SystemVerilog fixtures: demo.sv (the drives) and
 tests/               PILOT_WORKDIR for textual Pilot tests + unit tests
 manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
 docs/                verification.md + notes/ mirrors; tech-concepts.md and
-                     sw-bom.md (the technical-concepts / SW BOM documents, card 263)
+                     sw-bom.md (the technical-concepts / SW BOM documents)
 tools/               osc52_roundtrip.sh, pane_cue_capture.sh, profile_1k_scopes.py,
-                     bom.py (SW BOM generator, card 263)
+                     bom.py (SW BOM generator)
 pyproject.toml       PEP 621 metadata + deps - read by both nix and pip
 flake.nix            dev shells (default / #tren / #tren-venv / #tren-yosys-src / #xilinx)
 ```

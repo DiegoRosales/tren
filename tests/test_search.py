@@ -1,4 +1,4 @@
-"""Unit tests for the pure search module (deck card 244).
+"""Unit tests for the pure search module.
 
 The fuzzy ranker and the index builder live outside the TUI so a ratatui
 rewrite keeps them. They are the layer-1 net: the drives assert the modal

@@ -1,4 +1,4 @@
-"""Unit tests for the SW BOM generator (card 263).
+"""Unit tests for the SW BOM generator.
 
 Only the component's *pure* logic is tested here: the per-tool version
 extractors, the "not found" fallback, and the README pinned-target parser.

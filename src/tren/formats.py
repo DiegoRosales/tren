@@ -1,4 +1,4 @@
-"""Declarative yank-path formats (deck card 214, part 1).
+"""Declarative yank-path formats.
 
 `y` pastes the current selection into some *other* tool, and every target
 spells a hierarchical path differently. Formats are data, not code (design

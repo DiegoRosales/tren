@@ -1,4 +1,4 @@
-"""Pure search index + fuzzy ranker for the TUI (deck card 244).
+"""Pure search index + fuzzy ranker for the TUI.
 
 One built-in finder scans every searchable item: modules (scope paths),
 instances, ports, nets and files (source files carrying a scope's src).

@@ -269,7 +269,7 @@ def schema_id() -> str:
     on the *inputs* alone (manifest + source mtimes) is not enough: grow the IR
     a field and every blob in the wild keeps hitting, answering the new field
     with None forever. That is not hypothetical — `Port.type` (the slang
-    overlay, card 219) landed exactly that way, and this repo's own
+    overlay) landed exactly that way, and this repo's own
     `.cache/tren` was still serving `type=None` for every port, so the I/O pane
     showed no types on any machine with a warm cache.
 

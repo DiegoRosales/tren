@@ -1,4 +1,4 @@
-"""Unit tests for the shared key map (deck card 248).
+"""Unit tests for the shared key map.
 
 The `?` cheatsheet and the README "Keys" table render from one declarative
 list, so the two cannot drift. These tests pin the list contents (what the

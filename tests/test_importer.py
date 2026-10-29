@@ -1,4 +1,4 @@
-"""Unit tests for the manifest importer (card 211). Parser is pure text.
+"""Unit tests for the manifest importer. Parser is pure text.
 
 Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"
 """
@@ -77,7 +77,7 @@ class ImportManifestTests(unittest.TestCase):
         self.assertEqual(m.name, "top")
 
     def test_sibling_include_dir_becomes_incdir(self) -> None:
-        """Card 260: a `` `include `` next to its source needs no manual incdir."""
+        """A `` `include `` next to its source needs no manual incdir."""
         _, root = self._tree()
         (root / "rtl" / "defs.svh").write_text("`define FOO 1\n")
         (root / "rtl" / "top.sv").write_text(
@@ -88,7 +88,7 @@ class ImportManifestTests(unittest.TestCase):
         self.assertNotIn("defs.svh", m.sources)
 
     def test_root_source_dir_becomes_dot_incdir(self) -> None:
-        """Card 260: slang does not search the cwd, so a root source records
+        """Slang does not search the cwd, so a root source records
         ``.`` and a root header resolves from a subdirectory source."""
         _, root = self._tree()
         (root / "root.sv").write_text("module root; endmodule\n")
@@ -107,7 +107,7 @@ class ImportManifestTests(unittest.TestCase):
         (root / "rtl" / "inc").mkdir()
         m = import_manifest(root / "rtl", root=root)
         self.assertEqual(m.sources, ("rtl/top.sv", "rtl/sub/leaf.sv"))
-        # card 260: explicit +incdir+ is kept, and the source directories are
+        # explicit +incdir+ is kept, and the source directories are
         # added on top (yosys needs them spelled out as -I)
         self.assertEqual(m.incdirs, ("rtl", "rtl/inc", "rtl/sub"))
         self.assertEqual(m.defines, (("DEMO", "1"),))

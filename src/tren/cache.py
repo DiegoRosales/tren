@@ -9,7 +9,7 @@ entry; identical inputs on unchanged code hit.
 The schema half is not decoration. Keyed on inputs alone, a blob written by
 an older tren keeps hitting after the IR grows a field, and the new field
 reads back as None for as long as the sources sit still — how `Port.type`
-stayed invisible in the I/O pane (card 219).
+stayed invisible in the I/O pane.
 
 mtime is the design's chosen proxy (see concept note, "Elaboration is slow").
 A content-hash is the stricter alternative if identical-mtime edits ever

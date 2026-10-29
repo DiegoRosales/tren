@@ -1,4 +1,4 @@
-"""Unit tests for the declarative yank formats (card 214).
+"""Unit tests for the declarative yank formats.
 
 Shapes for the four presets follow the design note's table ("Yanking paths")
 — the note marks the per-vendor details ⚠. The render *mechanism* (array

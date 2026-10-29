@@ -64,7 +64,7 @@ _HIER_RE = re.compile(
 )
 
 
-# Backend tolerance defaults (card 259). These only ever help a *viewer*:
+# Backend tolerance defaults. These only ever help a *viewer*:
 # TREN's premise is that unresolved modules are normal black boxes, and it
 # wants the net graph, not a synthesis result. The design-specific flags
 # (timescale, use-before-declare, copy-instantiation warnings) travel in the
@@ -90,7 +90,7 @@ def _tool_diagnostics(proc: subprocess.CalledProcessError, limit: int = 40) -> s
 
 
 def _effective_incdirs(manifest: Manifest) -> tuple[str, ...]:
-    """Manifest incdirs plus the directory of every manifest source (card 260).
+    """Manifest incdirs plus the directory of every manifest source.
 
     The importers write this floor into a new manifest. A hand-written
     manifest lists only sources, so the elaborator applies the floor again:
@@ -434,7 +434,7 @@ def _is_blackbox(mod: dict) -> bool:
 def _ports_for(mod: dict, decl: dict[str, Any] | None) -> tuple[Port, ...]:
     """Ports of one module: yosys for the bits, slang's declaration for the rest.
 
-    Direction comes from slang where it has an opinion (card 219 - the overlay
+    Direction comes from slang where it has an opinion (the overlay
     is the source-faithful layer, yosys is connectivity), falling back to the
     netlist for modules the AST walk never reached. They agree on the demo;
     the declaration is simply the one that stays right when they don't.
@@ -480,7 +480,7 @@ def _nets_for(mod: dict, decl: dict[str, Any] | None = None) -> tuple[Net, ...]:
     """Nets of one module: yosys for the bits, slang's declaration for the range.
 
     yosys carries a bit count only, so a net declared ``[7:1]`` or ``[0:7]``
-    has no range to show without the overlay (card 219). A net the AST walk
+    has no range to show without the overlay. A net the AST walk
     never reached keeps its range None, and the reader falls back to the
     width.
     """

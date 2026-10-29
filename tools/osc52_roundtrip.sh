@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Real-terminal OSC 52 + editor-jump round trip (deck card 214 acceptance).
+# Real-terminal OSC 52 + editor-jump round trip.
 #
-# Runs on a PRIVATE tmux server (`-L trenosc214`) so nothing here touches your
+# Runs on a PRIVATE tmux server (`-L trenosc`) so nothing here touches your
 # own tmux state — never `tmux kill-server` without the `-L` socket.
 #
 # Verifies, against the app's actual terminal output stream:
@@ -11,7 +11,7 @@
 #      path of the selection, top.u_core.
 #   2. `e` spawns $EDITOR at the focused file:line (a fake editor logs its
 #      argv): must be "+77 rtl/demo.sv" (core's instantiation site).
-#   3. `E` (card 241) spawns it at the module definition: "+45 rtl/demo.sv".
+#   3. `E` spawns it at the module definition: "+45 rtl/demo.sv".
 #
 # Why pipe-pane and not `set-clipboard on` + `show-buffer`: tmux only stores
 # OSC 52 in its copy buffer when an *attached client* advertises the Ms
@@ -24,7 +24,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-SOCK="trenosc214"
+SOCK="trenosc"
 SESS="roundtrip"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/tren-osc52.XXXXXX")"
 trap 'tmux -L "$SOCK" kill-server 2>/dev/null || true; rm -rf "$TMP"' EXIT

@@ -32,8 +32,8 @@ help:
 	@echo "  make roundtrip      real-terminal OSC 52 + editor round trip (private tmux server)"
 	@echo "  make pane-cue       real-terminal check of the pane cue + path status line (private tmux server)"
 	@echo "  make profile        lazy-load + cache profile on a synthetic 1100-scope IR"
-	@echo "  make bom            regenerate docs/sw-bom.md from the dev shell (card 263)"
-	@echo "  make guide          regenerate the README keys block from tren/keys.py (card 248)"
+	@echo "  make bom            regenerate docs/sw-bom.md from the dev shell"
+	@echo "  make guide          regenerate the README keys block from tren/keys.py"
 	@echo "  make check          unit + both drives (what CI runs)"
 	@echo
 	@echo "  TREN_SHELL          dev shell for the gates; default = nix develop ."

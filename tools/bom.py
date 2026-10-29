@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Auto-generate the SW bill of materials: `make bom`.
 
-Writes `docs/sw-bom.md` (card 263). It must run inside the nix dev shell so
+Writes `docs/sw-bom.md`. It must run inside the nix dev shell so
 the backends are on PATH, and it reports what the shell *actually resolves*:
 
 - runtime Python packages      - every distribution seen by the shell's

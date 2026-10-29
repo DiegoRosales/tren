@@ -21,8 +21,8 @@ class Manifest:
     params: tuple[tuple[str, str], ...] = ()  # (name, value) top-level overrides
     top: str = "top"
     blackboxes: tuple[str, ...] = ()  # globs/user cuts
-    slang_flags: tuple[str, ...] = ()  # extra slang-hier/slang args (card 259)
-    yosys_flags: tuple[str, ...] = ()  # extra read_verilog args (card 259)
+    slang_flags: tuple[str, ...] = ()  # extra slang-hier/slang args
+    yosys_flags: tuple[str, ...] = ()  # extra read_verilog args
 
     def defines_map(self) -> dict[str, str]:
         return dict(self.defines)
