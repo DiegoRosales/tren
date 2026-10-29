@@ -102,6 +102,7 @@
           rustc
           cargo
 
+          gnumake # the Makefile runs inside the shell, so `make` must be here
           jq
           ripgrep
           tmux # real-terminal OSC 52 round-trip (tools/osc52_roundtrip.sh)
@@ -133,18 +134,28 @@
         echo
       '';
 
-      # `tren` for the shells that do not install the package: runs the repo's
-      # own src/ through PYTHONPATH, so edits take effect with no reinstall.
-      # Use the textual-carrying interpreter: the bare/open command imports
+      # `tren` and `tren-tui` for the shells that do not install the package:
+      # both run the repo's own src/ through PYTHONPATH, so edits take effect
+      # with no reinstall, and both console scripts exist in every shell. Use
+      # the textual-carrying interpreter: the bare/open command imports
       # tren.tui, which needs textual and rich. Plain pkgs.python3 has neither.
       trenFromSource =
         pkgs:
-        pkgs.writeShellScriptBin "tren" ''
-          set -eu
-          SRC="''${TREN_SRC:-$PWD/src}"
-          export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
-          exec ${trenPython pkgs}/bin/python -m tren "$@"
-        '';
+        let
+          script = name: module: pkgs.writeShellScriptBin name ''
+            set -eu
+            SRC="''${TREN_SRC:-$PWD/src}"
+            export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
+            exec ${trenPython pkgs}/bin/python -m ${module} "$@"
+          '';
+        in
+        pkgs.symlinkJoin {
+          name = "tren-from-source";
+          paths = [
+            (script "tren" "tren")
+            (script "tren-tui" "tren.tui")
+          ];
+        };
     in
     {
       # `nix build` / `nix run .#tren` - the same store path .#tren shells in.

@@ -25,6 +25,7 @@ from bom import (  # type: ignore   # tools/ is not a package
     _pinned_targets,
     _vers_cargo,
     _vers_jq,
+    _vers_make,
     _vers_python,
     _vers_rg,
     _vers_rustc,
@@ -57,6 +58,9 @@ class VersionExtractorTests(unittest.TestCase):
 
     def test_jq(self) -> None:
         self.assertEqual(_vers_jq("jq-1.8.2"), "1.8.2")
+
+    def test_make(self) -> None:
+        self.assertEqual(_vers_make("GNU Make 4.4.1"), "4.4.1")
 
     def test_ripgrep(self) -> None:
         self.assertEqual(_vers_rg("ripgrep 15.2.0\n  -S --smart-case ..."), "15.2.0")

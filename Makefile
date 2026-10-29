@@ -1,16 +1,26 @@
 # TREN - runnable examples + Vitis HLS example build flow.
 #
-# Everything in `make help` WORKS on a stock checkout, with nothing but the
-# nix flake (every command runs under `nix develop . -c ...`, no host tools).
-# The Vitis HLS section at the bottom additionally needs a Xilinx/Vitis
-# install and the flake's `#xilinx` FHS sandbox.
+# Every target runs in the shell you are already in, so enter the dev shell
+# first (`nix develop`) and then run `make`. From a host shell, set NIX_DEV=1
+# to wrap each command in `nix develop $(TREN_SHELL) -c ...` instead. The
+# Vitis HLS section at the bottom additionally needs a Xilinx/Vitis install
+# and the flake's `#xilinx` FHS sandbox.
 
-# Dev shell every target runs under. Override to point at another shell, e.g.
-# `make check TREN_SHELL=.#tren-yosys-src` to run the gates against a yosys
-# built from upstream source (see README "Dev shells").
+# Shell the optional nix wrapper enters, and whether to spawn it at all.
+# NIX_DEV=1 wraps every command in `nix develop $(TREN_SHELL) -c ...`; unset,
+# the commands run directly and the current shell must carry the backends and
+# `tren` (every flake shell does). TREN_SHELL picks the shell to enter, e.g.
+# `NIX_DEV=1 make check TREN_SHELL=.#tren-yosys-src` for the yosys source
+# build (see README "Dev shells").
 TREN_SHELL ?= .
+NIX_DEV ?=
 
+ifeq ($(NIX_DEV),1)
 NIX := nix develop $(TREN_SHELL) -c
+else
+NIX :=
+endif
+
 HLS_EXAMPLES_PATH := test/hls_examples
 
 .DEFAULT_GOAL := help
@@ -19,7 +29,7 @@ HLS_EXAMPLES_PATH := test/hls_examples
         pane-cue profile bom guide check hls-import hls-elaborate hls-run
 
 help:
-	@echo "TREN examples that work (stock checkout, nix-only):"
+	@echo "TREN examples (run inside a dev shell; NIX_DEV=1 to wrap in nix develop):"
 	@echo
 	@echo "  make run            TUI on the real demo IR (rtl/demo.manifest.json)"
 	@echo "  make open           import + elaborate + open (TARGET=rtl default)"
@@ -36,8 +46,9 @@ help:
 	@echo "  make guide          regenerate the README keys block from tren/keys.py"
 	@echo "  make check          unit + both drives (what CI runs)"
 	@echo
-	@echo "  TREN_SHELL          dev shell for the gates; default = nix develop ."
-	@echo "                      e.g. make check TREN_SHELL=.#tren-yosys-src (source yosys)"
+	@echo "  NIX_DEV=1           wrap each command in nix develop (default: run in the current shell)"
+	@echo "  TREN_SHELL          dev shell the wrapper enters; default = ."
+	@echo "                      e.g. NIX_DEV=1 make check TREN_SHELL=.#tren-yosys-src"
 	@echo
 	@echo "  make hls-import     import the HLS RTL export: test/hls_examples/hls/<BLOCK>/rtl_output"
 	@echo "  make hls-elaborate  elaborate <BLOCK>'s HLS RTL into the IR (read-only, no Xilinx)"
@@ -53,7 +64,7 @@ help:
 # --- interactive TUI (q quits) --------------------------------------------
 
 run:
-	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui --manifest rtl/demo.manifest.json'
+	$(NIX) tren open rtl/demo.manifest.json
 
 TARGET ?= rtl
 
@@ -61,7 +72,7 @@ open:
 	$(NIX) tren open $(TARGET)
 
 run-fixture:
-	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui'
+	$(NIX) tren-tui
 
 # --- examples (all verified, non-interactive) -----------------------------
 
@@ -72,7 +83,7 @@ elaborate:
 	$(NIX) tren elaborate rtl/demo.manifest.json
 
 test:
-	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m unittest discover -s tests'
+	$(NIX) python -m unittest discover -s tests
 
 drive:
 	$(NIX) python test_drive.py
@@ -114,7 +125,7 @@ hls-elaborate: hls-import
 	$(NIX) tren elaborate $(HLS_RTL_MANIFEST)
 
 hls-run: hls-import
-	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui --manifest $(HLS_RTL_MANIFEST)'
+	$(NIX) tren open $(HLS_RTL_MANIFEST)
 
 hls-open:
 	$(NIX) tren open $(HLS_RTL_DIR)/$(BLOCK)/rtl_output --top $(BLOCK) --out .cache

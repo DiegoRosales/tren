@@ -60,9 +60,13 @@ Always run under the dev shell: `nix develop . -c <command>` - never bare
 8.2.8 and provides yosys, sv-lang, rust, jq, rg. Version pins are recorded in
 `README.md`; bump them deliberately and re-verify the tests.
 
-The **default** shell is the one every gate assumes: tren is not installed
-there, it is read from the checkout's `src/` through `PYTHONPATH`. Run all
-tests and drives there. `.#tren` (nix-installed package) and `.#tren-venv`
+Enter the shell once (`nix develop`) and run the `make` targets directly: they
+run in the current shell and call `tren` from `PATH`. They spawn a shell only
+when `NIX_DEV=1`, for a host shell with no dev shell entered.
+
+The **default** shell is the one every gate assumes: the tren package is not
+installed there, it is read from the checkout's `src/` through `PYTHONPATH`.
+Run all tests and drives there. `.#tren` (nix-installed package) and `.#tren-venv`
 (editable `pip install -e .`) exist to exercise tren *as a package*. See the
 "Dev shells" section of README.md. Dependencies live in `pyproject.toml`; a
 new third-party import must be declared there, or `.#tren` is where it will

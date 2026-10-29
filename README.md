@@ -23,6 +23,7 @@ revisited when a real 100k-instance IR shows the ceiling matters.
 
 ```sh
 nix develop .                                # python + textual + yosys + slang
+make check                                   # inside the shell: unit + both drives
 nix develop . -c tren rtl                    # import + elaborate + open the TUI (one command)
 nix develop . -c tren open rtl               # the same, with the explicit verb
 nix develop . -c tren rtl/demo.manifest.json # the same, from an existing manifest
@@ -43,7 +44,7 @@ nix develop . -c make run                   # start the TUI (keys: see 'User gui
 ### Dev shells
 
 Five shells, all carrying the same backends (yosys, slang, verilator, rust,
-tmux) so they cannot drift apart on tool versions. They differ in how
+make, tmux) so they cannot drift apart on tool versions. They differ in how
 `tren` itself reaches the interpreter, and in which yosys build they carry:
 
 | Shell | tren comes from | yosys build | Use it for |
@@ -54,9 +55,21 @@ tmux) so they cannot drift apart on tool versions. They differ in how
 | `nix develop .#tren-yosys-src` | the checkout's `src/` | yosys git (`github:YosysHQ/yosys`, flake pin) | verifying against yosys main. The first entry builds the whole tool from source |
 | `nix develop .#xilinx` | the checkout's `src/` | nixpkgs (0.69) | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
 
-Every `make` target runs under the shell named by `TREN_SHELL` (default: the
-default shell). Point the gates at the source build with
-`make check TREN_SHELL=.#tren-yosys-src`.
+Every `make` target runs in the shell you are already in, and calls `tren` from
+`PATH`. Every shell above puts `tren` and `tren-tui` there (verified in all but
+`.#xilinx`, which cannot run `-c` commands; WARNING: it lists the same
+wrapper). Enter a shell once, then run the targets directly:
+
+```sh
+nix develop
+make check
+```
+
+The targets spawn no shell of their own, so a target costs one command, not a
+nested `nix develop`. From a host shell, set `NIX_DEV=1` to wrap each command
+in `nix develop $(TREN_SHELL) -c ...`: `NIX_DEV=1 make check`. `TREN_SHELL`
+(default `.`) picks the shell the wrapper enters. Point the gates at the source
+build with `NIX_DEV=1 make check TREN_SHELL=.#tren-yosys-src`.
 
 `.#tren` is the one that catches what the others hide: nothing on its path
 reads the checkout, so a module that only ever imported because `src/` was on

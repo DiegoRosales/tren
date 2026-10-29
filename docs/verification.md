@@ -27,9 +27,14 @@ The two rules that shape everything here (AGENTS.md section 4):
 `make check` = layers 1 + 3 (the CI workflow's exact steps). Layer 4/5 run
 locally; layer 4 needs a terminal so it is not in CI.
 
+The `make` targets run in the shell you are in, so enter a dev shell first
+(`nix develop`). From a host shell, `NIX_DEV=1 make ...` wraps each command in
+`nix develop $(TREN_SHELL) -c ...`. CI calls the same commands under the
+default shell, so neither path changes what a gate checks.
+
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python, no subprocesses. 135 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 205 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
