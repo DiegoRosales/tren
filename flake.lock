@@ -84,11 +84,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1791822092,
-        "narHash": "sha256-Ewauj1nq9y8DYBFBKIKYgvx1m13qWJUfH/6fcO4mhXY=",
+        "lastModified": 1793259075,
+        "narHash": "sha256-fjbQ/loJrbBuu15xmSSEUaDU7+dmQry/F5IkUsbS7wE=",
         "ref": "refs/heads/main",
-        "rev": "37f25dae90177888ac89573be92c3826da71f26e",
-        "revCount": 18100,
+        "rev": "97f68ee5b6ce07c5ce084c67ad37c09298369465",
+        "revCount": 18382,
         "submodules": true,
         "type": "git",
         "url": "https://github.com/YosysHQ/yosys"
