@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# The subcommand front door: `tren import ...` / `tren elaborate ...`.
+# The subcommand front door: `tren import ...` / `tren elaborate ...` / `tren open ...`.
 tren = "tren.__main__:main"
 # The three-pane explorer itself.
 tren-tui = "tren.tui:main"

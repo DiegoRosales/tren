@@ -702,6 +702,36 @@ def elaborate(
     return design
 
 
+def tool_failure_message(exc: subprocess.CalledProcessError) -> str:
+    """One backend failure as stderr-ready text (no Python traceback)."""
+    tool = (exc.cmd[0] if isinstance(exc.cmd, list) and exc.cmd else "backend").split("/")[-1]
+    return (
+        f"elaborate: {tool} failed (exit {exc.returncode})\n"
+        f"{_tool_diagnostics(exc)}\n"
+        f"full command: {' '.join(str(a) for a in exc.cmd)}"
+    )
+
+
+def design_summary(design: Design) -> list[str]:
+    """The lines ``tren elaborate`` prints after a successful build."""
+    n_scopes = len(design.scopes)
+    n_modules = sum(1 for s in design.scopes if s.module is not None)
+    n_gen = n_scopes - n_modules
+    n_bb = sum(1 for s in design.scopes if s.blackbox)
+    core = design.scope("top.u_core")
+    param_example = ""
+    if core is not None and core.params:
+        p = core.params[0]
+        param_example = f", e.g. {p.name}={p.value!r} ({p.kind})"
+    return [
+        f"top={design.top}: {n_scopes} scopes "
+        f"({n_modules} modules, {n_gen} generate, {n_bb} black-box){param_example}",
+        f"  connectivity: {sum(len(c.bits) for c in design.connectivity)} bit-links "
+        f"across {len(design.connectivity)} nets",
+        f"  boundaries:   {len(design.boundaries)}",
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path, help="manifest JSON (sources relative to --root)")
@@ -718,29 +748,12 @@ def main(argv: list[str] | None = None) -> int:
             cache=IrCache(args.cache, root=args.root),
             refresh=args.refresh,
         )
-    except subprocess.CalledProcessError as e:
-        tool = (e.cmd[0] if isinstance(e.cmd, list) and e.cmd else "backend").split("/")[-1]
-        print(f"elaborate: {tool} failed (exit {e.returncode})", file=sys.stderr)
-        print(_tool_diagnostics(e), file=sys.stderr)
-        print(f"full command: {' '.join(str(a) for a in e.cmd)}", file=sys.stderr)
+    except subprocess.CalledProcessError as exc:
+        print(tool_failure_message(exc), file=sys.stderr)
         return 1
 
-    n_scopes = len(design.scopes)
-    n_modules = sum(1 for s in design.scopes if s.module is not None)
-    n_gen = n_scopes - n_modules
-    n_bb = sum(1 for s in design.scopes if s.blackbox)
-    core = design.scope("top.u_core")
-    param_example = ""
-    if core is not None and core.params:
-        p = core.params[0]
-        param_example = f", e.g. {p.name}={p.value!r} ({p.kind})"
-    print(
-        f"top={design.top}: {n_scopes} scopes "
-        f"({n_modules} modules, {n_gen} generate, {n_bb} black-box){param_example}"
-    )
-    print(f"  connectivity: {sum(len(c.bits) for c in design.connectivity)} bit-links "
-          f"across {len(design.connectivity)} nets")
-    print(f"  boundaries:   {len(design.boundaries)}")
+    for line in design_summary(design):
+        print(line)
     return 0
 
 

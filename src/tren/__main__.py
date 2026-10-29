@@ -1,4 +1,4 @@
-"""``python -m tren`` — the subcommand front door (card 211).
+"""``python -m tren`` - the subcommand front door.
 
 Commands:
 
@@ -7,9 +7,11 @@ Commands:
                 directory of sources (tren.importer)
     elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
                 elaborate a manifest into the TREN IR (tren.elaborate)
+    open <target> [--root DIR] [--cache DIR] [--refresh] [--out PATH]
+                import the target unless it is a manifest, elaborate it and
+                open the TUI (tren.bringup)
 
-A bare ``tren <manifest>`` (no subcommand) also elaborates, for the previous
-one-command form.
+A bare ``tren <target>`` (no subcommand) is the same as ``tren open <target>``.
 """
 
 from __future__ import annotations
@@ -17,7 +19,8 @@ from __future__ import annotations
 import sys
 
 _USAGE = """\
-usage: python -m tren <command> [args]
+usage: tren <command> [args]
+       tren [options] <target>
 
 commands:
   import <target> [--out PATH] [--name NAME] [--top TOP]
@@ -25,8 +28,12 @@ commands:
                 directory of sources
   elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
                 elaborate a manifest into the TREN IR
+  open <target> [--root DIR] [--cache DIR] [--refresh] [--out PATH]
+                import the target unless it is a manifest, elaborate it and
+                open the TUI
 
-run 'python -m tren <command> --help' for command help.
+A bare 'tren <target>' is the same as 'tren open <target>'. Run
+'tren open --help' for the full option list.
 """
 
 
@@ -42,13 +49,11 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "elaborate":
         from .elaborate import main as elaborate_main
         return elaborate_main(rest)
-    if cmd.startswith("-"):
-        print(f"unknown option: {cmd}", file=sys.stderr)
-        print(_USAGE, file=sys.stderr)
-        return 2
-    # legacy one-command form: a bare manifest path elaborates
-    from .elaborate import main as elaborate_main
-    return elaborate_main(argv)
+    if cmd == "open":
+        from .bringup import main as bringup_main
+        return bringup_main(rest, prog="tren open")
+    from .bringup import main as bringup_main
+    return bringup_main(argv)
 
 
 if __name__ == "__main__":

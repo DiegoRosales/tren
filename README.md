@@ -23,6 +23,9 @@ revisited when a real 100k-instance IR shows the ceiling matters.
 
 ```sh
 nix develop .                                # python + textual + yosys + slang
+nix develop . -c tren rtl                    # import + elaborate + open the TUI (one command)
+nix develop . -c tren open rtl               # the same, with the explicit verb
+nix develop . -c tren rtl/demo.manifest.json # the same, from an existing manifest
 nix develop . -c tren import rtl             # -> rtl/manifest.json (first importer: .f filelist / dir scan)
 nix develop . -c tren import rtl/some.xpr    # Vivado project.xpr (auto-detected)
 nix develop . -c tren elaborate rtl/manifest.json      # elaborate a manifest (yosys + slang-hier + slang -> IR)
@@ -94,10 +97,19 @@ the concatenation collapses to pure net aliasing, so `o` shows no driver
 ### Starting the TUI
 
 ```sh
-nix develop . -c python -m tren.tui --manifest rtl/demo.manifest.json   # real elaboration
-nix develop . -c python -m tren.tui                                     # vendored demo fixture
+nix develop . -c tren rtl                    # import + elaborate + open (one command)
+nix develop . -c tren open rtl               # the same, with the explicit verb
+nix develop . -c tren rtl/demo.manifest.json # open an existing manifest
+nix develop . -c python -m tren.tui                                     # vendored demo fixture, no backends
 # or: nix develop . -c make run
 ```
+
+`tren <target>` (or the explicit `tren open <target>`) accepts anything an
+importer accepts: a `.f` filelist, a single `.sv`/`.v` file, a source
+directory, or a Vivado `.xpr`. The importer runs in memory; add `--out PATH`
+to keep the generated manifest (a directory receives `PATH/manifest.json`).
+Pass `--root DIR` when relative paths must resolve from another directory,
+and `--refresh` to bypass the IR cache.
 
 The screen is three panes - **tree** (the scope hierarchy, like a filesystem)
 | **source** (the focused module's RTL) | **I/O** (parameters + ports). `q`
@@ -323,7 +335,9 @@ boundaries.
 ## Manifest schema and backend tolerance flags
 
 `tren import` emits a manifest (`sources`, `incdirs`, `defines`, `params`,
-`top`, `blackboxes`). Two optional list fields carry backend tolerance flags
+`top`, `blackboxes`). The one-command `tren <target>` imports in memory and
+writes a manifest only when `--out` is given. Two optional list fields carry
+backend tolerance flags
 (card 259) - real third-party RTL needs them, and they travel with the
 design, not the tool:
 
@@ -405,9 +419,10 @@ src/tren/            package
   elaborate.py       yosys + slang-hier/slang --ast-json -> IR (+ cache)
   importer.py        manifest producers (.f filelist; dir/single file; Vivado via vivado.py)
   vivado.py          Vivado project.xpr parser (FileSets, TopModule, $PSRCDIR vars)
+  bringup.py         one-command target -> manifest -> IR -> TUI
   formats.py         yank format registry + templates
   tui.py             the textual app (implements the screen + keys only)
-  __main__.py        subcommand front door (tren import / tren elaborate)
+  __main__.py        subcommand front door (tren import / tren elaborate / bare target)
 rtl/                 small SystemVerilog fixtures: demo.sv (the drives) and
                      ranges.sv (declared ranges: [7:1], [0:7])
 tests/               PILOT_WORKDIR for textual Pilot tests + unit tests

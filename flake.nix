@@ -135,13 +135,15 @@
 
       # `tren` for the shells that do not install the package: runs the repo's
       # own src/ through PYTHONPATH, so edits take effect with no reinstall.
+      # Use the textual-carrying interpreter: the bare/open command imports
+      # tren.tui, which needs textual and rich. Plain pkgs.python3 has neither.
       trenFromSource =
         pkgs:
         pkgs.writeShellScriptBin "tren" ''
           set -eu
           SRC="''${TREN_SRC:-$PWD/src}"
           export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
-          exec ${pkgs.python3}/bin/python -m tren "$@"
+          exec ${trenPython pkgs}/bin/python -m tren "$@"
         '';
     in
     {

@@ -15,13 +15,14 @@ HLS_EXAMPLES_PATH := test/hls_examples
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run run-fixture import elaborate test drive drive-real roundtrip \
+.PHONY: help run open run-fixture import elaborate test drive drive-real roundtrip \
         pane-cue profile bom guide check hls-import hls-elaborate hls-run
 
 help:
 	@echo "TREN examples that work (stock checkout, nix-only):"
 	@echo
 	@echo "  make run            TUI on the real demo IR (rtl/demo.manifest.json)"
+	@echo "  make open           import + elaborate + open (TARGET=rtl default)"
 	@echo "  make run-fixture    TUI on the vendored demo fixture"
 	@echo "  make import         regenerate rtl/manifest.json from rtl/ (dir scan)"
 	@echo "  make elaborate      elaborate the demo manifest -> IR summary (cached)"
@@ -53,6 +54,11 @@ help:
 
 run:
 	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui --manifest rtl/demo.manifest.json'
+
+TARGET ?= rtl
+
+open:
+	$(NIX) tren open $(TARGET)
 
 run-fixture:
 	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui'
@@ -109,6 +115,9 @@ hls-elaborate: hls-import
 
 hls-run: hls-import
 	$(NIX) bash -c 'PYTHONPATH=src:$$PYTHONPATH python -m tren.tui --manifest $(HLS_RTL_MANIFEST)'
+
+hls-open:
+	$(NIX) tren open $(HLS_RTL_DIR)/$(BLOCK)/rtl_output --top $(BLOCK) --out .cache
 
 # --- Vitis HLS example build flow (port from ipyfuse; needs a Xilinx
 #      install - run inside `nix develop .#xilinx`) ------------------------

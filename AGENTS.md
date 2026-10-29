@@ -98,6 +98,9 @@ source for the pinned nixpkgs rev).
   design note's warning-symbol convention, written in ASCII).
 - **Report negative results.** "X is not packaged / API Y is gone" is a
   finding that changes architecture (see `tui_textual/findings.md`).
+- **Do not cite Deck card numbers in code, comments, docstrings, test names
+  or README prose.** The card holds the context; write what the code does.
+  Deck references belong in the card, the commit message or the chat report.
 - Python: 3.14, `from __future__ import annotations`, dataclasses for the IR,
   type hints, no comments unless the why is non-obvious. Keep three layers
   separate: CLI parsing -> IR model -> UI.
