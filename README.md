@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/DiegoRosales/tren/actions/workflows/ci.yml/badge.svg)](https://github.com/DiegoRosales/tren/actions/workflows/ci.yml)
 
+## Introduction
+
 A terminal RTL browser that treats a design hierarchy like a filesystem.
 Three panes: **scope tree** | **focused RTL source** | **module I/O**.
 `1`/`2`/`3` select the pane and `z` zooms it to the full width; `j`/`k` move,
@@ -19,102 +21,83 @@ connectivity, `slang-hier` / `slang --ast-json` for the scope tree and
 resolved parameters. Rust + ratatui is the earmarked rewrite target,
 revisited when a real 100k-instance IR shows the ceiling matters.
 
-## Quick start
+## Quick start with Nix
+
+Run TREN directly from a checkout:
 
 ```sh
-nix develop .                                # python + textual + yosys + slang
-make check                                   # inside the shell: unit + both drives
-nix develop . -c tren rtl                    # import + elaborate + open the TUI (one command)
-nix develop . -c tren open rtl               # the same, with the explicit verb
-nix develop . -c tren rtl/demo.manifest.json # the same, from an existing manifest
-nix develop . -c tren import rtl             # -> rtl/manifest.json (first importer: .f filelist / dir scan)
-nix develop . -c tren import rtl/some.xpr    # Vivado project.xpr (auto-detected)
-nix develop . -c tren elaborate rtl/manifest.json      # elaborate a manifest (yosys + slang-hier + slang -> IR)
-nix develop . -c bash -c "PYTHONPATH=src python -m tren.spike"                    # spike: drivers/loads of one net
-nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s tests"     # unit tests
-nix develop . -c python test_drive.py        # headless Pilot tests (CI target)
-nix develop . -c bash tools/osc52_roundtrip.sh    # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
-nix develop . -c bash tools/pane_cue_capture.sh   # real-terminal check: active-pane cue + top status line (tmux, private server)
-nix develop . -c python tools/profile_1k_scopes.py # lazy-load + cache profile (1 100-scope synthetic IR)
-nix develop . -c make bom                   # regenerate docs/sw-bom.md from the dev shell
-nix develop .#xilinx                        # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
-nix develop . -c make run                   # start the TUI (keys: see 'User guide' below)
+nix run . -- rtl                    # import + elaborate + open the TUI (one command)
+nix run . -- open rtl               # the same, with the explicit verb
+nix run . -- rtl/demo.manifest.json # the same, from an existing manifest
+nix run . -- import rtl             # -> rtl/manifest.json (first importer: .f filelist / dir scan)
+nix run . -- import rtl/some.xpr    # Vivado project.xpr (auto-detected)
+nix run . -- elaborate rtl/manifest.json      # elaborate a manifest (yosys + slang-hier + slang -> IR)
 ```
 
-### Dev shells
-
-Five shells, all carrying the same backends (yosys, slang, verilator, rust,
-make, tmux) so they cannot drift apart on tool versions. They differ in how
-`tren` itself reaches the interpreter, and in which yosys build they carry:
-
-| Shell | tren comes from | yosys build | Use it for |
-|---|---|---|---|
-| `nix develop` | the checkout's `src/`, via `PYTHONPATH` | nixpkgs (0.69) | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
-| `nix develop .#tren` | the nix store (`buildPythonPackage`) | nixpkgs (0.69) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
-| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | nixpkgs (0.69) | the textbook Python flow on nix's interpreter - an editable install, so edits are live too |
-| `nix develop .#tren-yosys-src` | the checkout's `src/` | yosys git (`github:YosysHQ/yosys`, flake pin) | verifying against yosys main. The first entry builds the whole tool from source |
-| `nix develop .#xilinx` | the checkout's `src/` | nixpkgs (0.69) | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
-
-Every `make` target runs in the shell you are already in, and calls `tren` from
-`PATH`. Every shell above puts `tren` and `tren-tui` there (verified in all but
-`.#xilinx`, which cannot run `-c` commands; WARNING: it lists the same
-wrapper). Enter a shell once, then run the targets directly:
+Or put the packaged `tren` and `tren-tui` commands on `PATH` for the session:
 
 ```sh
-nix develop
-make check
+nix shell .
+tren rtl
 ```
 
-The targets spawn no shell of their own, so a target costs one command, not a
-nested `nix develop`. From a host shell, set `NIX_DEV=1` to wrap each command
-in `nix develop $(TREN_SHELL) -c ...`: `NIX_DEV=1 make check`. `TREN_SHELL`
-(default `.`) picks the shell the wrapper enters. Point the gates at the source
-build with `NIX_DEV=1 make check TREN_SHELL=.#tren-yosys-src`.
+`nix shell .` adds only the packaged `tren` and `tren-tui` commands. The
+`tren` wrapper adds `yosys` and `slang` to its own `PATH`, so those tools are
+not available to other commands in that shell. `nix run . -- <args>` passes
+`<args>` to the same wrapped `tren` command. The keys are in the
+[User guide](#user-guide) below.
 
-`.#tren` is the one that catches what the others hide: nothing on its path
-reads the checkout, so a module that only ever imported because `src/` was on
-`PYTHONPATH`, or a dependency the code uses but `pyproject.toml` does not
-declare, fails there and only there. It is also what `nix build .#tren`
-produces.
+## Installation using pip
 
-`.#tren-venv` creates `.venv/` in the working directory on first entry and
-pip-installs the project editable from `.` - so enter it from the project
-root. First entry needs network (pip fetches `textual` and `rich` from PyPI);
-later entries just activate. `TREN_VENV_DIR` overrides the location; reset
-with `rm -rf .venv/` and re-enter.
+WARNING: TREN is not on PyPI yet. Point pip at the repository until a release
+exists:
 
-`.#tren-yosys-src` is `nix develop` with a yosys built from upstream source
-instead of the nixpkgs release. The `YosysHQ/yosys` flake input pins the
-revision and fetches the tool's git submodules (needs Nix >= 2.27); bump
-with `nix flake lock --update-input yosys`. The first entry compiles the
-whole tool, so allow some time. Verify a bumped source against the tests
-(`docs/verification.md`, layer 2) before relying on it. The pinned source
-carries the macro-argument token-pasting fix; nixpkgs 0.69 does
-not, so an RTL design that hits the multi-line macro-argument bug elaborates
-here and not in the default shell. The `slang_flags` / `yosys_flags`
-manifest fields work identically in both shells.
+```sh
+pip install "tren @ git+https://github.com/DiegoRosales/tren"
+```
 
-Dependencies are declared once, in `pyproject.toml`, and read by both the nix
-build (through `pyproject.nix`) and pip.
+TREN needs Python 3.11 or newer and two external tools on `PATH`:
 
-The spike (`python -m tren.spike rtl/demo.sv`) runs yosys, builds the bit map
-and prints drivers/loads of `top.out`, descending across the core boundary
-down to the `$xor` that computes it - every row carries its `src` attribute.
-Use `--keep` to keep the generated netlist under `.cache/tren/` for
-inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.69 -
-the concatenation collapses to pure net aliasing, so `o` shows no driver
-(its bit list literally overlays `hi` and `lo`); the loads are all there.
+| Tool | Version | Source |
+|---|---|---|
+| `yosys` | 0.69 | <https://github.com/YosysHQ/yosys> |
+| `slang` | 11.0 | <https://github.com/MikePopoloski/slang> |
+
+Install each tool with your distribution package manager, or build it from
+source at the linked repository. pip installs the Python dependencies
+(`textual` and `rich`). Then start the TUI:
+
+```sh
+tren rtl
+```
+
+## Installation from source
+
+Clone the repository and install the checkout in editable mode. The two
+backends must be on `PATH`; the [pip installation](#installation-using-pip)
+lists them with source links.
+
+```sh
+git clone https://github.com/DiegoRosales/tren
+cd tren
+python -m venv .venv
+. .venv/bin/activate
+pip install -e .
+tren rtl
+```
+
+The editable install reads `src/` directly, so an edit is live on the next
+command.
 
 ## User guide
 
 ### Starting the TUI
 
 ```sh
-nix develop . -c tren rtl                    # import + elaborate + open (one command)
-nix develop . -c tren open rtl               # the same, with the explicit verb
-nix develop . -c tren rtl/demo.manifest.json # open an existing manifest
-nix develop . -c python -m tren.tui                                     # vendored demo fixture, no backends
-# or: nix develop . -c make run
+tren rtl                    # import + elaborate + open (one command)
+tren open rtl               # the same, with the explicit verb
+tren rtl/demo.manifest.json # open an existing manifest
+tren-tui                    # vendored demo fixture, no backends
 ```
 
 `tren <target>` (or the explicit `tren open <target>`) accepts anything an
@@ -325,6 +308,98 @@ Body-less modules (`sram_stub`-style) render as opaque scopes with their
 ports and a `!` marker. `X` adds an explicit cut to any scope - the trace
 stops at it with the reason shown - and `X` again restores it.
 
+## Development
+
+### Activating the dev shell
+
+Work from the project root and enter the default shell once:
+
+```sh
+cd /path/to/tren
+nix develop
+exit                                         # leave the shell
+```
+
+The shell pins Python 3.14 + textual 8.2.8, yosys, slang, verilator, rust,
+make and tmux. `tren` and `tren-tui` read the checkout's `src/` through
+`PYTHONPATH`, so an edit is live on the next command. Every gate in
+`docs/verification.md` assumes this shell.
+
+Run the checks and tools inside the shell:
+
+```sh
+make check                                   # unit + both drives
+make test                                    # unit suite
+make drive                                   # headless Pilot tests (CI target)
+make drive-real                              # Pilot drives on the demo manifest
+make roundtrip                               # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
+make pane-cue                                # real-terminal active-pane cue + top status line (tmux, private server)
+make profile                                 # lazy-load + cache profile (1 100-scope synthetic IR)
+make bom                                     # regenerate docs/sw-bom.md
+make run                                     # start the TUI on the vendored demo
+PYTHONPATH=src python -m tren.spike          # spike: drivers/loads of one net
+nix develop .#xilinx                         # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
+```
+
+### Dev shells
+
+Five shells, all carrying the same backends (yosys, slang, verilator, rust,
+make, tmux) so they cannot drift apart on tool versions. They differ in how
+`tren` itself reaches the interpreter, and in which yosys build they carry:
+
+| Shell | tren comes from | yosys build | Use it for |
+|---|---|---|---|
+| `nix develop` | the checkout's `src/`, via `PYTHONPATH` | nixpkgs (0.69) | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
+| `nix develop .#tren` | the nix store (`buildPythonPackage`) | nixpkgs (0.69) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
+| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | nixpkgs (0.69) | the textbook Python flow on nix's interpreter - an editable install, so edits are live too |
+| `nix develop .#tren-yosys-src` | the checkout's `src/` | yosys git (`github:YosysHQ/yosys`, flake pin) | verifying against yosys main. The first entry builds the whole tool from source |
+| `nix develop .#xilinx` | the checkout's `src/` | nixpkgs (0.69) | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
+
+Every `make` target runs in the shell you are already in, and calls `tren` from
+`PATH`. Every shell above puts `tren` and `tren-tui` there (verified in all but
+`.#xilinx`, which cannot run `-c` commands; WARNING: it lists the same
+wrapper). Enter a shell once (see above), then run the targets directly.
+
+The targets spawn no shell of their own, so a target costs one command, not a
+nested `nix develop`. From a host shell, set `NIX_DEV=1` to wrap each command
+in `nix develop $(TREN_SHELL) -c ...`: `NIX_DEV=1 make check`. `TREN_SHELL`
+(default `.`) picks the shell the wrapper enters. Point the gates at the source
+build with `NIX_DEV=1 make check TREN_SHELL=.#tren-yosys-src`.
+
+`.#tren` is the one that catches what the others hide: nothing on its path
+reads the checkout, so a module that only ever imported because `src/` was on
+`PYTHONPATH`, or a dependency the code uses but `pyproject.toml` does not
+declare, fails there and only there. It is also what `nix build .#tren`
+produces.
+
+`.#tren-venv` creates `.venv/` in the working directory on first entry and
+pip-installs the project editable from `.` - so enter it from the project
+root. First entry needs network (pip fetches `textual` and `rich` from PyPI);
+later entries just activate. `TREN_VENV_DIR` overrides the location; reset
+with `rm -rf .venv/` and re-enter.
+
+`.#tren-yosys-src` is `nix develop` with a yosys built from upstream source
+instead of the nixpkgs release. The `YosysHQ/yosys` flake input pins the
+revision and fetches the tool's git submodules (needs Nix >= 2.27); bump
+with `nix flake lock --update-input yosys`. The first entry compiles the
+whole tool, so allow some time. Verify a bumped source against the tests
+(`docs/verification.md`, layer 2) before relying on it. The pinned source
+carries the macro-argument token-pasting fix; nixpkgs 0.69 does
+not, so an RTL design that hits the multi-line macro-argument bug elaborates
+here and not in the default shell. The `slang_flags` / `yosys_flags`
+manifest fields work identically in both shells.
+
+Dependencies are declared once, in `pyproject.toml`, and read by both the nix
+build (through `pyproject.nix`) and pip.
+
+The spike (`python -m tren.spike rtl/demo.sv`) runs yosys, builds the bit map
+and prints drivers/loads of `top.out`, descending across the core boundary
+down to the `$xor` that computes it - every row carries its `src` attribute.
+Use `--keep` to keep the generated netlist under `.cache/tren/` for
+inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.69 -
+the concatenation collapses to pure net aliasing, so `o` shows no driver
+(its bit list literally overlays `hi` and `lo`); the loads are all there.
+
 ### Headless / CI
 
 `make check` runs the unit suite plus both Pilot drives - the same gates the
@@ -345,7 +420,7 @@ elaborator handles the generated Verilog-2005 including yosys's constant / x
 bits. Example: `fft_wrapper` bundles 140 scopes, ~50k bit-links and 1763
 boundaries.
 
-## Manifest schema and backend tolerance flags
+### Manifest schema and backend tolerance flags
 
 `tren import` emits a manifest (`sources`, `incdirs`, `defines`, `params`,
 `top`, `blackboxes`). The one-command `tren <target>` imports in memory and
@@ -382,7 +457,7 @@ When a backend fails, `tren elaborate` prints that tool's own stderr
 (trimmed to 40 lines) followed by the full command line, then exits 1 - no
 Python traceback.
 
-## Importers
+### Importers
 
 Manifest producers - bootstrap, not a dependency (`tren import`). Every
 importer writes the slang tolerance flags (see the manifest section above).
@@ -413,7 +488,7 @@ not a replacement. `tren elaborate` applies the same source-dir floor to any
 manifest, so a manifest that only hand-writes sources needs no manual incdir
 either.
 
-## Vitis HLS examples and the #xilinx sandbox
+### Vitis HLS examples and the #xilinx sandbox
 
 `test/hls_examples/` mirrors ipyfuse's structure: `cpp/` (the C/C++ sources),
 `dat/` (golden/input data), and `hls/<block>/{config.tcl,directives.tcl,
@@ -421,7 +496,7 @@ rtl_output/}` plus a shared `hls/run_hls.tcl`. Each `rtl_output/` is a
 committed snapshot of the exported `impl/verilog` (RTL + `component.xml`),
 so it works without a Xilinx install:
 
-    nix develop . -c tren import test/hls_examples/hls/fft_wrapper/rtl_output --top fft_wrapper
+    tren import test/hls_examples/hls/fft_wrapper/rtl_output --top fft_wrapper
 
 Regenerating an example needs a Vitis/HLS install. Xilinx binaries expect a
 conventional `/usr/lib` layout that NixOS lacks, so the flake ships a
@@ -438,7 +513,7 @@ enter it first, then run the Makefile:
 `.xilinx_env` and the per-block `solution_1/` synthesis workspace are
 gitignored; `rtl_output/` snapshots are committed.
 
-## Layout
+### Layout
 
 ```
 src/tren/            package
@@ -462,7 +537,7 @@ pyproject.toml       PEP 621 metadata + deps - read by both nix and pip
 flake.nix            dev shells (default / #tren / #tren-venv / #tren-yosys-src / #xilinx)
 ```
 
-## Decisions already made (verified - do not re-derive)
+### Decisions already made (verified - do not re-derive)
 
 - **Backends**: yosys `write_json` after `proc` (never `opt`; bit IDs are
   positional-only across scopes); `slang-hier --params` for scope tree +
@@ -476,7 +551,7 @@ flake.nix            dev shells (default / #tren / #tren-venv / #tren-yosys-src 
   (`ir.schema_id()`), so a tren whose IR has changed rebuilds instead of
   serving a blob that predates the new fields.
 
-## Sources of truth
+### Sources of truth
 
 - Design note: Nextcloud **"TREN - RTL explorer TUI (concept)"**, note id
   `1503454` (cat `TREN`). **Mirrored in this repo** for offline reading:

@@ -61,11 +61,18 @@
       # tren reaches the interpreter, never in what it depends on.
       pyproject = pyproject-nix.lib.project.loadPyproject { projectRoot = ./.; };
 
-      # tren built as a store path, dependencies resolved the nix way.
+      # tren built as a store path, dependencies resolved the nix way. The
+      # console scripts get yosys and slang on PATH, so `nix run` and
+      # `nix shell` work without entering a dev shell.
       trenPackage =
         pkgs:
         pkgs.python3.pkgs.buildPythonPackage (
-          pyproject.renderers.buildPythonPackage { python = pkgs.python3; }
+          (pyproject.renderers.buildPythonPackage { python = pkgs.python3; })
+          // {
+            makeWrapperArgs = [
+              "--prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.yosys pkgs.sv-lang ]}"
+            ];
+          }
         );
 
       # An interpreter with tren *installed*: `import tren` and the `tren` /
