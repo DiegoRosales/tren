@@ -97,9 +97,15 @@ spot: they don't prove *rendering* - see layer 4.
 ### Layer 4 - real terminal (`make roundtrip`, `make pane-cue`)
 
 Two tools, both on a real ptty inside a **private** tmux server (never
-touching the user's tmux).
+touching the user's tmux). Each run uses its own socket path under the run's
+temporary directory, so a stale or concurrent run cannot share the server.
+Both start the session with `tmux -f /dev/null` and an explicit
+`bash --noprofile --norc`. The gate therefore does not depend on
+`~/.tmux.conf` or the user's interactive shell configuration, so a local zsh
+setup cannot turn the gate red. `HOME` is still inherited, but no current tren
+code reads it.
 
-#### `make roundtrip` (`-L trenosc`)
+#### `make roundtrip` (`-S <tmp>/tmux.sock`)
 
 Pipe-panes the raw output bytes and asserts:
 
@@ -112,7 +118,7 @@ Why pipe-pane instead of `set-clipboard`/`show-buffer`: a client-less tmux
 server relays OSC 52 to nothing (no attached `Ms`-capable terminal), so the
 buffer stays empty; `pipe-pane` captures what a terminal really receives.
 
-#### `make pane-cue` (`-L trencue`)
+#### `make pane-cue` (`-S <tmp>/tmux.sock`)
 
 `capture-pane -e` after each of `1`/`2`/`3`, decoding the SGR stream to the
 background colour in effect at a column inside each pane. Asserts exactly one

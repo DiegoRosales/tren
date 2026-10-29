@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Real-terminal OSC 52 + editor-jump round trip.
 #
-# Runs on a PRIVATE tmux server (`-L trenosc`) so nothing here touches your
-# own tmux state — never `tmux kill-server` without the `-L` socket.
+# Runs on a PRIVATE, run-specific tmux server (`-S <tmp>/tmux.sock`) so nothing
+# here touches your own tmux state or a concurrent run of this gate - never
+# `tmux kill-server` without the private socket.
 #
 # Verifies, against the app's actual terminal output stream:
 #   1. `y` writes the raw OSC 52 escape through the app's low-level output
@@ -17,17 +18,17 @@
 # OSC 52 in its copy buffer when an *attached client* advertises the Ms
 # terminal capability; a headless, client-less server relays the sequence to
 # nothing (verified on tmux 3.7c). pipe-pane captures the pane's actual
-# output bytes — the authoritative "what the terminal receives" check — and
+# output bytes - the authoritative "what the terminal receives" check - and
 # works headless. Interactive uses get the buffer too.
 #
 # Run:  nix develop . -c bash tools/osc52_roundtrip.sh
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-SOCK="trenosc"
 SESS="roundtrip"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/tren-osc52.XXXXXX")"
-trap 'tmux -L "$SOCK" kill-server 2>/dev/null || true; rm -rf "$TMP"' EXIT
+SOCK="$TMP/tmux.sock"
+trap 'tmux -S "$SOCK" kill-server 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
 cat >"$TMP/fake_editor.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -35,13 +36,16 @@ printf '%s\n' "$*" >>"$FAKE_EDITOR_LOG"
 EOF
 chmod +x "$TMP/fake_editor.sh"
 
-tmux -L "$SOCK" new-session -d -s "$SESS" -x 120 -y 34
-tmux -L "$SOCK" pipe-pane -t "$SESS" "cat > '$TMP/pane.raw'"
-tmux -L "$SOCK" send-keys -t "$SESS" \
+# -f /dev/null ignores ~/.tmux.conf; the explicit shell ignores the user's
+# interactive rc files, so the gate cannot fail because of local zsh setup.
+tmux -S "$SOCK" -f /dev/null new-session -d -s "$SESS" -x 120 -y 34 \
+  -- bash --noprofile --norc
+tmux -S "$SOCK" pipe-pane -t "$SESS" "cat > '$TMP/pane.raw'"
+tmux -S "$SOCK" send-keys -t "$SESS" \
   "cd '$REPO' && export PYTHONPATH=src EDITOR=$TMP/fake_editor.sh FAKE_EDITOR_LOG=$TMP/editor.log && python -m tren.tui --manifest rtl/demo.manifest.json" Enter
 
 sleep 6  # elaboration + textual startup
-tmux -L "$SOCK" send-keys -t "$SESS" j l j y   # select top, l to unfold, j to u_core, y
+tmux -S "$SOCK" send-keys -t "$SESS" j l j y   # select top, l to unfold, j to u_core, y
 sleep 2
 
 PAYLOAD="$(python3 - "$TMP/pane.raw" <<'EOF'
@@ -54,7 +58,7 @@ EOF
 echo "OSC 52 payload:   ${PAYLOAD:-<empty>}"
 [ "$PAYLOAD" = "top.u_core" ] || { echo "FAIL: OSC 52 payload mismatch"; exit 1; }
 
-tmux -L "$SOCK" send-keys -t "$SESS" e
+tmux -S "$SOCK" send-keys -t "$SESS" e
 sleep 2
 LOG="$TMP/editor.log"
 echo "editor argv:     $(cat "$LOG" 2>/dev/null || echo '<not run>')"
@@ -63,7 +67,7 @@ grep -q '^+77 rtl/demo.sv$' "$LOG" 2>/dev/null || {
 }
 
 # E must jump to the module's own definition (core: rtl/demo.sv:45)
-tmux -L "$SOCK" send-keys -t "$SESS" E
+tmux -S "$SOCK" send-keys -t "$SESS" E
 sleep 2
 grep -q '^+45 rtl/demo.sv$' "$LOG" 2>/dev/null || {
   echo "FAIL: editor not invoked with +45 rtl/demo.sv"; exit 1
