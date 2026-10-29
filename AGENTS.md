@@ -263,9 +263,10 @@ to commit messages.
 - **Do not commit until a review is done.** By default, leave the work as
   changes in the working tree. Run the gates, then move the Deck card to
   *Review* and ask the user to review. Do not create a commit at that point.
-- When the user approves the review, create the commit, move the card to
-  *Done*, and push. Do not commit a change that the user has not reviewed,
-  unless the user asks for it directly.
+- When the user approves the review, create the commit and move the card to
+  *Done*. Do not push unless the user explicitly requests a push. Do not
+  commit a change that the user has not reviewed, unless the user asks for it
+  directly.
 - Direct commits to `main` (linear solo history). No feature branches unless
   asked.
 - Messages focus purely on what the change does and non-obvious reasons;
