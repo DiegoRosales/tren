@@ -271,6 +271,4 @@ to commit messages.
 - Messages focus purely on what the change does and non-obvious reasons;
   no backstories.
 - If attributing, name the model in use at the moment (e.g.
-  `Co-Authored-By: opencode`), no emails or URLs.
-- Push to `main` when the user has reviewed the change and the acceptance
-  criteria for the Deck card pass.
+  `Co-Authored-By: DeepSeek V4.1 Flash 1017`), no emails or URLs.
