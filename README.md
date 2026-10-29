@@ -340,16 +340,30 @@ writes a manifest only when `--out` is given. Two optional list fields carry
 backend tolerance flags - real third-party RTL needs them, and they travel
 with the design, not the tool:
 
-| Field | Reaches | Example zybo_sampler value |
+| Field | Reaches | Value an import writes |
 |---|---|---|
-| `slang_flags` | `slang-hier --params` and `slang --ast-json` | `["--timescale=1ns/1ps", "--allow-use-before-declare", "-Wno-redefinition"]` |
-| `yosys_flags` | `read_verilog` before the sources | `["-nolatches"]` |
+| `slang_flags` | `slang-hier --params` and `slang --ast-json` | `["--allow-use-before-declare", "--timescale=1ns/1ps", "-Wno-redefinition"]` |
+| `yosys_flags` | `read_verilog` before the sources | `[]` |
+
+Every importer writes the `slang_flags` row, so an imported design opens with
+no hand edit. The flags are slang tolerances for constructs that Vivado and
+yosys accept and slang rejects by default:
+
+- `--allow-use-before-declare` - an implicit net used before the named port
+  connection that makes it,
+- `--timescale` - files with a `` `timescale `` next to files without one,
+- `-Wno-redefinition` - an ANSI port declared again as a body wire.
+
+The manifest is editable: remove a flag where the design must stay
+slang-clean.
 
 Always on, no manifest needed: slang gets `--ignore-unknown-modules` (an
 unresolved module is a normal black box in TREN) and yosys gets `-nolatches`
 (TREN wants the net graph, not a synthesis result). The zybo_sampler design
-(39 scopes, 13566 bit-links) elaborates with only the two manifest edits
-above - and, where the source yosys is required, under `.#tren-yosys-src`.
+(39 scopes, 13566 bit-links) is the reference case: `tren open` on its `.xpr`
+elaborates with no hand-written manifest. Run it under `.#tren-yosys-src`:
+nixpkgs yosys 0.69 stops on the macro-argument token-pasting bug in
+`codec_registers.sv`, and no manifest flag fixes that.
 
 When a backend fails, `tren elaborate` prints that tool's own stderr
 (trimmed to 40 lines) followed by the full command line, then exits 1 - no
@@ -357,7 +371,8 @@ Python traceback.
 
 ## Importers
 
-Manifest producers - bootstrap, not a dependency (`tren import`).
+Manifest producers - bootstrap, not a dependency (`tren import`). Every
+importer writes the slang tolerance flags (see the manifest section above).
 
 - **Plain filelist** (`.f`, slang `-F` grammar) or a bare source directory.
 - **Vivado** (`project.xpr`, auto-detected): parse `<FileSets>` DesignSrcs

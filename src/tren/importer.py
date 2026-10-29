@@ -13,6 +13,10 @@ use.
 Without a filelist, a bare directory is scanned for ``*.sv``/``*.v`` sources,
 which is what makes ``tren import rtl`` work for the demo fixture.
 
+Every imported manifest carries ``IMPORT_SLANG_FLAGS``: the slang tolerances
+for constructs Vivado and yosys accept (see the constant). The reader edits or
+removes them in the manifest, so the tolerance stays visible with the design.
+
 Importers are bootstrap, not a dependency: they produce the same manifest a
 human would hand-write. Nested ``-f`` command files are not followed, and
 unknown ``-``/``+`` options warn rather than fail — slang itself would hard-
@@ -38,6 +42,21 @@ from .vivado import parse_vivado, to_manifest_layout
 
 _SOURCE_SUFFIXES = (".sv", ".v")
 _FORMATS = ("auto", "f", "vivado")
+
+# Slang tolerances every imported manifest carries. Vivado and yosys accept
+# the constructs behind each flag, so a design that builds in its own
+# toolchain must not stop at the first `tren open`:
+#   --allow-use-before-declare  an implicit net, used before the named port
+#                               connection that creates it
+#   --timescale                 a design that mixes files with a `timescale
+#                               and files without one (Vivado has a default)
+#   -Wno-redefinition           an ANSI port declared again as a body wire
+# The manifest is editable, so a reader that wants slang strict removes them.
+IMPORT_SLANG_FLAGS: tuple[str, ...] = (
+    "--allow-use-before-declare",
+    "--timescale=1ns/1ps",
+    "-Wno-redefinition",
+)
 
 
 def detect_format(target: str | Path) -> str:
@@ -247,6 +266,7 @@ def import_manifest(
         incdirs=incdirs_all,
         defines=tuple(defines),
         top=top or "top",
+        slang_flags=IMPORT_SLANG_FLAGS,
     )
 
 
@@ -268,6 +288,7 @@ def _import_vivado(
         sources=sources,
         incdirs=incdirs,
         top=parsed_top or "top",
+        slang_flags=IMPORT_SLANG_FLAGS,
     )
 
 
@@ -321,6 +342,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  incdir {inc}")
     for dname, dvalue in manifest.defines:
         print(f"  define {dname}={dvalue}")
+    for flag in manifest.slang_flags:
+        print(f"  slang {flag}")
     for w in warnings:
         print(f"  warning: {w}", file=sys.stderr)
     return 0

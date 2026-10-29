@@ -13,7 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tren.importer import detect_format, import_manifest  # noqa: E402
+from tren.importer import (  # noqa: E402
+    IMPORT_SLANG_FLAGS,
+    detect_format,
+    import_manifest,
+)
 from tren.vivado import _parse_xpr_file_lists, parse_vivado  # noqa: E402
 
 
@@ -180,6 +184,12 @@ class ParseVivadoTests(unittest.TestCase):
         manifest = import_manifest(self.root / "project.xpr", root=self.root)
         self.assertEqual(manifest.top, "bd_0_wrapper")
         self.assertIn("rtl/core.v", manifest.sources)
+
+    def test_manifest_carries_slang_tolerance_flags(self) -> None:
+        """A Vivado import is openable: Vivado-legal constructs that slang
+        rejects by default stay accepted without a hand-written manifest."""
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertEqual(manifest.slang_flags, IMPORT_SLANG_FLAGS)
 
     def test_top_override(self) -> None:
         manifest = import_manifest(self.root, root=self.root, top="core")

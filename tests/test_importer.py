@@ -12,7 +12,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tren.importer import import_manifest, parse_filelist  # noqa: E402
+from tren.importer import (  # noqa: E402
+    IMPORT_SLANG_FLAGS,
+    import_manifest,
+    parse_filelist,
+)
 
 
 class ParseFilelistTests(unittest.TestCase):
@@ -127,6 +131,20 @@ class ImportManifestTests(unittest.TestCase):
     def test_missing_target_raises(self) -> None:
         with self.assertRaises(FileNotFoundError):
             import_manifest("/nonexistent/tren", root="/")
+
+    def test_import_writes_slang_tolerance_flags(self) -> None:
+        """A fresh import is openable: the slang tolerances travel with it."""
+        _, root = self._tree()
+        (root / "rtl" / "list.f").write_text("top.sv\n")
+        for target in (root / "rtl", root / "rtl" / "top.sv", root / "rtl" / "list.f"):
+            with self.subTest(target=target.name):
+                m = import_manifest(target, root=root)
+                self.assertEqual(m.slang_flags, IMPORT_SLANG_FLAGS)
+                self.assertIn("--allow-use-before-declare", m.slang_flags)
+                self.assertIn("--timescale=1ns/1ps", m.slang_flags)
+                self.assertIn("-Wno-redefinition", m.slang_flags)
+                # survives the manifest roundtrip the elaborator reads
+                self.assertEqual(m.from_json(m.to_json()).slang_flags, m.slang_flags)
 
 
 if __name__ == "__main__":
