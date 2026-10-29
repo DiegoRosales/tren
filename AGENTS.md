@@ -22,10 +22,11 @@ copy harness artifacts into this repo; cite them instead.
   (backends), `tren_testing/report-tui.md` (framework verdict + how TUIs
   work), and `tren_testing/{t1_yosys,t3_slang,tui_textual}/findings.md`
   (reproductions). If a claim contradicts them, re-run the experiment first.
-- **Task breakdown**: Nextcloud **Deck board "TREN"** (stacks = Spike / MVP /
-  v1 / Later; cards carry context + acceptance criteria). Move a card to
-  *In progress* before starting it and to *Done* when its acceptance criteria
-  pass.
+- **Task breakdown**: Nextcloud **Deck board "TREN"** (stacks = Prio / v1 /
+  In progress / Review / Done / Later; cards carry context + acceptance
+  criteria). Move a card to *In progress* before you start it. Move it to
+  *Review* when the work is ready for review. Move it to *Done* only after
+  the user approves the review.
 
 ## 2. Decisions already made - do not re-derive
 
@@ -246,10 +247,17 @@ to commit messages.
 
 ## 5. Git & commits
 
+- **Do not commit until a review is done.** By default, leave the work as
+  changes in the working tree. Run the gates, then move the Deck card to
+  *Review* and ask the user to review. Do not create a commit at that point.
+- When the user approves the review, create the commit, move the card to
+  *Done*, and push. Do not commit a change that the user has not reviewed,
+  unless the user asks for it directly.
 - Direct commits to `main` (linear solo history). No feature branches unless
   asked.
 - Messages focus purely on what the change does and non-obvious reasons;
   no backstories.
 - If attributing, name the model in use at the moment (e.g.
   `Co-Authored-By: opencode`), no emails or URLs.
-- Push to `main` when the acceptance criteria for the Deck card pass.
+- Push to `main` when the user has reviewed the change and the acceptance
+  criteria for the Deck card pass.
