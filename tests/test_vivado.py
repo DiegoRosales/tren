@@ -179,6 +179,18 @@ class ParseVivadoTests(unittest.TestCase):
         self.assertEqual(set(manifest.sources), {"rtl/core.v"})
         self.assertEqual(manifest.name, self.root.name)
 
+    def test_import_manifest_reports_parser_warnings(self) -> None:
+        """Parser warnings reach the caller through the manifest import,
+        not only through VivadoProject.warnings."""
+        (self.root / "bd_0.bd").write_text("<BlockDesign/>")
+        write_xpr(
+            self.root,
+            files=["$PPRDIR/bd_0.bd", "$PPRDIR/rtl/core.v"],
+        )
+        warnings: list[str] = []
+        import_manifest(self.root, root=self.root, warnings_out=warnings)
+        self.assertTrue(any("non-Verilog" in w for w in warnings), warnings)
+
     def test_manifest_from_xpr_file(self) -> None:
         self.assertEqual(detect_format(self.root / "project.xpr"), "vivado")
         manifest = import_manifest(self.root / "project.xpr", root=self.root)

@@ -279,9 +279,8 @@ def _import_vivado(
     warnings_out: list[str] | None = None,
 ) -> Manifest:
     warnings = [] if warnings_out is None else warnings_out
-    proj = parse_vivado(
-        target, name=name, top=top, warnings_out=warnings
-    )
+    proj = parse_vivado(target, name=name, top=top)
+    warnings.extend(proj.warnings)
     sources, incdirs, parsed_top = to_manifest_layout(proj, root)
     return Manifest(
         name=proj.name,

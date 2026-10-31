@@ -189,7 +189,6 @@ def parse_vivado(
     *,
     name: str | None = None,
     top: str | None = None,
-    warnings_out: list[str] | None = None,
 ) -> VivadoProject:
     """Parse a Vivado workspace (dir containing project.xpr, or the .xpr)."""
     target = Path(target)
