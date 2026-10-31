@@ -127,6 +127,11 @@ instead of serving a blob that predates them.
 
 ### The tree pane
 
+The tree is rooted at the design's top module. The root row reads `top/`,
+expanded at startup, and the cursor starts on it - so the source pane opens
+on the top module with no keypress. A source set with several roots no
+single top reaches keeps a neutral `design` line above them instead.
+
 A scope row carries the instance name; below it come the scope's ports, then
 its nets:
 

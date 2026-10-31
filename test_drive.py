@@ -531,24 +531,24 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         source: Static = app.query_one("#source")
         ports: Static = app.query_one("#ports")
 
-        # top/ -> real file lines of the top module declaration
-        await pilot.press("j")
+        # the tree opens with the cursor on the top-module root row: the
+        # source pane shows the top module's own text with no keypress
         assert "top/" in app._current_node.label.plain, f"cursor: {app._current_node}"
         assert app._focus is not None, "top scope should resolve a file focus"
         assert app._focus[0] == "rtl/demo.sv", f"focus file: {app._focus}"
         assert "module top" in str(source.content), "top module not shown from real file"
         assert status_path(app) == "top", f"status: {status_path(app)!r}"
 
+        # the top module is the tree root and starts expanded (its children
+        # show at mount)
+        assert app._current_node.is_expanded, "top must start expanded"
+
         # j does not unfold; l does (file-manager model)
-        await pilot.press("j")
-        assert "top/" in app._current_node.label.plain, "j must not auto-expand"
-
-        await pilot.press("l")
-        assert app._current_node.is_expanded, "l should expand top"
-
-        # descend into u_core -> its *instantiation in top* is focused
-        await pilot.press("j")
+        await pilot.press("j")  # -> u_core instance under top
         assert "u_core" in app._current_node.label.plain, f"cursor: {app._current_node}"
+        assert not app._current_node.is_expanded, "j must not auto-expand"
+        await pilot.press("l")
+        assert app._current_node.is_expanded, "l should expand u_core"
         assert app._focus == ("rtl/demo.sv", 77, 77), f"u_core focus: {app._focus}"
         assert status_path(app) == "top.u_core", f"status: {status_path(app)!r}"
         src_text = str(source.content)

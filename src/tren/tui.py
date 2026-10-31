@@ -653,6 +653,8 @@ class TrenApp(App[None]):
             # message handler that toggles* — a key burst (autorepeat /
             # scripted paste) re-orders it against our visible-walk. TREN
             # expands deterministically in _select instead.
+            # the root label is the top module (promoted in on_mount);
+            # "design" only survives for a degenerate multi-root source set
             yield Tree("design", data=None, id="tree")
             yield SourcePane("", id="source")
             yield PortsPane("", id="ports")
@@ -695,13 +697,28 @@ class TrenApp(App[None]):
         self._apply_layout()
 
         roots = [s for s in self.design.scopes if _scope_parent(s.name) not in self._scopes]
-        for scope in roots:
-            self._add_scope_node(self._tree_widget.root, scope)
-        # textual only renders children of expanded nodes. The root is never
-        # expanded by scripts and our _visible() walk reads root.children
-        # directly (root.is_expanded ignored), so app state stayed right but
-        # a real terminal showed nothing under the bare "design" line.
-        self._tree_widget.root.expand()
+        top = self._scopes.get(self.design.top)
+        root_node = self._tree_widget.root
+        if top is not None and roots == [top]:
+            # the top module IS the tree root: no bare "design" line above it
+            label = f"{top.name}/"
+            root_node.label = label
+            root_node.data = {"kind": "scope", "scope": top, "label": label}
+            root_node.expand()
+            # no expand event fires for the root, and the _visible() walk only
+            # materializes below it: build the top scope's rows here
+            self._ensure_children(root_node)
+            # the cursor starts on the top-module row, so the source pane
+            # opens on the design top instead of an empty pane. Without a
+            # selection the first j "selects" row 0 - a move the eye cannot
+            # see, since the cursor was implicitly there all along
+            self._select(0)
+        else:
+            # degenerate source set: several roots no single top reaches, so
+            # the neutral "design" line stays above them
+            for scope in roots:
+                self._add_scope_node(root_node, scope)
+            root_node.expand()
         self._render_panes()
 
     # ---- tree construction ------------------------------------------------
@@ -769,10 +786,13 @@ class TrenApp(App[None]):
 
     def _visible(self) -> list[Tree.Node]:
         def walk(node: Tree.Node):
-            for child in node.children:
-                yield child
-                if child.is_expanded:
-                    self._ensure_children(child)  # lazy: materialize on demand
+            # a promoted root (the top module) is a row of its own; the bare
+            # fallback root ("design") is not selectable
+            if node.data is not None:
+                yield node
+            if node.is_expanded:
+                self._ensure_children(node)  # lazy: materialize on demand
+                for child in node.children:
                     yield from walk(child)
 
         return list(walk(self._tree().root))
@@ -1095,7 +1115,16 @@ class TrenApp(App[None]):
         """Descend by path segments so only the touched lineage materializes."""
         parts = path.split(".")
         node = self._tree().root
-        for i in range(1, len(parts) + 1):
+        # a promoted top module lives on the root itself, not on a child row
+        rdata = node.data
+        start = 1
+        if rdata is not None and rdata.get("kind") == "scope":
+            top_parts = rdata["scope"].name.split(".")
+            if parts[: len(top_parts)] == top_parts:
+                if len(parts) == len(top_parts):
+                    return node
+                start = len(top_parts) + 1
+        for i in range(start, len(parts) + 1):
             prefix = ".".join(parts[:i])
             self._ensure_children(node)
             match = None
@@ -1634,7 +1663,7 @@ class TrenApp(App[None]):
         """
         chain: list[str] = []
         n = node
-        while n is not None and n is not self._tree().root:
+        while n is not None:
             data = n.data
             if data is not None:
                 kind = data.get("kind")
@@ -1642,6 +1671,8 @@ class TrenApp(App[None]):
                     chain.append(data["scope"].name.split(".")[-1])
                 elif kind == "instance":
                     chain.append(data["instance"].name)
+            if n is self._tree().root:
+                break
             n = n.parent
         chain.reverse()
         return chain
