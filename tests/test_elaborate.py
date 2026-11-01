@@ -53,7 +53,7 @@ REPO = Path(__file__).resolve().parents[1]
 class HierParseTests(unittest.TestCase):
     def test_line_with_params(self) -> None:
         node = parse_hier_line(
-            'Module="core" Instance="top.u_core" File="rtl/demo.sv" '
+            'Module="core" Instance="top.u_core" File="tests/rtl/demo.sv" '
             "Parameters: W=32'd32, OP=4'b11"
         )
         self.assertIsNotNone(node)
@@ -63,14 +63,14 @@ class HierParseTests(unittest.TestCase):
         self.assertEqual(node["params"], {"W": "32'd32", "OP": "4'b11"})
 
     def test_line_without_params(self) -> None:
-        node = parse_hier_line('Module="top" Instance="top" File="rtl/demo.sv"')
+        node = parse_hier_line('Module="top" Instance="top" File="tests/rtl/demo.sv"')
         self.assertIsNotNone(node)
         assert node is not None
         self.assertEqual(node["params"], {})
 
     def test_generate_instance_path_kept(self) -> None:
         node = parse_hier_line(
-            'Module="alu" Instance="top.u_core.g[1].u_alu_g" File="rtl/demo.sv"'
+            'Module="alu" Instance="top.u_core.g[1].u_alu_g" File="tests/rtl/demo.sv"'
         )
         assert node is not None
         self.assertEqual(node["inst"], "top.u_core.g[1].u_alu_g")
@@ -83,7 +83,7 @@ class BackendFlagTests(unittest.TestCase):
     """Manifest flags reach every runner, without running tools."""
 
     MANIFEST = Manifest(
-        sources=("rtl/demo.sv",),
+        sources=("tests/rtl/demo.sv",),
         slang_flags=("--timescale=1ns/1ps", "--allow-use-before-declare", "-Wno-redefinition"),
         yosys_flags=("-DEXTRA=1",),
     )
@@ -116,7 +116,7 @@ class BackendFlagTests(unittest.TestCase):
         self.assertIn("--timescale=1ns/1ps", cmd)
         self.assertIn("--allow-use-before-declare", cmd)
         self.assertIn("-Wno-redefinition", cmd)
-        self.assertIn("rtl/demo.sv", cmd)
+        self.assertIn("tests/rtl/demo.sv", cmd)
 
     def test_slang_ast_carries_defaults_and_manifest_flags(self) -> None:
         cmd = self._capture(
@@ -131,7 +131,7 @@ class BackendFlagTests(unittest.TestCase):
             lambda: run_yosys(self.MANIFEST, REPO, "/tmp/netlist.json")
         )[0][3]
         self.assertIn(
-            "read_verilog -sv -nolatches -DEXTRA=1 -Irtl rtl/demo.sv", script
+            "read_verilog -sv -nolatches -DEXTRA=1 -Itests/rtl tests/rtl/demo.sv", script
         )
         self.assertIn("hierarchy -top top", script)
         self.assertIn("proc;", script)
@@ -143,7 +143,7 @@ class BackendFlagTests(unittest.TestCase):
         self.assertEqual(_effective_incdirs(manifest), (".", "inc", "rtl"))
 
     def test_default_slags_named_not_forced_off(self) -> None:
-        bare = Manifest(sources=("rtl/demo.sv",))
+        bare = Manifest(sources=("tests/rtl/demo.sv",))
         cmd = self._capture(lambda: run_slang_hier(bare, REPO))[0]
         self.assertIn("--ignore-unknown-modules", cmd)
         self.assertNotIn("--timescale", cmd)
@@ -177,27 +177,27 @@ class DiagnosticTests(unittest.TestCase):
 class BuildDesignUnitTests(unittest.TestCase):
     """build_design against tiny inline inputs (no subprocesses)."""
 
-    MANIFEST = Manifest(name="demo", sources=("rtl/demo.sv",), top="top")
+    MANIFEST = Manifest(name="demo", sources=("tests/rtl/demo.sv",), top="top")
 
     NETLIST = {
         "modules": {
             "top": {
-                "attributes": {"src": "rtl/demo.sv:70.1-78.10"},
+                "attributes": {"src": "tests/rtl/demo.sv:70.1-78.10"},
                 "ports": {
                     "out": {"direction": "output", "bits": [66, 67, 68]},
                 },
-                "netnames": {"o": {"bits": [2, 3], "attributes": {"src": "rtl/demo.sv:75"}}},
+                "netnames": {"o": {"bits": [2, 3], "attributes": {"src": "tests/rtl/demo.sv:75"}}},
                 "cells": {
                     "u_core": {
                         "type": r"$paramod\core\W=s32'32",
-                        "attributes": {"src": "rtl/demo.sv:77"},
+                        "attributes": {"src": "tests/rtl/demo.sv:77"},
                         "port_directions": {"a": "input", "out": "output"},
                         "connections": {"out": [66, 67, 68]},
                     }
                 },
             },
             r"$paramod\core\W=s32'32": {
-                "attributes": {"src": "rtl/demo.sv:45.1-68.11"},
+                "attributes": {"src": "tests/rtl/demo.sv:45.1-68.11"},
                 "ports": {
                     "a": {"direction": "input", "bits": [0, 1, 2]},
                     "out": {"direction": "output", "bits": [10, 11, 12]},
@@ -209,11 +209,11 @@ class BuildDesignUnitTests(unittest.TestCase):
     }
 
     HIER = [
-        {"inst": "top", "module": "top", "file": "rtl/demo.sv", "params": {}},
+        {"inst": "top", "module": "top", "file": "tests/rtl/demo.sv", "params": {}},
         {
             "inst": "top.u_core",
             "module": "core",
-            "file": "rtl/demo.sv",
+            "file": "tests/rtl/demo.sv",
             "params": {"W": "32'd32"},
         },
     ]
@@ -263,10 +263,10 @@ class SlangOverlayUnitTests(unittest.TestCase):
     """Pure-function tests for the slang decl overlay."""
 
     def test_src_pos(self) -> None:
-        self.assertEqual(_src_pos("rtl/demo.sv:45:38"), ("rtl/demo.sv", 45, 38))
+        self.assertEqual(_src_pos("tests/rtl/demo.sv:45:38"), ("tests/rtl/demo.sv", 45, 38))
         self.assertIsNone(_src_pos(None))
-        self.assertIsNone(_src_pos("rtl/demo.sv:45"))
-        self.assertIsNone(_src_pos("rtl/demo.sv:xx:38"))
+        self.assertIsNone(_src_pos("tests/rtl/demo.sv:45"))
+        self.assertIsNone(_src_pos("tests/rtl/demo.sv:xx:38"))
 
     def test_type_string(self) -> None:
         packed = {"kind": "PackedArrayType", "range": "[31:0]",
@@ -284,11 +284,11 @@ class SlangOverlayUnitTests(unittest.TestCase):
             "  localparam logic [3:0] OP = 3;",
             "  parameter int unsigned wider = 2*W;",
         ]
-        self.assertEqual(_decl_default(lines, "rtl/demo.sv:1:38"), "8")
-        self.assertEqual(_decl_default(lines, "rtl/demo.sv:3:27"), "3")
-        self.assertEqual(_decl_default(lines, "rtl/demo.sv:4:30"), "2*W")
-        self.assertEqual(_decl_default(lines, "rtl/demo.sv:1:5"), "8")  # fallback: whole-line '='
-        self.assertIsNone(_decl_default([], "rtl/demo.sv:1:38"))
+        self.assertEqual(_decl_default(lines, "tests/rtl/demo.sv:1:38"), "8")
+        self.assertEqual(_decl_default(lines, "tests/rtl/demo.sv:3:27"), "3")
+        self.assertEqual(_decl_default(lines, "tests/rtl/demo.sv:4:30"), "2*W")
+        self.assertEqual(_decl_default(lines, "tests/rtl/demo.sv:1:5"), "8")  # fallback: whole-line '='
+        self.assertIsNone(_decl_default([], "tests/rtl/demo.sv:1:38"))
         self.assertIsNone(_decl_default(lines, None))
 
     def test_decl_default_keeps_a_bracketed_expression(self) -> None:
@@ -405,12 +405,12 @@ class BitKeyTests(unittest.TestCase):
     "requires the nix dev shell (yosys/slang on PATH)",
 )
 class DemoAcceptanceTests(unittest.TestCase):
-    """rtl/demo.sv -> IR with generate scopes, resolved
+    """tests/rtl/demo.sv -> IR with generate scopes, resolved
     params, black-box ports; deterministic and cached."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.manifest = Manifest.read(REPO / "rtl" / "demo.manifest.json")
+        cls.manifest = Manifest.read(REPO / "tests" / "rtl" / "demo.manifest.json")
 
     def test_acceptance_criteria(self) -> None:
         design = elaborate(self.manifest, REPO, cache=None)
@@ -672,13 +672,13 @@ class DeclaredRangeAcceptanceTests(unittest.TestCase):
 
     yosys carries a bit count only, so the range used to be derived as
     [width-1:0] and every descending range that does not end at 0, and every
-    ascending range, read wrong. rtl/ranges.sv holds exactly those cases.
+    ascending range, read wrong. tests/rtl/ranges.sv holds exactly those cases.
     """
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.design = elaborate(
-            Manifest.read(REPO / "rtl" / "ranges.manifest.json"), REPO, cache=None
+            Manifest.read(REPO / "tests" / "rtl" / "ranges.manifest.json"), REPO, cache=None
         )
 
     def test_ports_keep_the_declared_range(self) -> None:

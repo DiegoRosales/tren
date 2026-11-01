@@ -1,5 +1,5 @@
 {
-  "_comment": "Fake design tree in TREN-IR shape for the TUI framework tests. Mirrors rtl/demo.sv. Each scope now also carries an `rtl` snippet (the instantiation of this module as written in its parent — the 'source focus' of the center pane) and `rtl_focus` ([start,end], 1-based lines within rtl) that the UI must highlight. `ports` feed the right-hand I/O column.",
+  "_comment": "Fake design tree in TREN-IR shape for the TUI framework tests. Mirrors tests/rtl/demo.sv. Each scope now also carries an `rtl` snippet (the instantiation of this module as written in its parent — the 'source focus' of the center pane) and `rtl_focus` ([start,end], 1-based lines within rtl) that the UI must highlight. `ports` feed the right-hand I/O column.",
   "scopes": {
     "top": {
       "blackbox": false,
@@ -10,10 +10,10 @@
         { "name": "out", "dir": "out", "width": 32 }
       ],
       "nets": [
-        { "name": "o", "width": 64, "driver": "$concat$rtl/demo.sv:76$9", "src": "rtl/demo.sv:75" }
+        { "name": "o", "width": 64, "driver": "$concat$tests/rtl/demo.sv:76$9", "src": "tests/rtl/demo.sv:75" }
       ],
       "instances": [
-        { "name": "u_core", "module": "core", "params": [{ "name": "W", "value": "32" }], "src": "rtl/demo.sv:77" }
+        { "name": "u_core", "module": "core", "params": [{ "name": "W", "value": "32" }], "src": "tests/rtl/demo.sv:77" }
       ],
       "rtl": [
         "module top (",
@@ -42,15 +42,15 @@
         { "name": "alu_result","dir": "out", "width": 32 }
       ],
       "nets": [
-        { "name": "x",  "width": 32, "driver": "connection from a", "src": "rtl/demo.sv:50" },
-        { "name": "r0", "width": 32, "driver": "u_alu0.result", "src": "rtl/demo.sv:50" },
-        { "name": "alu_result", "width": 32, "driver": "$xor$rtl/demo.sv:64$10 (always_comb)", "src": "rtl/demo.sv:48" }
+        { "name": "x",  "width": 32, "driver": "connection from a", "src": "tests/rtl/demo.sv:50" },
+        { "name": "r0", "width": 32, "driver": "u_alu0.result", "src": "tests/rtl/demo.sv:50" },
+        { "name": "alu_result", "width": 32, "driver": "$xor$tests/rtl/demo.sv:64$10 (always_comb)", "src": "tests/rtl/demo.sv:48" }
       ],
       "instances": [
-        { "name": "u_alu0",    "module": "alu",       "params": [{ "name": "W", "value": "32" }], "src": "rtl/demo.sv:56" },
-        { "name": "g[0].u_alu_g", "module": "alu",    "params": [{ "name": "W", "value": "32" }], "src": "rtl/demo.sv:58", "generate": "g[0]" },
-        { "name": "g[1].u_alu_g", "module": "alu",    "params": [{ "name": "W", "value": "32" }], "src": "rtl/demo.sv:58", "generate": "g[1]" },
-        { "name": "u_sram",    "module": "sram_stub", "params": [], "src": "rtl/demo.sv:63", "blackbox": true }
+        { "name": "u_alu0",    "module": "alu",       "params": [{ "name": "W", "value": "32" }], "src": "tests/rtl/demo.sv:56" },
+        { "name": "g[0].u_alu_g", "module": "alu",    "params": [{ "name": "W", "value": "32" }], "src": "tests/rtl/demo.sv:58", "generate": "g[0]" },
+        { "name": "g[1].u_alu_g", "module": "alu",    "params": [{ "name": "W", "value": "32" }], "src": "tests/rtl/demo.sv:58", "generate": "g[1]" },
+        { "name": "u_sram",    "module": "sram_stub", "params": [], "src": "tests/rtl/demo.sv:63", "blackbox": true }
       ],
       "rtl": [
         "core #(32) u_core(",

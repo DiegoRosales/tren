@@ -50,7 +50,7 @@ class MakefileTest(unittest.TestCase):
         self.assertIn("nix develop .#tren-yosys-src -c", out)
 
     def test_tren_comes_from_path(self) -> None:
-        self.assertIn("tren open rtl", self._dry_run("open"))
+        self.assertIn("tren open tests/rtl", self._dry_run("open"))
         self.assertIn("tren-tui", self._dry_run("run-fixture"))
 
 

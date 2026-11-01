@@ -68,7 +68,7 @@ them). Builds the real IR from the *tracked demo RTL* and asserts:
 - deterministic: `elaborate` twice -> equal `Design`s;
 - cache: warm hit round-trips the same `Design`.
 
-A second tracked fixture, `rtl/ranges.sv`, holds the ranges the demo cannot
+A second tracked fixture, `tests/rtl/ranges.sv`, holds the ranges the demo cannot
 carry - `[7:1]`, `[0:7]`, `[15:8]` - because the drives assert the demo's
 line numbers. Its acceptance test asserts the IR *and* the leaf text the
 hierarchy paints, so a range that stops reaching the label fails here.
@@ -85,7 +85,7 @@ fixture (no tools) and real-IR mode. Two flavours:
 - `make drive` - `test_drive.py` (fixture): tree nav, pane routing, yank,
   l/h expand/collapse, ctrl+u, enter, `z` pane zoom, pageup/pagedown paging
   per pane; fast, no tools.
-- `make drive-real` - `test_drive.py --manifest rtl/demo.manifest.json`:
+- `make drive-real` - `test_drive.py --manifest tests/rtl/demo.manifest.json`:
   the *real* elaboration, source-pane focus/auto-follow, trace crossing with
   positional matching down to `$xor`, black-box stops, `X` cuts, yank format
   rendering + OSC payload, editor target.
@@ -111,8 +111,8 @@ Pipe-panes the raw output bytes and asserts:
 
 - the OSC 52 clipboard sequence actually leaves the process and encodes the
   expected yank path (`top.u_core`);
-- `e` invokes a recorder `$EDITOR` with `+77 rtl/demo.sv`, and `E` (cards
-  241) with `+45 rtl/demo.sv` - the module definition.
+- `e` invokes a recorder `$EDITOR` with `+77 tests/rtl/demo.sv`, and `E` (cards
+  241) with `+45 tests/rtl/demo.sv` - the module definition.
 
 Why pipe-pane instead of `set-clipboard`/`show-buffer`: a client-less tmux
 server relays OSC 52 to nothing (no attached `Ms`-capable terminal), so the
@@ -159,9 +159,9 @@ Importers are the interface to the *outside* (Vivado, HLS, vendor
 filelists), so their verification runs against real exported RTL rather than
 hand-made fixtures:
 
-- `make import` regenerates `rtl/manifest.json` from the demo source tree;
+- `make import` regenerates `tests/rtl/manifest.json` from the demo source tree;
 - `make hls-import`/`hls-elaborate BLOCK=...` read the committed
-  `test/hls_examples/hls/<block>/rtl_output` sets - `test_adder_2p`,
+  `tests/hls_examples/hls/<block>/rtl_output` sets - `test_adder_2p`,
   `test_axis_interfaces`, and `fft_wrapper` (140 scopes / ~50k bit-links /
   1763 boundaries) elaborate end-to-end with no Xilinx install;
 - the Vivado import was validated against the reference Vitis HLS 2025.2

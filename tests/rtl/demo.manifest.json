@@ -1,7 +1,7 @@
 {
   "name": "demo",
   "sources": [
-    "rtl/demo.sv"
+    "tests/rtl/demo.sv"
   ],
   "incdirs": [],
   "defines": [],

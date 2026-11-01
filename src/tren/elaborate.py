@@ -21,8 +21,8 @@ path-keyed IR.
 
 Usage (from the repo root, inside the nix dev shell):
 
-    nix develop . -c bash -c "PYTHONPATH=src python -m tren.elaborate rtl/demo.manifest.json"
-    nix develop . -c bash -c "PYTHONPATH=src python -m tren.elaborate --refresh rtl/demo.manifest.json"
+    nix develop . -c bash -c "PYTHONPATH=src python -m tren.elaborate tests/rtl/demo.manifest.json"
+    nix develop . -c bash -c "PYTHONPATH=src python -m tren.elaborate --refresh tests/rtl/demo.manifest.json"
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
     """Scope tree + resolved params: ``slang-hier --params`` parsed.
 
     Sources/incdirs are passed as manifest-relative paths - the subprocess
-    runs with ``cwd=root``, so tool-reported src stays ``rtl/demo.sv:...``
+    runs with ``cwd=root``, so tool-reported src stays ``tests/rtl/demo.sv:...``
     (relative) rather than absolute.
     """
     args = ["slang-hier", "--params"] + list(_SLANG_DEFAULT_FLAGS)
@@ -197,7 +197,7 @@ def _ast_src(node: dict) -> str | None:
 
 
 def _src_pos(src: str | None) -> tuple[str, int, int] | None:
-    """'rtl/demo.sv:45:38' -> ('rtl/demo.sv', 45, 38)."""
+    """'tests/rtl/demo.sv:45:38' -> ('tests/rtl/demo.sv', 45, 38)."""
     if not src:
         return None
     parts = src.rsplit(":", 2)
@@ -291,7 +291,7 @@ def _decl_default(lines: list[str], src: str | None) -> str | None:
 
 
 def _src_line(src: str | None) -> int | None:
-    """Leading line number of a src string ('rtl/demo.sv:77.14-77.65')."""
+    """Leading line number of a src string ('tests/rtl/demo.sv:77.14-77.65')."""
     if not src:
         return None
     m = re.search(r":(\d+)", src)
@@ -642,7 +642,7 @@ def build_design(
 
     # --- instances: direct child scopes; src = instantiation site ----------
     # The instance's src is the *instantiation in the parent* (the yosys cell
-    # src, e.g. rtl/demo.sv:77.14-77.65), not the child module's declaration -
+    # src, e.g. tests/rtl/demo.sv:77.14-77.65), not the child module's declaration -
     # that is what the source pane focuses. Fall back to the child scope's own
     # src when the cell src is unknown (generate-block children). Children are
     # ordered by src line (source order), name as tiebreak.

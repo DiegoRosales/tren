@@ -24,9 +24,9 @@ error on them at elaboration time, so a warning is the honest minimum.
 
 CLI (from the repo root, inside the nix dev shell):
 
-    nix develop . -c tren import rtl                    # -> rtl/manifest.json
-    nix develop . -c tren import rtl/sources.f --name demo
-    nix develop . -c tren import rtl/demo.sv
+    nix develop . -c tren import tests/rtl              # -> tests/rtl/manifest.json
+    nix develop . -c tren import tests/rtl/sources.f --name demo
+    nix develop . -c tren import tests/rtl/demo.sv
     nix develop . -c tren import <vivado-project.xpr>   # Vivado (auto-detected)
 """
 

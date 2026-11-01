@@ -104,20 +104,20 @@ class BuildIndexTests(unittest.TestCase):
         )
         self.assertIn("core.alu_result", by_kind["port"])
         self.assertIn("core.alu_result", by_kind["net"])
-        self.assertEqual(by_kind["file"], ["rtl/demo.sv"])
+        self.assertEqual(by_kind["file"], ["tests/rtl/demo.sv"])
 
     def test_entries_carry_their_scope_and_src(self) -> None:
         entries = fixture_index()
         net = next(e for e in entries if e.kind == "net" and e.path == "core.alu_result")
         self.assertEqual(net.scope.name, "core")
-        self.assertEqual(net.src, "rtl/demo.sv:48")
+        self.assertEqual(net.src, "tests/rtl/demo.sv:48")
 
     def test_file_entry_keeps_a_representative_src(self) -> None:
         entries = fixture_index()
         file = next(e for e in entries if e.kind == "file")
         # the first src naming the file in build order is the u_core
         # instance (top's own scope carries no src in the fixture)
-        self.assertEqual(file.src, "rtl/demo.sv:77")
+        self.assertEqual(file.src, "tests/rtl/demo.sv:77")
 
 
 class RankTests(unittest.TestCase):

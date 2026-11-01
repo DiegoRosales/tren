@@ -38,7 +38,7 @@ trap 'tmux -S "$SOCK" kill-server 2>/dev/null || true; rm -rf "$TMP"' EXIT
 tmux -S "$SOCK" -f /dev/null new-session -d -s "$SESS" -x 120 -y 34 \
   -- bash --noprofile --norc
 tmux -S "$SOCK" send-keys -t "$SESS" \
-  "cd '$REPO' && export PYTHONPATH=src && python -m tren.tui --manifest rtl/demo.manifest.json" Enter
+  "cd '$REPO' && export PYTHONPATH=src && python -m tren.tui --manifest tests/rtl/demo.manifest.json" Enter
 sleep 8  # elaboration + textual startup
 
 # Unfold the tree so the sampled rows carry real nodes - the stale-line-cache

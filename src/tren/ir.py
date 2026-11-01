@@ -29,8 +29,8 @@ def parse_src(src: str | None) -> tuple[str, int, int] | None:
     """'<file>:<span>' -> (file, first_line, last_line).
 
     The two backends spell spans differently and both reach the IR:
-      yosys attributes  'rtl/demo.sv:77.14-77.65'  line.col[-line.col]
-      slang --ast-json  'rtl/demo.sv:46:25'        line:col
+      yosys attributes  'tests/rtl/demo.sv:77.14-77.65'  line.col[-line.col]
+      slang --ast-json  'tests/rtl/demo.sv:46:25'        line:col
     Read naively, the slang form yields the *column* as the line and leaves
     the line glued to the file name, so ports (and generate scopes, whose
     src also comes from slang) focused a bogus file at a bogus line.

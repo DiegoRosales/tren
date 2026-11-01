@@ -11,7 +11,26 @@ the verified findings - dummy RTL, per-tool experiments, reports - lives in
 the **sibling `tren_testing` directory** and belongs there, not here. Do not
 copy harness artifacts into this repo; cite them instead.
 
-## 1. Sources of truth
+## 1. Repo layout
+
+```
+src/tren/            the package: CLI parsing, IR model, elaboration, TUI
+tests/               unit tests + the executable fixtures they drive
+  rtl/               demo.sv (the drives) + ranges.sv (declared ranges) and
+                     their tracked manifests
+  hls_examples/      Vitis HLS example blocks + committed rtl_output/ exports
+tui/fixtures/        the vendored demo-tree.json fixture IR (tren-tui, the
+                     no-backends drive)
+docs/                verification.md + notes/ mirrors; tech-concepts.md, sw-bom.md
+tools/               round-trip + capture scripts, profilers, BOM + guide generators
+out/                 gitignored drive screenshots (shot*.svg)
+```
+
+The demo fixtures live under `tests/rtl/`. Manifest paths are relative to
+the repo root, so they spell `tests/rtl/demo.sv`. Tool output and test
+expectations carry that same prefix.
+
+## 2. Sources of truth
 
 - **Design**: Nextcloud note *"TREN - RTL explorer TUI (concept)"*,
   note id `1503454`, category `TREN`. Read it before proposing architecture.
@@ -28,7 +47,7 @@ copy harness artifacts into this repo; cite them instead.
   *Review* when the work is ready for review. Move it to *Done* only after
   the user approves the review.
 
-## 2. Decisions already made - do not re-derive
+## 3. Decisions already made - do not re-derive
 
 - **Backends** (verified against installed tools, yosys 0.69 / sv-lang 11.0):
   yosys `write_json` for connectivity; `slang-hier --params` and/or
@@ -53,7 +72,7 @@ copy harness artifacts into this repo; cite them instead.
   lists + `blackbox=1` come from yosys JSON already; user cuts toggle a scope
   to opaque.
 
-## 3. Toolchain
+## 4. Toolchain
 
 Always run under the dev shell: `nix develop . -c <command>` - never bare
 `python`/`yosys`/`slang` from the host. The flake pins Python 3.14 + textual
@@ -79,11 +98,11 @@ runScript shell is interactive-only: `nix develop .#xilinx -c <cmd>` does NOT
 execute the command (verified on nix 2.x for buildFHSEnv .env outputs) - run
 the Makefile inside the shell instead. The HLS example build flow mirrors
 ipyfuse: `make setup_xilinx` writes `.xilinx_env` from `$XILINX_VITIS`,
-`make <block>_HLS` re-synthesises one block under `test/hls_examples/hls/`.
+`make <block>_HLS` re-synthesises one block under `tests/hls_examples/hls/`.
 First `nix develop .#xilinx` has a long one-time build (systemd/gcc from
 source for the pinned nixpkgs rev).
 
-## 4. Working conventions
+## 5. Working conventions
 
 - **The user guide lives in the "User guide" section of `README.md`. Keep it
   in sync in the same change as any binding / CLI / behaviour edit**: the
@@ -258,7 +277,7 @@ to commit messages.
   fixture RTL SV-legal (else verilator warns and yosys is silent; slang is
   the strict one - trust it).
 
-## 5. Git & commits
+## 6. Git & commits
 
 - **Do not commit until a review is done.** By default, leave the work as
   changes in the working tree. Run the gates, then move the Deck card to

@@ -140,7 +140,7 @@ async def main() -> None:
         return orig_run(cmd, cwd)
 
     E._run = counting
-    manifest = Manifest.read(REPO / "rtl" / "demo.manifest.json")
+    manifest = Manifest.read(REPO / "tests" / "rtl" / "demo.manifest.json")
     with tempfile.TemporaryDirectory(prefix="tren-profile-cache-") as td:
         cache = IrCache(Path(td) / "cache", root=REPO)
         t_cold = time.perf_counter()

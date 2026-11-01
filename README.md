@@ -26,19 +26,19 @@ revisited when a real 100k-instance IR shows the ceiling matters.
 Run TREN directly from a checkout:
 
 ```sh
-nix run . -- rtl                    # import + elaborate + open the TUI (one command)
-nix run . -- open rtl               # the same, with the explicit verb
-nix run . -- rtl/demo.manifest.json # the same, from an existing manifest
-nix run . -- import rtl             # -> rtl/manifest.json (first importer: .f filelist / dir scan)
-nix run . -- import rtl/some.xpr    # Vivado project.xpr (auto-detected)
-nix run . -- elaborate rtl/manifest.json      # elaborate a manifest (yosys + slang-hier + slang -> IR)
+nix run . -- tests/rtl                         # import + elaborate + open the TUI (one command)
+nix run . -- open tests/rtl                    # the same, with the explicit verb
+nix run . -- tests/rtl/demo.manifest.json      # the same, from an existing manifest
+nix run . -- import tests/rtl                  # -> tests/rtl/manifest.json (first importer: .f filelist / dir scan)
+nix run . -- import tests/rtl/some.xpr         # Vivado project.xpr (auto-detected)
+nix run . -- elaborate tests/rtl/manifest.json # elaborate a manifest (yosys + slang-hier + slang -> IR)
 ```
 
 Or put the packaged `tren` and `tren-tui` commands on `PATH` for the session:
 
 ```sh
 nix shell .
-tren rtl
+tren tests/rtl
 ```
 
 `nix shell .` adds only the packaged `tren` and `tren-tui` commands. The
@@ -83,7 +83,7 @@ cd tren
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-tren rtl
+tren tests/rtl
 ```
 
 The editable install reads `src/` directly, so an edit is live on the next
@@ -94,10 +94,10 @@ command.
 ### Starting the TUI
 
 ```sh
-tren rtl                    # import + elaborate + open (one command)
-tren open rtl               # the same, with the explicit verb
-tren rtl/demo.manifest.json # open an existing manifest
-tren-tui                    # vendored demo fixture, no backends
+tren tests/rtl                    # import + elaborate + open (one command)
+tren open tests/rtl               # the same, with the explicit verb
+tren tests/rtl/demo.manifest.json # open an existing manifest
+tren-tui                          # vendored demo fixture, no backends
 ```
 
 `tren <target>` (or the explicit `tren open <target>`) accepts anything an
@@ -397,7 +397,7 @@ manifest fields work identically in both shells.
 Dependencies are declared once, in `pyproject.toml`, and read by both the nix
 build (through `pyproject.nix`) and pip.
 
-The spike (`python -m tren.spike rtl/demo.sv`) runs yosys, builds the bit map
+The spike (`python -m tren.spike tests/rtl/demo.sv`) runs yosys, builds the bit map
 and prints drivers/loads of `top.out`, descending across the core boundary
 down to the `$xor` that computes it - every row carries its `src` attribute.
 Use `--keep` to keep the generated netlist under `.cache/tren/` for
@@ -418,7 +418,7 @@ dev shell resolves.
 
 ### Reading Vitis HLS RTL output (no Xilinx needed)
 
-The committed `test/hls_examples/hls/<block>/rtl_output` exports are read
+The committed `tests/hls_examples/hls/<block>/rtl_output` exports are read
 directly: `make hls-import`, `make hls-elaborate` and `make hls-run` import /
 elaborate / browse one block (`BLOCK` defaults to `fft_wrapper`). The
 elaborator handles the generated Verilog-2005 including yosys's constant / x
@@ -495,13 +495,13 @@ either.
 
 ### Vitis HLS examples and the #xilinx sandbox
 
-`test/hls_examples/` mirrors ipyfuse's structure: `cpp/` (the C/C++ sources),
+`tests/hls_examples/` mirrors ipyfuse's structure: `cpp/` (the C/C++ sources),
 `dat/` (golden/input data), and `hls/<block>/{config.tcl,directives.tcl,
 rtl_output/}` plus a shared `hls/run_hls.tcl`. Each `rtl_output/` is a
 committed snapshot of the exported `impl/verilog` (RTL + `component.xml`),
 so it works without a Xilinx install:
 
-    tren import test/hls_examples/hls/fft_wrapper/rtl_output --top fft_wrapper
+    tren import tests/hls_examples/hls/fft_wrapper/rtl_output --top fft_wrapper
 
 Regenerating an example needs a Vitis/HLS install. Xilinx binaries expect a
 conventional `/usr/lib` layout that NixOS lacks, so the flake ships a
@@ -530,9 +530,10 @@ src/tren/            package
   formats.py         yank format registry + templates
   tui.py             the textual app (implements the screen + keys only)
   __main__.py        subcommand front door (tren import / tren elaborate / bare target)
-rtl/                 small SystemVerilog fixtures: demo.sv (the drives) and
-                     ranges.sv (declared ranges: [7:1], [0:7])
-tests/               PILOT_WORKDIR for textual Pilot tests + unit tests
+tests/               unit tests, the Pilot workdir, and the executable
+                     fixtures: rtl/ (demo.sv for the drives and ranges.sv for
+                     declared ranges) + hls_examples/ (Vitis HLS flows and
+                     their committed rtl_output/ exports)
 manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
 docs/                verification.md + notes/ mirrors; tech-concepts.md and
                      sw-bom.md (the technical-concepts / SW BOM documents)

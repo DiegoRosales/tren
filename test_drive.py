@@ -1,7 +1,7 @@
 """Headless driving tests for tren.tui using textual's Pilot.
 
 Run:  nix develop . -c python test_drive.py                  # fixture path
-      nix develop . -c python test_drive.py --manifest rtl/demo.manifest.json
+      nix develop . -c python test_drive.py --manifest tests/rtl/demo.manifest.json
                                                              # real IR + file source
 
 Default: drives the fixture-loaded IR tree + source spans and the
@@ -328,7 +328,7 @@ async def drive_fixture() -> None:
         assert node.data["kind"] == "net", node.data
         # the fixture is module-keyed: core's own scope row owns the leaf
         assert status_path(app) == "core.alu_result", status_path(app)
-        assert app._focus == ("rtl/demo.sv", 48, 48), f"focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 48, 48), f"focus: {app._focus}"
 
         # vim-style walking: n/N move through the matches, everything else is
         # swallowed while the finder is committed
@@ -449,7 +449,7 @@ async def drive_fixture() -> None:
         await pilot.press("slash")
         await pilot.press(*"demo.sv")
         rows = app._search.rows
-        assert any(e.kind == "file" and e.path == "rtl/demo.sv" for e in rows), rows
+        assert any(e.kind == "file" and e.path == "tests/rtl/demo.sv" for e in rows), rows
         await pilot.press("escape")
         assert app._search is None
 
@@ -505,7 +505,7 @@ def status_path(app: TrenApp) -> str:
 async def drive_unreadable_src() -> None:
     """A leaf src naming a file that is not on disk.
 
-    Fixture nets carry `src: rtl/demo.sv:NN`, which only resolves when the
+    Fixture nets carry `src: tests/rtl/demo.sv:NN`, which only resolves when the
     repo is the working root. Rooted elsewhere the file is unreadable — the
     source pane must still show the scope's inline RTL, not '(cannot read)'.
     """
@@ -515,7 +515,7 @@ async def drive_unreadable_src() -> None:
             source: Static = app.query_one("#source")
             select_leaf(app, "core", "net", "x")
             await pilot.pause()
-            assert app._focus == ("rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
+            assert app._focus == ("tests/rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
             assert status_path(app) == "core.x", f"status on a net leaf: {status_path(app)!r}"
             text = str(source.content)
             assert "cannot read" not in text, f"no inline fallback: {text[:120]!r}"
@@ -535,7 +535,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # source pane shows the top module's own text with no keypress
         assert "top/" in app._current_node.label.plain, f"cursor: {app._current_node}"
         assert app._focus is not None, "top scope should resolve a file focus"
-        assert app._focus[0] == "rtl/demo.sv", f"focus file: {app._focus}"
+        assert app._focus[0] == "tests/rtl/demo.sv", f"focus file: {app._focus}"
         assert "module top" in str(source.content), "top module not shown from real file"
         assert status_path(app) == "top", f"status: {status_path(app)!r}"
 
@@ -549,7 +549,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert not app._current_node.is_expanded, "j must not auto-expand"
         await pilot.press("l")
         assert app._current_node.is_expanded, "l should expand u_core"
-        assert app._focus == ("rtl/demo.sv", 77, 77), f"u_core focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 77, 77), f"u_core focus: {app._focus}"
         assert status_path(app) == "top.u_core", f"status: {status_path(app)!r}"
         src_text = str(source.content)
         assert "core #(32) u_core(" in src_text, f"no instantiation in source: {src_text[:120]!r}"
@@ -562,7 +562,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._current_node.is_expanded, "l should expand u_core"
         await pilot.press("j")
         assert "u_alu0" in app._current_node.label.plain, f"cursor: {app._current_node}"
-        assert app._focus == ("rtl/demo.sv", 56, 56), f"u_alu0 focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 56, 56), f"u_alu0 focus: {app._focus}"
         assert "alu #(W) u_alu0(" in str(source.content), "u_alu0 instantiation not focused"
         assert status_path(app) == "top.u_core.u_alu0", f"status: {status_path(app)!r}"
 
@@ -607,24 +607,24 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app.active == "tree", "1 should reactivate the tree pane"
 
         # e/E: on u_alu0, e = the instantiation line, E = the
-        # module's own definition (alu begins at rtl/demo.sv:21)
+        # module's own definition (alu begins at tests/rtl/demo.sv:21)
         await pilot.press("e")
-        assert app.editor_target == "rtl/demo.sv:56", f"editor target: {app.editor_target}"
+        assert app.editor_target == "tests/rtl/demo.sv:56", f"editor target: {app.editor_target}"
         await pilot.press("E")
-        assert app.editor_target == "rtl/demo.sv:21", f"editor def target: {app.editor_target}"
+        assert app.editor_target == "tests/rtl/demo.sv:21", f"editor def target: {app.editor_target}"
 
         # ctrl+u walks back up to core (the enclosing scope of u_alu0)
         await pilot.press("ctrl+u")
         assert "u_core" in app._current_node.label.plain, f"after ctrl+u: {app._current_node}"
-        assert app._focus == ("rtl/demo.sv", 77, 77), "focus should return to u_core"
+        assert app._focus == ("tests/rtl/demo.sv", 77, 77), "focus should return to u_core"
         assert status_path(app) == "top.u_core", f"status after ctrl+u: {status_path(app)!r}"
 
         # on a nested scope, e = the instantiation in its parent (+77),
         # E = the module's own declaration (+45)
         await pilot.press("e")
-        assert app.editor_target == "rtl/demo.sv:77", f"e on u_core: {app.editor_target}"
+        assert app.editor_target == "tests/rtl/demo.sv:77", f"e on u_core: {app.editor_target}"
         await pilot.press("E")
-        assert app.editor_target == "rtl/demo.sv:45", f"E on u_core: {app.editor_target}"
+        assert app.editor_target == "tests/rtl/demo.sv:45", f"E on u_core: {app.editor_target}"
 
         # enter shows the highlighted module in the centre with context
         await pilot.press("enter")
@@ -639,7 +639,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # a real port leaf reads 'port <dir> <name>[msb:lsb]'
         assert app._current_node.label.plain == "port in    op[3:0]", \
             f"port leaf label: {app._current_node.label.plain!r}"
-        assert app._focus == ("rtl/demo.sv", 24, 24), f"port op focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 24, 24), f"port op focus: {app._focus}"
         assert "input  logic [3:0]   op," in str(source.content), "op declaration not shown"
         assert status_path(app) == "top.u_core.u_alu0.op", f"port leaf status: {status_path(app)!r}"
         rows = app._source_widget.size.height or 30
@@ -651,7 +651,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # a net leaf carries the port's range spelling
         assert app._current_node.label.plain == "net x[31:0]", \
             f"net leaf label: {app._current_node.label.plain!r}"
-        assert app._focus == ("rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
         assert "logic [W-1:0] x, y, rd, r0;" in str(source.content), "net declaration not shown"
         assert status_path(app) == "top.u_core.x", f"net leaf status: {status_path(app)!r}"
         assert app.src_offset + 1 <= 50 <= app.src_offset + rows, (
@@ -663,12 +663,12 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert generate is not None, "no generate scope node"
         app._expand_to(generate)
         app._select(app._visible().index(generate))
-        assert app._focus == ("rtl/demo.sv", 58, 58), f"g[0] focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 58, 58), f"g[0] focus: {app._focus}"
         assert status_path(app) == "top.u_core.g[0]", f"generate scope status: {status_path(app)!r}"
 
         # an output port resolves the same way (the direction plays no part)
         select_leaf(app, "top.u_core.u_alu0", "port", "result")
-        assert app._focus == ("rtl/demo.sv", 25, 25), f"port result focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 25, 25), f"port result focus: {app._focus}"
         assert status_path(app) == "top.u_core.u_alu0.result", f"out port status: {status_path(app)!r}"
         # the no-src fallback is exercised in drive_fixture, where ports
         # genuinely carry no src (every port in the real IR has one)
@@ -679,7 +679,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app.port_index == 0, f"untouched pane-3 selection: {app.port_index}"
         port = app.pane_ports[app.port_index]
         assert port.name == "a", f"first I/O row of u_alu0: {port.name}"
-        assert app._focus == ("rtl/demo.sv", 22, 22), f"port {port.name} focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 22, 22), f"port {port.name} focus: {app._focus}"
         assert "input  logic [W-1:0] a," in str(source.content), "a declaration not shown"
         assert app.src_offset + 1 <= 22 <= app.src_offset + rows, (
             f"port declaration out of view: offset {app.src_offset}"
@@ -688,7 +688,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("j")
         port = app.pane_ports[app.port_index]
         assert port.name == "b", f"second I/O row of u_alu0: {port.name}"
-        assert app._focus == ("rtl/demo.sv", 23, 23), f"port {port.name} focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 23, 23), f"port {port.name} focus: {app._focus}"
         assert "input  logic [W-1:0] b," in str(source.content), "b declaration not shown"
         await pilot.press("k")  # leave the I/O selection where it started
         assert app.port_index == 0, f"restored pane-3 selection: {app.port_index}"
@@ -696,7 +696,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # (the cursor still sits on the result leaf selected above)
         await pilot.press("1")
         assert app.active == "tree", "pressing 1 should reactivate the tree pane"
-        assert app._focus == ("rtl/demo.sv", 25, 25), (
+        assert app._focus == ("tests/rtl/demo.sv", 25, 25), (
             f"tree selection focus after the pane switch: {app._focus}"
         )
 
@@ -879,9 +879,9 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # ---- on a top-level module e and E both land on the
         #      definition (no parent instantiation to jump to)
         await pilot.press("e")
-        assert app.editor_target == "rtl/demo.sv:70", f"e on top: {app.editor_target}"
+        assert app.editor_target == "tests/rtl/demo.sv:70", f"e on top: {app.editor_target}"
         await pilot.press("E")
-        assert app.editor_target == "rtl/demo.sv:70", f"E on top: {app.editor_target}"
+        assert app.editor_target == "tests/rtl/demo.sv:70", f"E on top: {app.editor_target}"
 
         # ---- enter shows the module; the d/L modal keeps Enter ----
         app._select_path("top", "out")
@@ -931,13 +931,13 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._search is None, "ctrl+enter should dismiss the search"
         assert status_path(app) == "top.u_core.alu_result", status_path(app)
         # yosys attributes the net to the declaration line (the output port)
-        assert app._focus == ("rtl/demo.sv", 48, 48), f"focus: {app._focus}"
+        assert app._focus == ("tests/rtl/demo.sv", 48, 48), f"focus: {app._focus}"
 
         # file search jumps to the first scope carrying a src in the file
         await pilot.press("slash")
         await pilot.press(*"demo.sv")
         rows = app._search.rows
-        assert any(e.kind == "file" and e.path == "rtl/demo.sv" for e in rows), rows
+        assert any(e.kind == "file" and e.path == "tests/rtl/demo.sv" for e in rows), rows
         await pilot.press("ctrl+enter")
         assert app._search is None
         assert status_path(app) == "top", status_path(app)

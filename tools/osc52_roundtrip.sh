@@ -11,8 +11,8 @@
 #      captured with `pipe-pane` and decoded: it must be the formatted SV
 #      path of the selection, top.u_core.
 #   2. `e` spawns $EDITOR at the focused file:line (a fake editor logs its
-#      argv): must be "+77 rtl/demo.sv" (core's instantiation site).
-#   3. `E` spawns it at the module definition: "+45 rtl/demo.sv".
+#      argv): must be "+77 tests/rtl/demo.sv" (core's instantiation site).
+#   3. `E` spawns it at the module definition: "+45 tests/rtl/demo.sv".
 #
 # Why pipe-pane and not `set-clipboard on` + `show-buffer`: tmux only stores
 # OSC 52 in its copy buffer when an *attached client* advertises the Ms
@@ -42,7 +42,7 @@ tmux -S "$SOCK" -f /dev/null new-session -d -s "$SESS" -x 120 -y 34 \
   -- bash --noprofile --norc
 tmux -S "$SOCK" pipe-pane -t "$SESS" "cat > '$TMP/pane.raw'"
 tmux -S "$SOCK" send-keys -t "$SESS" \
-  "cd '$REPO' && export PYTHONPATH=src EDITOR=$TMP/fake_editor.sh FAKE_EDITOR_LOG=$TMP/editor.log && python -m tren.tui --manifest rtl/demo.manifest.json" Enter
+  "cd '$REPO' && export PYTHONPATH=src EDITOR=$TMP/fake_editor.sh FAKE_EDITOR_LOG=$TMP/editor.log && python -m tren.tui --manifest tests/rtl/demo.manifest.json" Enter
 
 sleep 6  # elaboration + textual startup
 tmux -S "$SOCK" send-keys -t "$SESS" j y   # the cursor starts on the top-module root row; j to u_core, y
@@ -62,15 +62,15 @@ tmux -S "$SOCK" send-keys -t "$SESS" e
 sleep 2
 LOG="$TMP/editor.log"
 echo "editor argv:     $(cat "$LOG" 2>/dev/null || echo '<not run>')"
-grep -q '^+77 rtl/demo.sv$' "$LOG" 2>/dev/null || {
-  echo "FAIL: editor not invoked with +77 rtl/demo.sv"; exit 1
+grep -q '^+77 tests/rtl/demo.sv$' "$LOG" 2>/dev/null || {
+  echo "FAIL: editor not invoked with +77 tests/rtl/demo.sv"; exit 1
 }
 
-# E must jump to the module's own definition (core: rtl/demo.sv:45)
+# E must jump to the module's own definition (core: tests/rtl/demo.sv:45)
 tmux -S "$SOCK" send-keys -t "$SESS" E
 sleep 2
-grep -q '^+45 rtl/demo.sv$' "$LOG" 2>/dev/null || {
-  echo "FAIL: editor not invoked with +45 rtl/demo.sv"; exit 1
+grep -q '^+45 tests/rtl/demo.sv$' "$LOG" 2>/dev/null || {
+  echo "FAIL: editor not invoked with +45 tests/rtl/demo.sv"; exit 1
 }
 
 echo "PASS: OSC 52 byte-level round trip + e/E editor jumps on a real terminal"

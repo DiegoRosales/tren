@@ -43,9 +43,9 @@ jobs:
       - name: UI drive (fixture)
         run: nix develop .#default -c python test_drive.py
 
-      # The real gate: elaborates rtl/demo.sv through slang-hier + yosys +
+      # The real gate: elaborates tests/rtl/demo.sv through slang-hier + yosys +
       # slang --ast-json and drives the IR -- real-file source focus with
       # auto-follow, d/L trace with hierarchy crossing, black boxes and user
       # cuts. Possible on a stock runner because the RTL is tracked in git.
       - name: UI drive (real IR)
-        run: nix develop .#default -c python test_drive.py --manifest rtl/demo.manifest.json
+        run: nix develop .#default -c python test_drive.py --manifest tests/rtl/demo.manifest.json

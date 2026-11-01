@@ -167,11 +167,13 @@ class LaunchTests(unittest.TestCase):
     "requires the nix dev shell (yosys/slang on PATH)",
 )
 class OneCommandEqualsTwoCommandTests(unittest.TestCase):
-    """Layer 2: the composite result equals import-then-elaborate on rtl/."""
+    """Layer 2: the composite result equals import-then-elaborate on tests/rtl/."""
 
     def test_rtl_directory(self) -> None:
-        two_step = elaborate(import_manifest(REPO / "rtl", root=REPO), REPO, cache=None)
-        _, one_step = load_target(REPO / "rtl", root=REPO, cache=None)
+        two_step = elaborate(
+            import_manifest(REPO / "tests" / "rtl", root=REPO), REPO, cache=None
+        )
+        _, one_step = load_target(REPO / "tests" / "rtl", root=REPO, cache=None)
         self.assertEqual(one_step, two_step)
 
 

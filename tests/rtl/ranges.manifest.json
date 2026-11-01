@@ -1,7 +1,7 @@
 {
   "name": "ranges",
   "sources": [
-    "rtl/ranges.sv"
+    "tests/rtl/ranges.sv"
   ],
   "incdirs": [],
   "defines": [],

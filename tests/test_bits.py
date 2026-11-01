@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from tren import bits  # noqa: E402
 
 CORE = r"$paramod\core\W=s32'00000000000000000000000000100000"
-COREXOR = "$xor$rtl/demo.sv:64$10"
-CONCAT = "$concat$rtl/demo.sv:76$9"
+COREXOR = "$xor$tests/rtl/demo.sv:64$10"
+CONCAT = "$concat$tests/rtl/demo.sv:76$9"
 
 
 def design() -> bits.Netlist:
@@ -33,10 +33,10 @@ def design() -> bits.Netlist:
         "modules": {
             "top": {
                 "netnames": {
-                    "hi": {"bits": [0, 1, 2, 3], "attributes": {"src": "rtl/demo.sv:71.24-71.26"}},
-                    "lo": {"bits": [4, 5, 6, 7], "attributes": {"src": "rtl/demo.sv:72.24-72.26"}},
-                    "o": {"bits": [8, 9, 10, 11, 12, 13, 14, 15], "attributes": {"src": "rtl/demo.sv:75.16-75.17"}},
-                    "out": {"bits": [66, 67, 68, 69], "attributes": {"src": "rtl/demo.sv:73.24-73.27"}},
+                    "hi": {"bits": [0, 1, 2, 3], "attributes": {"src": "tests/rtl/demo.sv:71.24-71.26"}},
+                    "lo": {"bits": [4, 5, 6, 7], "attributes": {"src": "tests/rtl/demo.sv:72.24-72.26"}},
+                    "o": {"bits": [8, 9, 10, 11, 12, 13, 14, 15], "attributes": {"src": "tests/rtl/demo.sv:75.16-75.17"}},
+                    "out": {"bits": [66, 67, 68, 69], "attributes": {"src": "tests/rtl/demo.sv:73.24-73.27"}},
                 },
                 "cells": {
                     CONCAT: {
@@ -46,7 +46,7 @@ def design() -> bits.Netlist:
                             "B": [4, 5, 6, 7],
                             "Y": [8, 9, 10, 11, 12, 13, 14, 15],
                         },
-                        "attributes": {"src": "rtl/demo.sv:76.9-76.21"},
+                        "attributes": {"src": "tests/rtl/demo.sv:76.9-76.21"},
                     },
                     "u_core": {
                         "type": CORE,
@@ -57,16 +57,16 @@ def design() -> bits.Netlist:
                             "op": ["0", "0", "0", "1"],  # constants, not bits
                             "alu_result": [66, 67, 68, 69],
                         },
-                        "attributes": {"src": "rtl/demo.sv:77.14-77.65"},
+                        "attributes": {"src": "tests/rtl/demo.sv:77.14-77.65"},
                     },
                 },
-                "attributes": {"top": "1", "src": "rtl/demo.sv:70.1-78.9"},
+                "attributes": {"top": "1", "src": "tests/rtl/demo.sv:70.1-78.9"},
             },
             CORE: {
                 "netnames": {
                     "alu_result": {
                         "bits": [100, 101, 102, 103],
-                        "attributes": {"src": "rtl/demo.sv:48.24-48.33"},
+                        "attributes": {"src": "tests/rtl/demo.sv:48.24-48.33"},
                     },
                 },
                 "cells": {
@@ -77,10 +77,10 @@ def design() -> bits.Netlist:
                             "B": [90, 91, 92, 93],
                             "Y": [100, 101, 102, 103],
                         },
-                        "attributes": {"src": "rtl/demo.sv:64.23-64.34"},
+                        "attributes": {"src": "tests/rtl/demo.sv:64.23-64.34"},
                     },
                 },
-                "attributes": {"src": "rtl/demo.sv:45.1-68.9"},
+                "attributes": {"src": "tests/rtl/demo.sv:45.1-68.9"},
             },
         },
     }
@@ -109,7 +109,7 @@ class BitMapTests(unittest.TestCase):
         self.assertEqual(rows[0]["cell"], "u_core")
         self.assertEqual(rows[0]["port"], "alu_result")
         self.assertEqual(rows[0]["dir"], "out")
-        self.assertEqual(rows[0]["src"], "rtl/demo.sv:77.14-77.65")
+        self.assertEqual(rows[0]["src"], "tests/rtl/demo.sv:77.14-77.65")
 
     def test_out_has_no_loads(self) -> None:
         out_bits = set(self.top["netnames"]["out"]["bits"])

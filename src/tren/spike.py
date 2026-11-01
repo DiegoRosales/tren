@@ -89,7 +89,7 @@ def show_driver_chain(design: dict, chain: list[dict], indent: int = 0) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("rtl", nargs="?", default="rtl/demo.sv")
+    parser.add_argument("rtl", nargs="?", default="tests/rtl/demo.sv")
     parser.add_argument("--top", default="top")
     parser.add_argument("--net", default="out")
     parser.add_argument("--netlist", help="pre-generated yosys write_json file")

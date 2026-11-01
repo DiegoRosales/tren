@@ -21,7 +21,7 @@ else
 NIX :=
 endif
 
-HLS_EXAMPLES_PATH := test/hls_examples
+HLS_EXAMPLES_PATH := tests/hls_examples
 
 .DEFAULT_GOAL := help
 
@@ -31,10 +31,10 @@ HLS_EXAMPLES_PATH := test/hls_examples
 help:
 	@echo "TREN examples (run inside a dev shell; NIX_DEV=1 to wrap in nix develop):"
 	@echo
-	@echo "  make run            TUI on the real demo IR (rtl/demo.manifest.json)"
-	@echo "  make open           import + elaborate + open (TARGET=rtl default)"
+	@echo "  make run            TUI on the real demo IR (tests/rtl/demo.manifest.json)"
+	@echo "  make open           import + elaborate + open (TARGET=tests/rtl default)"
 	@echo "  make run-fixture    TUI on the vendored demo fixture"
-	@echo "  make import         regenerate rtl/manifest.json from rtl/ (dir scan)"
+	@echo "  make import         regenerate tests/rtl/manifest.json from tests/rtl/ (dir scan)"
 	@echo "  make elaborate      elaborate the demo manifest -> IR summary (cached)"
 	@echo "  make test           unit tests"
 	@echo "  make drive          headless Pilot drive, fixture mode"
@@ -50,7 +50,7 @@ help:
 	@echo "  TREN_SHELL          dev shell the wrapper enters; default = ."
 	@echo "                      e.g. NIX_DEV=1 make check TREN_SHELL=.#tren-yosys-src"
 	@echo
-	@echo "  make hls-import     import the HLS RTL export: test/hls_examples/hls/<BLOCK>/rtl_output"
+	@echo "  make hls-import     import the HLS RTL export: tests/hls_examples/hls/<BLOCK>/rtl_output"
 	@echo "  make hls-elaborate  elaborate <BLOCK>'s HLS RTL into the IR (read-only, no Xilinx)"
 	@echo "  make hls-run        TUI on <BLOCK>'s HLS RTL"
 	@echo "                      (BLOCK defaults to fft_wrapper; e.g. make hls-elaborate BLOCK=test_adder_2p)"
@@ -64,9 +64,9 @@ help:
 # --- interactive TUI (q quits) --------------------------------------------
 
 run:
-	$(NIX) tren open rtl/demo.manifest.json
+	$(NIX) tren open tests/rtl/demo.manifest.json
 
-TARGET ?= rtl
+TARGET ?= tests/rtl
 
 open:
 	$(NIX) tren open $(TARGET)
@@ -77,10 +77,10 @@ run-fixture:
 # --- examples (all verified, non-interactive) -----------------------------
 
 import:
-	$(NIX) tren import rtl --out rtl/manifest.json
+	$(NIX) tren import tests/rtl --out tests/rtl/manifest.json
 
 elaborate:
-	$(NIX) tren elaborate rtl/demo.manifest.json
+	$(NIX) tren elaborate tests/rtl/demo.manifest.json
 
 test:
 	$(NIX) python -m unittest discover -s tests
@@ -89,7 +89,7 @@ drive:
 	$(NIX) python test_drive.py
 
 drive-real:
-	$(NIX) python test_drive.py --manifest rtl/demo.manifest.json
+	$(NIX) python test_drive.py --manifest tests/rtl/demo.manifest.json
 
 roundtrip:
 	$(NIX) bash tools/osc52_roundtrip.sh
@@ -133,7 +133,7 @@ hls-open:
 # --- Vitis HLS example build flow (port from ipyfuse; needs a Xilinx
 #      install - run inside `nix develop .#xilinx`) ------------------------
 
-HLS_EXAMPLES_PATH := test/hls_examples
+HLS_EXAMPLES_PATH := tests/hls_examples
 
 BLOCK_LIST += test_axis_interfaces
 BLOCK_LIST += test_simple_interfaces
