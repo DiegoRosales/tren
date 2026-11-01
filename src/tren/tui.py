@@ -205,24 +205,46 @@ def _pin_slice(pin: CellPin, positions: list[int]) -> str:
     return f"[{hi}:{lo}]"
 
 
-def _cell_row_label(cell: Cell | None, cell_name: str, port: str) -> str:
-    """Leaf text for a netlist cell row: '<type>.<pin>  <file>:<line>'.
+def _cell_row_label(
+    cell: Cell | None, cell_name: str, port: str, net_name: str | None = None
+) -> str:
+    """Leaf text for a netlist cell row: '<net>  <type>.<pin>  <file>:<line>'.
 
-    An internal yosys cell reads by its type (`$xor.Y`); an unresolved
-    instance has no module to name, so it reads by the cell name the source
-    uses (`mix_fifo.m_axis_tvalid`). The yosys cell name embeds a mangled
-    copy of the source span; the stored attribute spells it once.
+    An internal yosys cell reads by its type (`$xor.Y`), so the net it sits
+    on comes first: the source variable is the name the user knows, and the
+    cell type is the detail after it. An unresolved instance has no module to
+    name, so it reads by the cell name the source uses
+    (`mix_fifo.m_axis_tvalid`) and keeps no net prefix. The yosys cell name
+    embeds a mangled copy of the source span; the stored attribute spells it
+    once. A cell built from several locations keeps the first (its own
+    expression).
     """
     if cell is not None and cell.type.startswith("$"):
         head = f"{cell.type}.{port}"
+        if net_name:
+            head = f"{net_name}  {head}"
     else:
         head = f"{cell_name}.{port}"
     if cell is None:
         return head
-    span = _parse_src(cell.src)
+    span = _src_focus(cell.src)
     if span is None:
         return head
     return f"{head}  {span[0].rsplit('/', 1)[-1]}:{span[1]}"
+
+
+def _src_focus(src: str | None) -> tuple[str, int, int] | None:
+    """Source span of a cell src, which yosys may join with '|'.
+
+    Yosys writes one span per source location, e.g. the expression that
+    became the cell and the always block around it. The first span is the
+    cell's own expression, so it is the one the RTL view highlights.
+    """
+    for part in (src or "").split("|"):
+        span = _parse_src(part)
+        if span is not None:
+            return span
+    return None
 
 
 def cheat_line(doc: KeyDoc) -> str:
@@ -960,8 +982,18 @@ class TrenApp(App[None]):
         tree selection's focus. While the search finder (a modal screen)
         owns the screen the tree selection stays the truth: the search
         moves the tree rows and the centre pane must follow them,
-        whatever pane was active when it opened.
+        whatever pane was active when it opened. While the trace pane holds
+        the cursor, the highlighted line owns the focus: a cell row shows
+        the statement it implements and a pin line shows the net it names.
         """
+        if (
+            self.active == "source"
+            and self._trace_open
+            and self._search is None
+        ):
+            traced = self._trace_focus()
+            if traced is not None:
+                return traced
         if (
             self.active == "ports"
             and not self._trace_open
@@ -1118,6 +1150,18 @@ class TrenApp(App[None]):
     def _render_panes(self) -> None:
         scope = self._scope_data(self._current_node)
         focus = self._effective_focus()
+        # the trace line's own scope backs the fallback render, so a cell
+        # from a child scope shows that scope's inline RTL when its file is
+        # unreadable (fixture IR) instead of the tree selection's.
+        source_scope = scope
+        if (
+            self._trace_open
+            and self.active == "source"
+            and self._search is None
+        ):
+            line = self._trace_line()
+            if line is not None:
+                source_scope = self._scopes.get(line["node"].scope_path, scope)
         # What the centre pane is showing: a file span, or (fixture IR) the
         # scope's inline snippet. Scroll position belongs to *that* target, so
         # compare both — focus alone stays None across a move between two
@@ -1126,7 +1170,7 @@ class TrenApp(App[None]):
         # nothing is reset. The focus is the effective selection's:
         # the I/O pane's selected port while that pane is active, so moving
         # its marker re-centres the declaration like a tree leaf does.
-        target = (focus, scope.name if scope is not None else None)
+        target = (focus, source_scope.name if source_scope is not None else None)
         if target != self._render_target:
             self._render_target = target
             self._focus = focus
@@ -1137,7 +1181,7 @@ class TrenApp(App[None]):
         # the trace pane is a bordered panel below the source pane; the centre
         # column carries the split, so the source view needs no line limit here
         self._trace_widget.display = self._trace_open
-        self._source_widget.update(self._render_source(focus, scope))
+        self._source_widget.update(self._render_source(focus, source_scope))
         if self._trace_open:
             self._trace_widget.update(self._render_trace_pane())
             height = self._trace_widget.size.height
@@ -1311,7 +1355,12 @@ class TrenApp(App[None]):
                 else:
                     meta = cells.get(cell)
                     row["kind"] = "cell"
-                    row["label"] = _cell_row_label(meta, cell, port)
+                    net_label = (
+                        net_name
+                        if not net_name.startswith("$")
+                        else self._trace_variable(node)
+                    )
+                    row["label"] = _cell_row_label(meta, cell, port, net_label)
                     # the key carries the direction: the other side of a
                     # driver is its inputs, of a load its outputs
                     row["key"] = ("cell", self._trace_dir, cell, port)
@@ -1340,6 +1389,80 @@ class TrenApp(App[None]):
             cells = {cell.name: cell for cell in scope.cells}
             self._cells_by_module[key] = cells
         return cells
+
+    def _trace_focus(self) -> tuple[str, int, int] | None:
+        """Source focus of the highlighted trace line.
+
+        A cell row points at the statement it implements, so walking a cone
+        highlights the logic instead of the net the trace started from. A
+        pin line or an empty-branch note points at the net it names; an
+        intermediate net with no declaration falls back to the cell that
+        owns the pin. Everything else keeps the tree selection's focus.
+        """
+        line = self._trace_line()
+        if line is None:
+            return None
+        node = line["node"]
+        row = line.get("row")
+        if row is not None:
+            focus = self._cell_focus(node.scope_path, row.get("cell"))
+            if focus is not None:
+                return focus
+            if row.get("kind") == "cell":
+                return self._net_focus(node.scope_path, node.net_name)
+            return None
+        focus = self._net_focus(node.scope_path, node.net_name)
+        if focus is not None:
+            return focus
+        via = node.via
+        if via is not None and via[0] == "cell":
+            return self._cell_focus(node.scope_path, via[2])
+        return None
+
+    def _trace_variable(self, node: TraceNode | None) -> str | None:
+        """Nearest named net above a trace node.
+
+        A yosys `$...` intermediate has no source-level name, but its rows
+        still belong to the cone of a named net: a mux chain under a
+        register computes that register's next value. Walk up the tree so
+        the rows lead with the variable the user is tracing instead of a
+        second anonymous cell name.
+        """
+        while node is not None:
+            if not node.net_name.startswith("$"):
+                return node.net_name
+            node = node.parent
+        return None
+
+    def _cell_focus(
+        self, scope_path: str, cell_name: str | None
+    ) -> tuple[str, int, int] | None:
+        """Source span of a netlist cell in the trace line's scope."""
+        if not cell_name:
+            return None
+        scope = self._scopes.get(scope_path)
+        if scope is None:
+            return None
+        cell = self._cells_of(scope).get(cell_name)
+        return _src_focus(cell.src) if cell is not None else None
+
+    def _net_focus(
+        self, scope_path: str, net_name: str
+    ) -> tuple[str, int, int] | None:
+        """Declaration span of a net, or of the port with the same name."""
+        scope = self._scopes.get(scope_path)
+        if scope is None:
+            return None
+        for net in scope.nets:
+            if net.name == net_name:
+                declared = _parse_src(net.src)
+                if declared is not None:
+                    return declared
+                break
+        for port in scope.ports:
+            if port.name == net_name:
+                return _parse_src(port.src)
+        return None
 
     def _cell_pin_nets(
         self, scope: Scope
@@ -1430,6 +1553,15 @@ class TrenApp(App[None]):
         if key is None:
             return []
         return [child for child in node.children if child.via == key]
+
+    def _trace_line(self) -> dict | None:
+        """The highlighted line of the trace tree, or None when it is shut."""
+        if not self._trace_open:
+            return None
+        lines = self._trace_visible()
+        if not lines:
+            return None
+        return lines[max(0, min(self._trace_index, len(lines) - 1))]
 
     def _trace_visible(self) -> list[dict]:
         """The trace tree as indented lines, depth-first.

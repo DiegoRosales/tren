@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 225 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 228 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -91,8 +91,10 @@ fixture (no tools) and real-IR mode. Two flavours:
   the *real* elaboration, source-pane focus/auto-follow, trace tree expansion
   with positional matching down to `$xor` (a branch keeps its siblings), cell
   rows stepping into their pins and the logic cone behind yosys intermediates,
-  the outward edge of a port, black-box stops, `X` cuts, yank format rendering
-  + OSC payload, editor target.
+  cell rows leading with the source net before the yosys cell (anonymous
+  intermediates inherit the nearest named net above), the RTL view following
+  the highlighted cell/pin line, the outward edge of a port, black-box stops,
+  `X` cuts, yank format rendering + OSC payload, editor target.
 
 Both assert **observable app state** (labels, focus, traces, yanked strings)
 rather than screenshots, so they are deterministic and CI-safe. Their blind

@@ -23,6 +23,7 @@ from tren.tui import (
     _net_slice,
     _parse_src,
     _pin_slice,
+    _src_focus,
     _window_start,
     net_leaf_label,
     port_leaf_label,
@@ -187,6 +188,13 @@ class CellRowLabelTests(unittest.TestCase):
         cell = Cell(name="$xor$...", type="$xor", src="tests/rtl/demo.sv:64.18-64.24")
         self.assertEqual(_cell_row_label(cell, cell.name, "Y"), "$xor.Y  demo.sv:64")
 
+    def test_an_internal_cell_leads_with_the_net_it_sits_on(self) -> None:
+        cell = Cell(name="$xor$...", type="$xor", src="tests/rtl/demo.sv:64.18-64.24")
+        self.assertEqual(
+            _cell_row_label(cell, cell.name, "Y", "alu_result"),
+            "alu_result  $xor.Y  demo.sv:64",
+        )
+
     def test_without_metadata_keeps_the_cell_name(self) -> None:
         self.assertEqual(_cell_row_label(None, "u_sram", "rdata"), "u_sram.rdata")
 
@@ -195,6 +203,23 @@ class CellRowLabelTests(unittest.TestCase):
         self.assertEqual(
             _cell_row_label(cell, "mix_fifo", "m_axis_tvalid"),
             "mix_fifo.m_axis_tvalid  fifo.sv:173",
+        )
+
+    def test_a_multi_span_cell_keeps_its_first_expression(self) -> None:
+        cell = Cell(
+            name="$pmux$...",
+            type="$pmux",
+            src=(
+                "tests/rtl/demo.sv:30.31-30.31"
+                "|tests/rtl/demo.sv:28.12-33.12"
+            ),
+        )
+        self.assertEqual(_cell_row_label(cell, cell.name, "Y"), "$pmux.Y  demo.sv:30")
+
+    def test_src_focus_reads_the_first_span(self) -> None:
+        self.assertEqual(
+            _src_focus("tests/rtl/demo.sv:30.31-30.31|tests/rtl/demo.sv:28.12-33.12"),
+            ("tests/rtl/demo.sv", 30, 30),
         )
 
 

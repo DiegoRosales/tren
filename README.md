@@ -325,6 +325,18 @@ driving or loading it. A yosys intermediate wire with no source-level name
 shows the pin alone (`A`): its rows are still the logic behind it. This is
 how the tree walks a logic cone to the ports and registers that feed it.
 
+A cell row leads with the net it sits on, then the yosys cell and pin:
+`alu_result  $xor.Y  demo.sv:64`. The net is the source variable the user
+knows; the yosys type stays after it as the cell kind. An anonymous yosys
+intermediate has no name of its own, so its rows inherit the nearest named
+net above: a mux chain under a register reads as that register.
+
+The RTL view follows the highlighted trace line. A cell row highlights the
+statement that implements it, so the source leaves the last port and shows
+the logic as the cone goes deeper. A pin row highlights the net declaration
+it names, and a cell copied from several source locations shows the first
+(the expression that became the cell).
+
 A cell whose module the source set does not define - an IP with no stub, so
 yosys has no port directions for it - has no known direction. Its rows appear
 in both drivers and loads, at the instantiation site and marked

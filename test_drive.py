@@ -793,14 +793,20 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         app._select_path("top", "out")
         await pilot.press("d")
         await pilot.press("enter")  # cross into u_core.alu_result
+        # the cell row is the logic: the RTL view follows it, not the port
+        assert app._focus == ("tests/rtl/demo.sv", 64, 64), \
+            f"cell row focus: {app._focus}"
+        assert "lines 64-64" in str(source.content), "cell line not highlighted"
         await pilot.press("enter")  # expand the $xor cell
+        assert app._focus == ("tests/rtl/demo.sv", 50, 50), \
+            f"pin line focus: {app._focus}"
         lines = app._trace_visible()
         cell = next(
             l for l in lines
             if l["row"] is not None and l["row"].get("kind") == "cell"
         )
         assert cell["expanded"] and cell["depth"] == 1, cell
-        assert "$xor" in cell["label"] and "demo.sv:64" in cell["label"], cell["label"]
+        assert cell["label"] == "alu_result  $xor.Y  demo.sv:64", cell["label"]
         assert "$xor$tests" not in cell["label"], "the mangled yosys name must not show"
         pins = [l for l in lines if l.get("pin")]
         assert [p["label"] for p in pins] == [
@@ -817,16 +823,22 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # through the instance and its yosys mux: a cell whose inputs have
         # no source-level name still shows the pins, and each pin its logic
         await pilot.press("enter")  # cross into u_alu0
+        # a mux cell built from a case: the first span is its own expression
+        assert app._focus == ("tests/rtl/demo.sv", 30, 30), \
+            f"mux cell focus: {app._focus}"
         await pilot.press("enter")  # expand the $pmux cell
         lines = app._trace_visible()
-        assert any(l["label"].startswith("$pmux.Y") and l["expanded"] for l in lines), \
-            [l["label"] for l in lines]
+        assert any(l["label"] == "result  $pmux.Y  demo.sv:30" and l["expanded"]
+                   for l in lines), [l["label"] for l in lines]
         assert any(l.get("pin") and l["label"] == "A" for l in lines), \
             [l["label"] for l in lines]
         await pilot.press("enter")  # expand the first pin (A)
+        assert app._focus == ("tests/rtl/demo.sv", 32, 32), \
+            f"deep cell focus: {app._focus}"
         lines = app._trace_visible()
-        assert any(l["label"].startswith("$xor.Y") and "demo.sv:32" in l["label"]
-                   for l in lines), [l["label"] for l in lines]
+        # the pin net is anonymous, so its rows inherit the named net above
+        assert any(l["label"] == "result  $xor.Y  demo.sv:32" for l in lines), \
+            [l["label"] for l in lines]
         await pilot.press("enter")  # expand that $xor cell
         lines = app._trace_visible()
         assert any(l.get("pin") and l["label"] == "A <- a[31:0]" for l in lines), \
