@@ -56,21 +56,29 @@ async def drive_fixture() -> None:
         # text (the trace pane appears below it while a trace is open)
         centre = app.query_one("#centre")
 
-        # j -> top/ scope; center shows top's own text
-        await pilot.press("j")
-        assert "top/" in app._current_node.label.plain, f"cursor: {app._current_node}"
+        # the tree opens on the top-module root row, expanded, so the source
+        # pane shows top's own text with no keypress
+        node = app._current_node
+        assert node is not None and node.label.plain == "top/", f"cursor: {node}"
         source_text = str(source.content)
         assert "module top" in source_text, "source pane did not focus top"
-        assert status_path(app) == "top", f"status after j: {status_path(app)!r}"
+        assert status_path(app) == "top", f"status: {status_path(app)!r}"
+        assert node.is_expanded, "top must start expanded"
 
-        # j/k do not unfold: only l expands (file-manager model)
-        assert not app._current_node.is_expanded, "top must stay collapsed after j"
+        # a source set with extra root modules keeps them under one
+        # unselectable group row, below the top's own contents
+        group = [c for c in tree.root.children if c.data is None]
+        assert len(group) == 1 and group[0].label.plain == "other roots/", \
+            [c.label.plain for c in tree.root.children]
+        assert [c.label.plain for c in group[0].children] == [
+            "core/", "alu/", "sram_stub/"
+        ], [c.label.plain for c in group[0].children]
+        assert group[0] not in app._visible(), "the group row is not selectable"
 
-        await pilot.press("l")
-        assert app._current_node.is_expanded, "l should expand top"
+        # the design top lists its child scopes first, then its ports
         await pilot.press("j")  # -> u_core instance under top
         assert "u_core" in app._current_node.label.plain, f"cursor: {app._current_node}"
-        assert status_path(app) == "top.u_core", f"status after l,j: {status_path(app)!r}"
+        assert status_path(app) == "top.u_core", f"status: {status_path(app)!r}"
 
         # center must now show core's *instantiation* focused
         source_text = str(source.content)
@@ -554,12 +562,30 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert status_path(app) == "top", f"status: {status_path(app)!r}"
 
         # the top module is the tree root and starts expanded (its children
-        # show at mount)
+        # show at mount); child scopes come first, then ports, then nets
         assert app._current_node.is_expanded, "top must start expanded"
+        labels = [c.label.plain for c in app._current_node.children]
+        assert labels[0] == "u_core/", f"top's instance should lead its children: {labels}"
+        assert labels[1:4] == [
+            "port in    logic [31:0] hi",
+            "port in    logic [31:0] lo",
+            "port out   logic [31:0] out",
+        ], f"top's ports follow its instances: {labels}"
+        assert labels[-1] == "logic [63:0] o", f"nets come last: {labels}"
+
+        # the promoted root collapses and reopens like any other row
+        await pilot.press("h")
+        assert not app._current_node.is_expanded, "h should collapse the top"
+        assert app._visible() == [app._tree().root], \
+            "a collapsed top hides every child row"
+        await pilot.press("l")
+        assert app._current_node.is_expanded, "l should reopen the top"
+        assert len(app._visible()) > 1, "reopening the top restores its children"
 
         # j does not unfold; l does (file-manager model)
         await pilot.press("j")  # -> u_core instance under top
         assert "u_core" in app._current_node.label.plain, f"cursor: {app._current_node}"
+        assert status_path(app) == "top.u_core", f"status: {status_path(app)!r}"
         assert not app._current_node.is_expanded, "j must not auto-expand"
         await pilot.press("l")
         assert app._current_node.is_expanded, "l should expand u_core"

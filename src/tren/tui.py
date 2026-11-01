@@ -754,7 +754,7 @@ class TrenApp(App[None]):
             # scripted paste) re-orders it against our visible-walk. TREN
             # expands deterministically in _select instead.
             # the root label is the top module (promoted in on_mount);
-            # "design" only survives for a degenerate multi-root source set
+            # "design" only survives when no scope matches the declared top
             yield Tree("design", data=None, id="tree")
             # the centre column: the source pane, and below it the trace pane
             # while a trace is open (the split). Widths belong to the column.
@@ -815,7 +815,7 @@ class TrenApp(App[None]):
         roots = [s for s in self.design.scopes if _scope_parent(s.name) not in self._scopes]
         top = self._scopes.get(self.design.top)
         root_node = self._tree_widget.root
-        if top is not None and roots == [top]:
+        if top is not None:
             # the top module IS the tree root: no bare "design" line above it
             label = f"{top.name}/"
             root_node.label = label
@@ -824,14 +824,25 @@ class TrenApp(App[None]):
             # no expand event fires for the root, and the _visible() walk only
             # materializes below it: build the top scope's rows here
             self._ensure_children(root_node)
+            # A source set can carry modules no single top reaches. Keep the
+            # top as the root row anyway and park those roots under one
+            # unselectable group row, so they stay reachable without
+            # pretending they are part of the top's hierarchy.
+            others = [s for s in roots if s is not top]
+            if others:
+                group = root_node.add(
+                    "other roots/", data=None, allow_expand=True
+                )
+                group.expand()
+                for scope in others:
+                    self._add_scope_node(group, scope)
             # the cursor starts on the top-module row, so the source pane
             # opens on the design top instead of an empty pane. Without a
             # selection the first j "selects" row 0 - a move the eye cannot
             # see, since the cursor was implicitly there all along
             self._select(0)
         else:
-            # degenerate source set: several roots no single top reaches, so
-            # the neutral "design" line stays above them
+            # no scope for the declared top: the neutral "design" line stays
             for scope in roots:
                 self._add_scope_node(root_node, scope)
             root_node.expand()
@@ -860,6 +871,9 @@ class TrenApp(App[None]):
         kind = data.get("kind")
         if kind == "scope":
             scope = data["scope"]
+            # Child scopes first, then ports, then nets: the hierarchy is
+            # the quickest thing to walk into. The design top follows the
+            # same order, so every scope reads the same way.
             for inst in scope.instances:
                 child = self._scopes.get(f"{scope.name}.{inst.name}")
                 if child is not None:
@@ -884,7 +898,12 @@ class TrenApp(App[None]):
                 self._add_ports_nets(node, inst_scope)
 
     def _add_ports_nets(self, node: Tree.Node, scope: Scope) -> None:
-        """Leaves for a scope: ports first, then the internal nets.
+        """Leaves for a scope in {\"ports, then nets\"} order."""
+        self._add_ports(node, scope)
+        self._add_nets(node, scope)
+
+    def _add_ports(self, node: Tree.Node, scope: Scope) -> None:
+        """Port leaves for a scope, each keeping the net yosys named after it.
 
         The netlist lists a port a second time as a net, because yosys names
         every port net. Show such a signal once, as the port row, and keep
@@ -897,6 +916,9 @@ class TrenApp(App[None]):
                 port_leaf_label(port),
                 data={"kind": "port", "port": port, "net": nets.get(port.name)},
             )
+
+    def _add_nets(self, node: Tree.Node, scope: Scope) -> None:
+        """Internal net leaves, skipping the nets a port row already carries."""
         port_names = {port.name for port in scope.ports}
         for net in scope.nets:
             if net.name in port_names:
@@ -1879,20 +1901,33 @@ class TrenApp(App[None]):
         for i in range(start, len(parts) + 1):
             prefix = ".".join(parts[:i])
             self._ensure_children(node)
-            match = None
-            for child in node.children:
-                data = child.data
-                if (
-                    data is not None
-                    and data.get("kind") == "scope"
-                    and data["scope"].name == prefix
-                ):
-                    match = child
-                    break
+            match = self._scope_child(node, prefix)
             if match is None:
                 return None
             node = match
         return node
+
+    def _scope_child(self, node: Tree.Node, path: str) -> Tree.Node | None:
+        """A child scope row named `path`, also looking inside group rows.
+
+        A group row (the "other roots" holder) carries no data of its own;
+        it exists only to group sibling roots, so its scope children answer
+        to their own full path.
+        """
+        for child in node.children:
+            data = child.data
+            if (
+                data is not None
+                and data.get("kind") == "scope"
+                and data["scope"].name == path
+            ):
+                return child
+        for child in node.children:
+            if child.data is None:
+                match = self._scope_child(child, path)
+                if match is not None:
+                    return match
+        return None
 
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
         self._ensure_children(event.node)
@@ -1911,10 +1946,19 @@ class TrenApp(App[None]):
         return None
 
     def _expand_to(self, node: Tree.Node) -> None:
+        """Expand a node and every ancestor, including the tree root.
+
+        The root is a real row here (the top module), so expanding a
+        selection on it must unfold it like any other node. The earlier
+        walk stopped *before* the root, which left a collapsed top
+        impossible to reopen.
+        """
         chain: list[Tree.Node] = []
         n = node
-        while n is not self._tree().root:
+        while n is not None:
             chain.append(n)
+            if n is self._tree().root:
+                break
             n = n.parent
         for n in reversed(chain):
             n.expand()
@@ -2574,31 +2618,29 @@ class TrenApp(App[None]):
         return scope.name.split(".") if scope is not None else []
 
     def _status_chain(self, node) -> list[str]:
-        """Tree-lineage segments of a selection: [top, u_core] etc.
+        """Hierarchical path segments of a selection: [top, u_core] etc.
 
         Unlike `_selection_parts` (the yank path, which keys off the *module*
         scope a row stands for), the status line is the selection's full
         *hierarchical* path — so an instance row (fixture UIs, unresolved
         black boxes) reports its place in the tree (top.u_core), not the
-        module name (core). Real scopes are path-keyed anyway, so both agree
-        there. Ports/nets contribute nothing; their item is appended by
-        `_selection_status`.
+        module name (core). A scope carries its own full path, so a root
+        parked under the "other roots" group still reports its own name, not
+        a false path through the design top. Ports/nets contribute nothing;
+        their item is appended by `_selection_status`.
         """
-        chain: list[str] = []
+        suffix: list[str] = []
         n = node
         while n is not None:
             data = n.data
             if data is not None:
                 kind = data.get("kind")
                 if kind == "scope":
-                    chain.append(data["scope"].name.split(".")[-1])
-                elif kind == "instance":
-                    chain.append(data["instance"].name)
-            if n is self._tree().root:
-                break
+                    return data["scope"].name.split(".") + suffix
+                if kind == "instance":
+                    suffix.insert(0, data["instance"].name)
             n = n.parent
-        chain.reverse()
-        return chain
+        return suffix
 
     def _selection_status(self) -> RichText:
         """The top status line: yazi-style full path of the selection (246).
