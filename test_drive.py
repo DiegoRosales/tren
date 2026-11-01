@@ -733,6 +733,15 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert str(app._trace_widget.border_title) == "drivers of top.out"
         assert _trace_path(app) == [("top", "out")], f"trace: {_trace_path(app)}"
         assert [r["label"] for r in app._trace_rows()] == ["u_core.alu_result  → core"]
+        # d splits the centre column: source above, the driver tree below
+        await pilot.pause()
+        assert app._trace_widget.display, "the split must show the trace pane"
+        assert app._source_widget.region.y < app._trace_widget.region.y, \
+            (app._source_widget.region, app._trace_widget.region)
+        assert (
+            app._source_widget.region.height + app._trace_widget.region.height
+            == app._centre.region.height
+        ), (app._source_widget.region, app._trace_widget.region, app._centre.region)
 
         # d/L switch the direction at the same head; the path stays
         await pilot.press("L")
@@ -787,6 +796,12 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
 
         await pilot.press("escape")
         assert not app._trace_open, "escape should close the trace split"
+        await pilot.pause()
+        assert not app._trace_widget.display, "escape must hide the trace pane"
+        assert app._source_widget.region.height == app._centre.region.height, (
+            "escape must restore the single source pane: "
+            f"{app._source_widget.region} vs {app._centre.region}"
+        )
 
         # a cell row resolves into the logic it is built from: its pins, the
         # nets those pins connect to, and the cells driving them

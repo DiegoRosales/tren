@@ -93,8 +93,10 @@ fixture (no tools) and real-IR mode. Two flavours:
   rows stepping into their pins and the logic cone behind yosys intermediates,
   cell rows leading with the source net before the yosys cell (anonymous
   intermediates inherit the nearest named net above), the RTL view following
-  the highlighted cell/pin line, the outward edge of a port, black-box stops,
-  `X` cuts, yank format rendering + OSC payload, editor target.
+  the highlighted cell/pin line, the split geometry (source over the row
+  tree), `L` mirroring the trace onto loads, `escape` restoring the single
+  pane, the outward edge of a port, black-box stops, `X` cuts, yank format
+  rendering + OSC payload, editor target.
 
 Both assert **observable app state** (labels, focus, traces, yanked strings)
 rather than screenshots, so they are deterministic and CI-safe. Their blind
@@ -225,6 +227,7 @@ ceremony:
 | pure logic / IR | unit test | `make test` |
 | a new IR field | nothing to remember - `ir.schema_id()` invalidates caches from its layout. Changing what an *existing* field means is the exception: bump `ir.SCHEMA_VERSION` | `make test` |
 | binding / navigation / pane | update Pilot drives, user guide, AGENTS gotchas; a key map change also runs `make guide` so the README table and the `?` cheatsheet (one list in `tren/keys.py`) cannot drift | `make check` + `make roundtrip` (tree/OSC) |
+| trace split (`d` / `L`) | extend the Pilot drive with the split geometry, the boundary descent, the mirrored loads and the single-pane restore; refresh `out/shot*.svg` | `make check` + `make roundtrip` |
 | pane styling / anything the Tree renders | assert the style in the drives **and** capture a real terminal | `make check` + `make pane-cue` |
 | elaborator / CLI / importers | extend acceptance, re-run on demo + an HLS block | `make check` + `make hls-elaborate BLOCK=...` |
 | a new `slang_flags` / `yosys_flags` in the manifest | update argv-construction tests, re-run on the zybo reference design | `make check` + elaborate the zybo manifest under `.#tren-yosys-src` |
