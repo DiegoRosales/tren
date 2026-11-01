@@ -18,7 +18,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tren.ir import Net, Port
-from tren.tui import _parse_src, _window_start, net_leaf_label, port_leaf_label
+from tren.tui import (
+    _net_slice,
+    _parse_src,
+    _window_start,
+    net_leaf_label,
+    port_leaf_label,
+)
 
 
 class ParseSrcYosysSpanTests(unittest.TestCase):
@@ -147,6 +153,29 @@ class DeclaredRangeLabelTests(unittest.TestCase):
         self.assertEqual(
             net_leaf_label(Net(name="n", width=4, range=None)), "net n[3:0]"
         )
+
+
+class NetSliceTests(unittest.TestCase):
+    """The bit select a parent connection touches on its net.
+
+    yosys lists net bits LSB first and the right bound of a declared range
+    is that LSB, so the select reads back in the declared direction.
+    """
+
+    def test_descending_net(self) -> None:
+        net = Net(name="o", width=64, range="[63:0]")
+        self.assertEqual(_net_slice(net, [0, 1]), "[1:0]")
+
+    def test_ascending_net_keeps_the_declared_direction(self) -> None:
+        net = Net(name="up", width=8, range="[0:7]")
+        self.assertEqual(_net_slice(net, [0, 1, 2, 3]), "[4:7]")
+
+    def test_one_bit_reads_as_a_select(self) -> None:
+        net = Net(name="nd", width=8, range="[15:8]")
+        self.assertEqual(_net_slice(net, [2]), "[10]")
+
+    def test_a_scalar_has_no_select(self) -> None:
+        self.assertEqual(_net_slice(Net(name="we", width=1), [0]), "")
 
 
 class SearchWindowStartTests(unittest.TestCase):

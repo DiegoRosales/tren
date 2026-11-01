@@ -800,6 +800,49 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("escape")
         assert not app._trace_open
 
+        # a port has an edge on the outside: the drivers of an input and
+        # the loads of an output cross out to the parent net, and the select
+        # shows the touched bits (alias net names show the same select)
+        app._select_path("top.u_core", "a")
+        await pilot.press("d")
+        labels = [r["label"] for r in app._trace_rows()]
+        assert labels == ["lo[31:0]  ↑ top", "o[31:0]  ↑ top"], \
+            f"drivers of an input port: {labels}"
+        await pilot.press("enter")
+        assert _trace_path(app) == [("top.u_core", "a"), ("top", "lo")], \
+            f"enter should cross out to the parent net: {_trace_path(app)}"
+        await pilot.press("escape")
+
+        # a net the netlist aliased to a port reaches the same parent edge
+        app._select_path("top.u_core", "x")
+        await pilot.press("d")
+        labels = [r["label"] for r in app._trace_rows()]
+        assert "o[31:0]  ↑ top" in labels, \
+            f"drivers of a net aliased to a port: {labels}"
+        await pilot.press("escape")
+
+        app._select_path("top.u_core", "alu_result")
+        await pilot.press("L")
+        assert [r["label"] for r in app._trace_rows()] == ["out[31:0]  ↑ top"], \
+            f"loads of an output port: {app._trace_rows()}"
+        await pilot.press("escape")
+
+        # a black box has no in-scope connectivity, so its parent edge is
+        # the whole answer
+        app._select_path("top.u_core.u_sram", "rdata")
+        await pilot.press("L")
+        assert [r["label"] for r in app._trace_rows()] == ["rd[31:0]  ↑ top.u_core"], \
+            f"loads of a black box output: {app._trace_rows()}"
+        await pilot.press("escape")
+
+        # the design top has no parent: its ports say why the side is empty
+        app._select_path("top", "hi")
+        await pilot.press("d")
+        assert app._trace_rows() == []
+        assert app._trace_empty_note() == \
+            "(design input - its driver is outside the design)"
+        await pilot.press("escape")
+
         # ---- ? cheatsheet, incl. opened from inside a trace -----
         await pilot.press("?")
         assert app._cheat is not None, "? should open the cheatsheet"
@@ -819,7 +862,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._cheat.include_trace, "a trace is open: list the trace keys"
         cheat_rows = "\n".join(str(s.content) for s in app._cheat.query("Static"))
         assert "While the trace is open:" in cheat_rows, cheat_rows
-        assert "crosses a boundary" in cheat_rows, "trace keys listed"
+        assert "crosses the row's edge" in cheat_rows, "trace keys listed"
         assert "yank the selection" in cheat_rows, "screen keys still there"
         await pilot.press("escape")
         assert app._cheat is None, "escape dismisses the cheatsheet"

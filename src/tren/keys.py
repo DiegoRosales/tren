@@ -46,7 +46,7 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
 )
 
 TRACE_KEYS: tuple[KeyDoc, ...] = (
-    KeyDoc("enter or l", "crosses a boundary into the child scope"),
+    KeyDoc("enter or l", "crosses the row's edge into the child scope or the parent net"),
     KeyDoc("backspace or h", "pops the trace tree (at the root, closes the split)"),
     KeyDoc("j k", "move down/up through the trace rows"),
     KeyDoc("d L", "switch the trace between drivers and loads"),

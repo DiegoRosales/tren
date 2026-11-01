@@ -153,6 +153,37 @@ def net_leaf_label(net: Net) -> str:
     return f"net {net.name}{_bit_range(net.width, net.range)}"
 
 
+def _net_slice(net: Net, positions: list[int]) -> str:
+    """Declared bit select of the net positions a connection touches.
+
+    ``o[31:0]`` on a descending net and ``nu[0:3]`` on an ascending one, so
+    the slice reads as the source writes the range. Two netnames that carry
+    the same bits alias the same wire: their rows show the same select.
+    """
+    if not positions or net.width < 1:
+        return ""
+    declared = net.range or (f"[{net.width - 1}:0]" if net.width > 1 else "")
+    if not (declared.startswith("[") and declared.endswith("]")):
+        return ""
+    bounds = declared[1:-1].split(":")
+    if len(bounds) != 2:
+        return ""
+    try:
+        left, right = int(bounds[0]), int(bounds[1])
+    except ValueError:
+        return ""
+    ascending = left < right
+    lo, hi = min(positions), max(positions)
+    # yosys lists net bits LSB first, and the right bound is the LSB.
+    def index(position: int) -> int:
+        return right - position if ascending else right + position
+
+    start, end = index(hi), index(lo)
+    if start == end:
+        return f"[{start}]"
+    return f"[{start}:{end}]"
+
+
 def cheat_line(doc: KeyDoc) -> str:
     """Cheatsheet row: the keys in a fixed column, then the effect."""
     return f"{doc.keys:<16} {doc.effect}"
@@ -994,7 +1025,7 @@ class TrenApp(App[None]):
             title += f"  (rows {lo + 1}-{hi} of {len(rows)})"
         self._trace_widget.border_title = title
         if not rows:
-            trace.append("  (no rows)\n", style="dim italic")
+            trace.append(f"  {self._trace_empty_note()}\n", style="dim italic")
             return trace
         if lo:
             trace.append("…… (↑ scroll to see earlier rows)\n", style="dim italic")
@@ -1134,7 +1165,12 @@ class TrenApp(App[None]):
         return None
 
     def _trace_rows(self) -> list[dict]:
-        """Driver/load rows of the trace head for the split."""
+        """Driver/load rows of the trace head for the split.
+
+        A net's rows stop at the module edge. A port also has the connection
+        on the other side of that edge, so the outward rows of
+        `_outward_rows` join the in-scope ones.
+        """
         cursor = self._trace_cursor
         if cursor is None:
             return []
@@ -1146,54 +1182,154 @@ class TrenApp(App[None]):
             (c for c in self.design.connectivity if c.scope == scope.module and c.net == net_name),
             None,
         )
-        if conn is None:
-            return []
-        pairs: list[tuple[str, str]] = []
-        for bit in conn.bits:
-            eps = bit.drivers if self._trace_dir == "drivers" else bit.loads
-            pairs.extend((e.cell, e.port) for e in eps)
         seen: set[tuple[str, str]] = set()
         rows: list[dict] = []
-        for cell, port in pairs:
-            if (cell, port) in seen:
-                continue
-            seen.add((cell, port))
-            child = f"{scope_path}.{cell}"
-            row = {"cell": cell, "port": port, "kind": "leaf", "label": f"{cell}.{port}"}
-            if child in self._scopes:
-                child_scope = self._scopes[child]
-                if child_scope.blackbox:
-                    row["kind"] = "box"
-                    row["label"] = f"{cell}.{port}  ⛔ black box ({child_scope.module})"
-                elif child in self._user_cut:
-                    row["kind"] = "box"
-                    row["label"] = f"{cell}.{port}  ⛔ user cut"
-                else:
-                    row["kind"] = "boundary"
-                    row["child"] = child
-                    row["label"] = f"{cell}.{port}  → {child_scope.module}"
-            rows.append(row)
+        for bit in conn.bits if conn is not None else ():
+            eps = bit.drivers if self._trace_dir == "drivers" else bit.loads
+            for endpoint in eps:
+                cell, port = endpoint.cell, endpoint.port
+                if (cell, port) in seen:
+                    continue
+                seen.add((cell, port))
+                child = f"{scope_path}.{cell}"
+                row = {"cell": cell, "port": port, "kind": "leaf", "label": f"{cell}.{port}"}
+                if child in self._scopes:
+                    child_scope = self._scopes[child]
+                    if child_scope.blackbox:
+                        row["kind"] = "box"
+                        row["label"] = f"{cell}.{port}  ⛔ black box ({child_scope.module})"
+                    elif child in self._user_cut:
+                        row["kind"] = "box"
+                        row["label"] = f"{cell}.{port}  ⛔ user cut"
+                    else:
+                        row["kind"] = "boundary"
+                        row["target"] = (child, port)
+                        row["label"] = f"{cell}.{port}  → {child_scope.module}"
+                rows.append(row)
+        rows.extend(self._outward_rows(scope, scope_path, net_name))
         cursor.rows = rows
         return rows
 
-    def _trace_descend(self, row: dict) -> bool:
-        """Cross a boundary driver/load into the child scope's port net."""
-        if row.get("kind") != "boundary":
+    def _port_aliases(
+        self, scope: Scope, net_name: str
+    ) -> list[tuple[Port, set[int]]]:
+        """Ports whose bits the head net carries, with the port bit positions.
+
+        The head may be the port itself, or a net the netlist aliased to it:
+        a plain `assign x = a` leaves x carrying a's bits, so tracing x must
+        reach the same parent edge that a has.
+        """
+        nets = {net.name: net for net in scope.nets}
+        head = nets.get(net_name)
+        if head is None or not head.bits:
+            return []
+        head_bits = set(head.bits)
+        aliases: list[tuple[Port, set[int]]] = []
+        for port in scope.ports:
+            net = nets.get(port.name)
+            if net is None:
+                continue
+            shared = {i for i, bit in enumerate(net.bits) if bit in head_bits}
+            if shared:
+                aliases.append((port, shared))
+        return aliases
+
+    def _outward_rows(self, scope: Scope, scope_path: str, net_name: str) -> list[dict]:
+        """Rows for the port edge on the outside of the scope.
+
+        An input port is driven from outside the scope and an output port is
+        loaded outside it, so the in-scope rows stop at the module edge. The
+        parent net that connects the instance port is the next step; enter
+        crosses to it. The design top has no parent, so its ports get none.
+        """
+        rows: list[dict] = []
+        for port, positions in self._port_aliases(scope, net_name):
+            outward = (
+                self._trace_dir == "drivers" and port.direction in ("in", "inout")
+            ) or (
+                self._trace_dir == "loads" and port.direction in ("out", "inout")
+            )
+            if not outward:
+                continue
+            for link in self.design.boundaries:
+                if link.child_scope != scope_path or link.port != port.name:
+                    continue
+                parent = self._scopes.get(link.parent_scope)
+                if parent is None:
+                    continue
+                for conn in self.design.connectivity:
+                    if conn.scope != parent.module:
+                        continue
+                    touched = [
+                        bit.position
+                        for bit in conn.bits
+                        if any(
+                            e.cell == link.instance
+                            and e.port == link.port
+                            and e.bit in positions
+                            for e in (*bit.drivers, *bit.loads)
+                        )
+                    ]
+                    if not touched:
+                        continue
+                    parent_net = next(
+                        (n for n in parent.nets if n.name == conn.net), None
+                    )
+                    select = _net_slice(parent_net, touched) if parent_net is not None else ""
+                    rows.append(
+                        {
+                            "cell": link.instance,
+                            "port": link.port,
+                            "kind": "up",
+                            "target": (link.parent_scope, conn.net),
+                            "label": f"{conn.net}{select}  ↑ {link.parent_scope}",
+                        }
+                    )
+        return rows
+
+    def _trace_empty_note(self) -> str:
+        """Why the trace head has no rows.
+
+        A design top's input is driven outside the design and its output is
+        loaded outside it, so such a port has no row on that side. Every
+        other empty head is a plain "(no rows)".
+        """
+        cursor = self._trace_cursor
+        if cursor is None or _scope_parent(cursor.scope_path) is not None:
+            return "(no rows)"
+        scope = self._scopes.get(cursor.scope_path)
+        if scope is None:
+            return "(no rows)"
+        directions = {port.direction for port, _ in self._port_aliases(scope, cursor.net_name)}
+        if self._trace_dir == "drivers" and directions & {"in", "inout"}:
+            return "(design input - its driver is outside the design)"
+        if self._trace_dir == "loads" and directions & {"out", "inout"}:
+            return "(design output - its loads are outside the design)"
+        return "(no rows)"
+
+    def _trace_cross(self, row: dict) -> bool:
+        """Cross the highlighted row to the net on its far side.
+
+        A boundary row enters the child scope's port net; an upward row
+        enters the parent scope's net that connects the port.
+        """
+        target = row.get("target")
+        if target is None:
             return False
-        child, net_name = row["child"], row["port"]
+        scope_path, net_name = target
         parent = self._trace_cursor
         if parent is None:
             return False
         node = next(
             (c for c in parent.children
-             if c.scope_path == child and c.net_name == net_name),
+             if c.scope_path == scope_path and c.net_name == net_name),
             None,
         )
         if node is None:
-            node = TraceNode(child, net_name, parent)
+            node = TraceNode(scope_path, net_name, parent)
             parent.children.append(node)
         self._trace_cursor = node
-        self._select_path(child, net_name)
+        self._select_path(scope_path, net_name)
         return True
 
     def _trace_pop(self) -> bool:
@@ -1506,12 +1642,12 @@ class TrenApp(App[None]):
         self._render_panes()
 
     def _trace_enter(self) -> None:
-        """enter/right in the trace pane: cross the highlighted boundary."""
+        """enter/right in the trace pane: cross the highlighted row's edge."""
         rows = self._trace_rows()
         if not (0 <= self._trace_index < len(rows)):
             self.bell()
             return
-        if self._trace_descend(rows[self._trace_index]):
+        if self._trace_cross(rows[self._trace_index]):
             self._trace_index = 0
             self._trace_scroll = 0
             self._render_panes()

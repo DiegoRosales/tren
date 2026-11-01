@@ -238,7 +238,7 @@ pane.
 | `?` | open this navigation cheatsheet |
 | `q` | quit |
 
-In the **trace split**: `enter` or `l` crosses a boundary into the child scope, `backspace` or `h` pops the trace tree (at the root, closes the split), `j` `k` move down/up through the trace rows, `d` `L` switch the trace between drivers and loads, `escape` closes the split. The arrows alias j/k and l/h. The split is a bordered pane below the source view. The pane title names the trace head and the visible row range.
+In the **trace split**: `enter` or `l` crosses the row's edge into the child scope or the parent net, `backspace` or `h` pops the trace tree (at the root, closes the split), `j` `k` move down/up through the trace rows, `d` `L` switch the trace between drivers and loads, `escape` closes the split. The arrows alias j/k and l/h. The split is a bordered pane below the source view. The pane title names the trace head and the visible row range.
 
 <!-- keys:end -->
 
@@ -315,10 +315,19 @@ sequence (works in any terminal that relays it, e.g. tmux with
 Select a port or a net in the tree, then `d` (drivers) or `L` (loads). The
 split pane lists the touching cells. `enter` on a boundary row crosses
 **positionally** into the child scope's net (bits are module-local - matching
-by ID across a boundary is wrong by design). While the trace pane holds the
-cursor, `d` and `L` switch the direction and the accumulated path stays. From
-another pane they start a new trace at the tree selection. `;` dumps the
-breadcrumb, e.g. `top.out ▶ top.u_core.alu_result`.
+by ID across a boundary is wrong by design).
+
+A port also has an edge on the outside. The drivers of an input and the loads
+of an output cross to the parent net that connects the port: `o[31:0] ↑ top`.
+Two net names that carry the same bits alias one wire and show the same
+select, and a net the netlist aliased to a port reaches the same parent edge.
+The design top has no parent, so its ports report that the driver or the load
+is outside the design.
+
+While the trace pane holds the cursor, `d` and `L` switch the direction and
+the accumulated path stays. From another pane they start a new trace at the
+tree selection. `;` dumps the breadcrumb, e.g.
+`top.out ▶ top.u_core.alu_result`.
 
 ### Black boxes and cuts
 
