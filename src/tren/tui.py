@@ -22,7 +22,7 @@ level, 1/2/3 pane select, z zoom the active pane, y yank,
 commits, n/N walk the matches, ctrl+enter selects and closes),
 ? navigation cheatsheet, e editor at the selection's declaration, E editor at
 the module definition, q quit. The arrow keys are aliases: down/up = j/k,
-right/left = l/h; in the trace modal right descends and left goes
+right/left = l/h; in the trace split right descends and left goes
 back.
 Headless Pilot tests:  python test_drive.py [--manifest …]
 """
@@ -67,6 +67,9 @@ PANE_BG_ACTIVE = "#262626"
 PANE_BG_IDLE = "#121212"
 # status line background: distinctly a chrome bar, not a pane
 STATUS_BG = "#1e1e1e"
+# trace pane background: the split's own surface, so the trace rows read as
+# a pane below the source, never as more RTL lines
+TRACE_PANE_BG = "#1e1e1e"
 # three-column layout (the zoom restores these widths when it ends)
 PANE_WIDTHS = {"tree": "32%", "source": "48%", "ports": "20%"}
 ZOOM_WIDTH = "100%"
@@ -93,6 +96,13 @@ def _window_start(cursor: int, total: int, window: int) -> int:
     if total <= window:
         return 0
     return max(0, min(cursor - window // 2, total - window))
+
+
+# The trace split renders at most this many rows per refresh; the window
+# slides to keep the cursor visible. A bound on the render keeps a
+# high-fanout net (hundreds of drivers) from rebuilding the whole list on
+# every keypress.
+TRACE_MAX_ROWS = 200
 
 
 def load_design(fixture: Path | None = None) -> Design:
@@ -164,6 +174,15 @@ class PortsPane(Static):
     """Right: I/O list of the current module."""
 
 
+class TracePane(Static):
+    """Centre, bottom half: the trace rows of the trace head.
+
+    A bordered panel with its own chrome background, so the trace split
+    reads as a second pane below the source view, never as more source
+    lines. Its border title names the trace head; the rows render inside.
+    """
+
+
 class StatusBar(Static):
     """Top line: the selection's full hierarchical path (yazi-style).
 
@@ -182,7 +201,7 @@ class CheatSheet(ModalScreen[None]):
     so a nav key reads the map and keeps navigating in one press. Both the
     sheet and the README table come from tren.keys, so they cannot drift.
 
-    Opening it while the d/L trace modal is open lists the trace keys too:
+    Opening it while the trace split is open lists the trace keys too:
     the app passes include_trace from whether a trace is currently shown.
     """
 
@@ -230,80 +249,6 @@ class TraceNode:
         # rows computed the last time this node was the trace head; None
         # until first built, cleared again when a user cut changes
         self.rows: list[dict] | None = None
-
-
-class TraceScreen(ModalScreen[None]):
-    """Drivers/loads of the trace head: enter descends, backspace pops.
-
-    Enter is handled via ListView.Selected (ListView owns the enter key).
-    List navigation uses arrow keys: the App's j/k bindings are
-    priority=True and would shadow same-letter modal bindings (verified).
-    The focused ListView keeps up/down for the list, because the App's arrow
-    aliases are not priority. Left/right are free there, so the
-    modal binds them to back/descend: an arrow in the trace never reaches the
-    tree behind the modal.
-    """
-
-    BINDINGS = [
-        Binding("right", "descend_trace", "descend", show=False),
-        Binding("left", "pop_trace", "back", show=False),
-        Binding("backspace", "pop_trace", "back", show=False),
-        Binding("escape", "dismiss", "close", show=False),
-    ]
-
-    def compose(self) -> ComposeResult:
-        with Vertical():
-            yield Label("", id="trace-title")
-            yield ListView()
-        yield Footer()
-
-    def on_mount(self) -> None:
-        self._app = self.app  # type: ignore[assignment]
-        self._app._modal = self  # type: ignore[attr-defined]
-        self.listwidget = self.query_one(ListView)
-        self.rows: list[dict] = []
-        self._refresh()
-
-    def on_unmount(self) -> None:
-        self._app._modal = None  # type: ignore[attr-defined]
-
-    def _refresh(self) -> None:
-        app = self._app
-        cursor = app._trace_cursor
-        if cursor is None:
-            return
-        scope, net = cursor.scope_path, cursor.net_name
-        self.query_one("#trace-title", Label).update(
-            f"{app._trace_dir} of {scope}.{net}"
-        )
-        self.rows = app._trace_rows()
-        self.listwidget.clear()
-        self.listwidget.extend(ListItem(Static(r["label"])) for r in self.rows)
-        if self.rows:
-            self.listwidget.index = 0
-        self.listwidget.focus()
-
-    def _descend(self, idx: int | None) -> None:
-        app = self._app
-        if idx is not None and 0 <= idx < len(self.rows):
-            if app._trace_descend(self.rows[idx]):
-                self._refresh()
-                return
-        app.bell()
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        self._descend(event.index if event.index is not None else self.listwidget.index)
-
-    def action_descend_trace(self) -> None:
-        """right: cross the highlighted boundary, as enter does."""
-        self._descend(self.listwidget.index)
-
-    def action_pop_trace(self) -> None:
-        app = self._app
-        if app._trace_pop():
-            self._refresh()
-        else:
-            app.bell()
 
 
 class SearchScreen(ModalScreen[None]):
@@ -611,21 +556,23 @@ class TrenApp(App[None]):
         Binding("pageup", "prev_page", "page up", priority=True),
         Binding("pagedown", "next_page", "page down", priority=True),
         # arrow aliases of j/k/l/h. NOT priority, and that is the
-        # point: the trace modal's ListView owns up/down for its own list, and
-        # the modal binds left/right itself. A priority alias here would take
-        # all four away from the modal, exactly as j/k/l/h are taken.
+        # point: while the trace split is open these keys act on the
+        # trace rows (descend/back through the trace); a priority alias
+        # here would take all four away from the pane.
         Binding("down", "next_item", "down", show=False),
         Binding("up", "prev_item", "up", show=False),
         Binding("right", "expand", "expand", show=False),
         Binding("left", "collapse", "collapse", show=False),
-        Binding("enter", "focus_source", "show rtl"),  # NOT priority: the d/L
-        # modal's ListView owns Enter while the trace is open
+        Binding("enter", "focus_source", "show rtl"),  # NOT priority: the
+        # trace split routes enter to descend while it is open
         Binding("ctrl+u", "go_up_level", "up level", priority=True),
         Binding("/", "open_search", "search", priority=True),
         Binding("y", "yank", "yank", priority=True),
         Binding("Y", "cycle_format", "fmt", priority=True),
         Binding("d", "trace_drivers", "drivers", priority=True),
         Binding("L", "trace_loads", "loads", priority=True),
+        Binding("escape", "close_trace", "close trace", show=False),
+        Binding("backspace", "trace_back", "pop trace", show=False),
         Binding("X", "toggle_cut", "cut", priority=True),
         Binding(";", "dump_trace", "dump", priority=True),
         Binding("e", "open_editor", "editor inst", priority=True),
@@ -646,6 +593,7 @@ class TrenApp(App[None]):
         self.zoomed = False  # z: the active pane fills the screen
         self.src_offset = 0
         self._source_rows = 30  # last known source-pane height (see _follow)
+        self._trace_pane_rows = 12  # last known trace-pane height (see _trace_view_rows)
         self.port_index = 0
         self.pane_ports: list[Port] = []
         self._scopes = {s.name: s for s in design.scopes}
@@ -658,7 +606,12 @@ class TrenApp(App[None]):
         self._trace_root: TraceNode | None = None
         self._trace_cursor: TraceNode | None = None
         self._trace_dir = "drivers"
-        self._modal: "TraceScreen | None" = None
+        # the trace split: True while the trace pane is open. `_trace_index`
+        # selects the row of the trace head the descend targets;
+        # `_trace_scroll` is the first row the bottom half shows.
+        self._trace_open = False
+        self._trace_index = 0
+        self._trace_scroll = 0
         self.trace_dump: str = ""
         # user cuts (X): scope paths made opaque at runtime
         self._user_cut: set[str] = set()
@@ -678,7 +631,11 @@ class TrenApp(App[None]):
             # the root label is the top module (promoted in on_mount);
             # "design" only survives for a degenerate multi-root source set
             yield Tree("design", data=None, id="tree")
-            yield SourcePane("", id="source")
+            # the centre column: the source pane, and below it the trace pane
+            # while a trace is open (the split). Widths belong to the column.
+            with Vertical(id="centre"):
+                yield SourcePane("", id="source")
+                yield TracePane("", id="trace")
             yield PortsPane("", id="ports")
         yield Footer()
 
@@ -687,9 +644,8 @@ class TrenApp(App[None]):
         # The tree is not focusable: textual auto-focuses the first focusable
         # widget on mount, which would shadow the app-level (non-priority)
         # Enter binding with the Tree's own. TREN drives all tree input via
-        # priority=True app bindings, so this loses nothing (falling: the
-        # d/L modal focuses its ListView and keeps Enter for boundary
-        # crossing).
+        # priority=True app bindings, so this loses nothing (the trace
+        # split is a pane, not a modal: it never steals focus).
         self._tree_widget.can_focus = False
         # ...but can_focus=False does NOT blur a widget that is already
         # focused, and on a real terminal textual has auto-focused the Tree by
@@ -706,16 +662,29 @@ class TrenApp(App[None]):
         # expand deterministically in _select.
         self._tree_widget.auto_expand = False
         self._source_widget = self.query_one("#source")
+        self._trace_widget = self.query_one("#trace")
+        self._centre = self.query_one("#centre")
         self._ports_widget = self.query_one("#ports")
         self._status_widget = self.query_one("#status")
         self._status_widget.styles.height = 1
         self._status_widget.styles.background = STATUS_BG
         self._index = -1
         self._current_node = None
-        # three columns: tree / source / ports; panes fill the viewport so
+        # three columns: tree / centre / ports; panes fill the viewport so
         # size.height is stable (not content-driven) for auto-follow
         for _, widget in self._panes():
             widget.styles.height = "1fr"
+        # the centre column splits between the source pane and the trace pane
+        # while the trace is open; each half fills the column. The trace pane
+        # is chrome, not a source surface: its own background and a border,
+        # like the finder's panes, so the split reads as two panes.
+        self._source_widget.styles.width = "1fr"
+        self._source_widget.styles.height = "1fr"
+        self._trace_widget.styles.width = "1fr"
+        self._trace_widget.styles.height = "1fr"
+        self._trace_widget.styles.border = ("solid", "#a6c9ff")
+        self._trace_widget.styles.background = TRACE_PANE_BG
+        self._trace_widget.display = False
         self._apply_layout()
 
         roots = [s for s in self.design.scopes if _scope_parent(s.name) not in self._scopes]
@@ -872,14 +841,14 @@ class TrenApp(App[None]):
         on, so the focus is that port's declaration - the same rule a port
         leaf in the tree follows. A port the backends gave
         no src, an out-of-range index and every other pane fall back to the
-        tree selection's focus. While a modal screen owns the screen (the
-        d/L trace, the search finder) the tree selection stays the truth:
-        those modals move the tree rows and the centre pane must follow
-        them, whatever pane was active when they opened.
+        tree selection's focus. While the search finder (a modal screen)
+        owns the screen the tree selection stays the truth: the search
+        moves the tree rows and the centre pane must follow them,
+        whatever pane was active when it opened.
         """
         if (
             self.active == "ports"
-            and self._modal is None
+            and not self._trace_open
             and self._search is None
             and self.pane_ports
             and 0 <= self.port_index < len(self.pane_ports)
@@ -931,12 +900,17 @@ class TrenApp(App[None]):
         self._render_panes()
 
     def _render_source(
-        self, focus: tuple[str, int, int] | None, scope: Scope | None, offset: int | None = None
+        self,
+        focus: tuple[str, int, int] | None,
+        scope: Scope | None,
+        offset: int | None = None,
     ) -> RichText:
         """Render the source view.
 
         offset overrides the pane scroll: the search preview passes
         a per-entry offset so browsing results never disturbs the pane state.
+        The trace split no longer caps the view here: the trace pane is its
+        own widget below, and the layout divides the centre column.
         """
         off = self.src_offset if offset is None else offset
         src = RichText()
@@ -973,6 +947,43 @@ class TrenApp(App[None]):
                 src.append(f"{line}\n", style=style)
         return src
 
+    def _render_trace_pane(self) -> RichText:
+        """The trace pane's rows: the trace head's drivers or loads.
+
+        The border title names the head and, while the rows overflow the
+        pane, the visible row range. The rows render bounded (the same
+        count `_trace_view_rows` uses), so a move can never leave the
+        cursor outside the window.
+        """
+        trace = RichText()
+        cursor = self._trace_cursor
+        if cursor is None:
+            return trace
+        rows = self._trace_rows()
+        self._trace_index = max(0, min(self._trace_index, len(rows) - 1))
+        view = self._trace_view_rows()
+        if self._trace_scroll >= len(rows):
+            self._trace_scroll = max(0, len(rows) - view)
+        lo = self._trace_scroll
+        hi = min(len(rows), lo + view)
+        title = f"{self._trace_dir} of {cursor.scope_path}.{cursor.net_name}"
+        if len(rows) > view:
+            title += f"  (rows {lo + 1}-{hi} of {len(rows)})"
+        self._trace_widget.border_title = title
+        if not rows:
+            trace.append("  (no rows)\n", style="dim italic")
+            return trace
+        if lo:
+            trace.append("…… (↑ scroll to see earlier rows)\n", style="dim italic")
+        for i in range(lo, hi):
+            row = rows[i]
+            sel = "▸ " if i == self._trace_index else "  "
+            style = "bold #ffa62b" if i == self._trace_index else "#a6c9ff"
+            trace.append(f"{sel}{row['label']}\n", style=style)
+        if hi < len(rows):
+            trace.append(f"…… (↓ {len(rows) - hi} more rows)\n", style="dim italic")
+        return trace
+
     def _render_panes(self) -> None:
         scope = self._scope_data(self._current_node)
         focus = self._effective_focus()
@@ -992,7 +1003,15 @@ class TrenApp(App[None]):
                 self._follow(focus)
             else:
                 self.src_offset = 0  # inline RTL view starts at the top
+        # the trace pane is a bordered panel below the source pane; the centre
+        # column carries the split, so the source view needs no line limit here
+        self._trace_widget.display = self._trace_open
         self._source_widget.update(self._render_source(focus, scope))
+        if self._trace_open:
+            self._trace_widget.update(self._render_trace_pane())
+            height = self._trace_widget.size.height
+            if height:
+                self._trace_pane_rows = height
         # right: I/O list with selection
         ports = RichText()
         self.pane_ports = list(scope.ports) if scope is not None else []
@@ -1026,10 +1045,15 @@ class TrenApp(App[None]):
         self._render_pane_cue()
 
     def _panes(self) -> tuple[tuple[str, Widget], ...]:
-        """The three panes in screen order, keyed by the name `active` uses."""
+        """The three panes in screen order, keyed by the name `active` uses.
+
+        The centre pane is the column container: it holds the source pane
+        and, while a trace is open, the trace pane below it. Width and the
+        zoom display belong to the column; the panes inside fill it.
+        """
         return (
             ("tree", self._tree_widget),
-            ("source", self._source_widget),
+            ("source", self._centre),
             ("ports", self._ports_widget),
         )
 
@@ -1052,6 +1076,12 @@ class TrenApp(App[None]):
         self._cue = self.active
         for pid, widget in self._panes():
             widget.styles.background = PANE_BG_ACTIVE if pid == self.active else PANE_BG_IDLE
+        # the column container never shows through (its panes fill it), so the
+        # source pane paints its own cue background; the trace pane keeps its
+        # chrome background at every cue
+        self._source_widget.styles.background = (
+            PANE_BG_ACTIVE if self.active == "source" else PANE_BG_IDLE
+        )
         # textual 8.2 Tree caches rendered line *strips* keyed on
         # (line, cursor, hover, width, ...) — the background is not part of the
         # key, so a cue change repainted only the blank region below the nodes
@@ -1361,7 +1391,13 @@ class TrenApp(App[None]):
         return max(0, min(lo - rows // 2, max(0, len(lines) - rows)))
 
     def _open_trace(self, direction: str) -> None:
-        if self._modal is not None or self._search is not None:
+        """d/L: open the trace split over the centre pane.
+
+        Refused while a trace is already open or the search finder is open:
+        d/L selects the net the trace starts from, and restarting under an
+        open split would silently discard the accumulated path.
+        """
+        if self._trace_open or self._search is not None:
             self.bell()
             return
         sel = self._selection_net()
@@ -1371,7 +1407,78 @@ class TrenApp(App[None]):
         self._trace_root = TraceNode(sel[0], sel[1], None)
         self._trace_cursor = self._trace_root
         self._trace_dir = direction
-        self.push_screen(TraceScreen())
+        self._trace_open = True
+        self._trace_index = 0
+        self._trace_scroll = 0
+        # the split owns j/k while it is open: the trace rows are the list
+        # the user walks. The tree selection follows the trace, so the
+        # hierarchy view stays in sync without stealing pane 1.
+        self.active = "source"
+        self._render_panes()
+
+    def _close_trace(self) -> None:
+        """escape: closes the split view and clears the trace state."""
+        self._trace_open = False
+        self._trace_root = None
+        self._trace_cursor = None
+        self._trace_index = 0
+        self._trace_scroll = 0
+        self._render_panes()
+
+    def _trace_view_rows(self) -> int:
+        """Trace rows the trace pane shows.
+
+        The border title draws in the border, not the content: a verified
+        bordered Static reports its content height as `size.height`. Only
+        the two edge markers ("earlier rows" / "N more rows") can share the
+        space, so `height - 2` rows fit; floor at one row and cap the
+        render at TRACE_MAX_ROWS. A pane hidden by the zoom reports zero
+        height - keep the last real height, like `_follow` does.
+        """
+        height = self._trace_widget.size.height or self._trace_pane_rows
+        return max(1, min(TRACE_MAX_ROWS, height - 2))
+
+    def _trace_move(self, delta: int) -> None:
+        """j/k in the trace pane: walk the rows of the trace head.
+
+        The cursor stays inside the visible window: a move past an edge
+        slides the scroll offset, so the highlighted row never renders
+        below the pane's clip.
+        """
+        rows = self._trace_rows()
+        if not rows:
+            self.bell()
+            return
+        self._trace_index = max(0, min(len(rows) - 1, self._trace_index + delta))
+        view = self._trace_view_rows()
+        if self._trace_index < self._trace_scroll:
+            self._trace_scroll = self._trace_index
+        elif self._trace_index >= self._trace_scroll + view:
+            self._trace_scroll = self._trace_index - view + 1
+        self._render_panes()
+
+    def _trace_enter(self) -> None:
+        """enter/right in the trace pane: cross the highlighted boundary."""
+        rows = self._trace_rows()
+        if not (0 <= self._trace_index < len(rows)):
+            self.bell()
+            return
+        if self._trace_descend(rows[self._trace_index]):
+            self._trace_index = 0
+            self._trace_scroll = 0
+            self._render_panes()
+        else:
+            self.bell()
+
+    def _trace_back(self) -> None:
+        """backspace/left in the trace pane: pop to the parent scope."""
+        if self._trace_pop():
+            self._trace_index = 0
+            self._trace_scroll = 0
+            self._render_panes()
+        else:
+            # at the trace root: backspace closes the split view
+            self._close_trace()
 
     def action_trace_drivers(self) -> None:
         self._open_trace("drivers")
@@ -1392,6 +1499,16 @@ class TrenApp(App[None]):
         parts.reverse()
         self.trace_dump = " ▶ ".join(parts)
         self.bell()
+
+    def action_close_trace(self) -> None:
+        """escape: close the trace split (a no-op when it is already closed)."""
+        if self._trace_open:
+            self._close_trace()
+
+    def action_trace_back(self) -> None:
+        """backspace: pop the trace while the split is open; a no-op otherwise."""
+        if self._trace_open and self.active == "source":
+            self._trace_back()
 
     def action_toggle_cut(self) -> None:
         scope = self._scope_data(self._current_node)
@@ -1438,11 +1555,11 @@ class TrenApp(App[None]):
     def action_toggle_zoom(self) -> None:
         """z: zoom the active pane to the full width, or restore the columns.
 
-        The trace modal and the search modal cover the panes, so a zoom
-        there changes nothing the user can see. Refuse it instead of leaving
-        a surprise behind the modal.
+        The search modal covers the panes, so a zoom there changes nothing
+        the user can see. Refuse it instead of leaving a surprise behind the
+        modal. The trace split is just a pane, so zoom works there.
         """
-        if self._modal is not None or self._search is not None:
+        if self._search is not None:
             self.bell()
             return
         self.zoomed = not self.zoomed
@@ -1452,23 +1569,23 @@ class TrenApp(App[None]):
     def action_show_cheatsheet(self) -> None:
         """?: open the navigation cheatsheet (full key map).
 
-        The sheet lists the trace-modal keys too when a trace is open. It is
-        also reachable from inside the trace modal, where the trace is still
-        mounted underneath. A second open is refused: on_event pops the sheet
-        on the `?` key instead of reopening it.
+        The sheet lists the trace keys too when the trace split is open. It
+        is also reachable while the split is up, where the trace stays
+        mounted underneath. A second open is refused: on_event pops the
+        sheet on the `?` key instead of reopening it.
         """
         if self._cheat is not None:
             return
-        self.push_screen(CheatSheet(include_trace=self._modal is not None))
+        self.push_screen(CheatSheet(include_trace=self._trace_open))
 
     def action_open_search(self) -> None:
         """/: open the global search over modules/instances/ports/nets/files.
 
-        Refused while the trace modal is open, the mirror of the trace modal
-        refusing to open under it: the finder needs the full screen and the
-        search modal's Input owns the printable keys.
+        Refused while the search modal is already open: the finder needs the
+        full screen and its Input owns the printable keys. The trace split
+        is just a pane, so the search may open over it.
         """
-        if self._modal is not None or self._search is not None:
+        if self._search is not None:
             self.bell()
             return
         self.push_screen(SearchScreen())
@@ -1478,8 +1595,8 @@ class TrenApp(App[None]):
 
         Every nav key is an app-level binding, so textual would run it while
         the sheet stays up. Pop the sheet first, then let the same key reach
-        the layer below (the panes, or the trace modal it was opened from).
-        escape and `?` only dismiss: escape must not close the trace modal
+        the layer below (the panes, or the trace split it was opened from).
+        escape and `?` only dismiss: escape must not close the trace split
         underneath too, and `?` must not reopen the sheet.
 
         A *committed* search blurs the query box, so no widget guards the
@@ -1507,14 +1624,12 @@ class TrenApp(App[None]):
                 if event.key not in SEARCH_COMMITTED_KEYS:
                     event.stop()
                     return
-            # page up/down are priority app bindings. Under a trace or search
-            # modal the list owns up/down, but neither ListView binds page
+            # page up/down are priority app bindings. Under the search modal
+            # its list owns up/down, but the ListView does not bind page
             # keys, so the app's page actions would fire and move the tree
             # behind the modal. Stop them; the cheatsheet above
             # already popped itself and lets the pane take the page key.
-            if (self._modal is not None or self._search is not None) and (
-                event.key in ("pageup", "pagedown")
-            ):
+            if self._search is not None and event.key in ("pageup", "pagedown"):
                 event.stop()
                 return
         await super().on_event(event)
@@ -1525,8 +1640,11 @@ class TrenApp(App[None]):
                 self.port_index = (self.port_index + 1) % len(self.pane_ports)
             self._render_panes()
         elif self.active == "source":
-            self.src_offset += 1
-            self._render_panes()
+            if self._trace_open:
+                self._trace_move(1)
+            else:
+                self.src_offset += 1
+                self._render_panes()
         else:
             self._select(getattr(self, "_index", -1) + 1)
 
@@ -1536,8 +1654,11 @@ class TrenApp(App[None]):
                 self.port_index = (self.port_index - 1) % len(self.pane_ports)
             self._render_panes()
         elif self.active == "source":
-            self.src_offset = max(0, self.src_offset - 1)
-            self._render_panes()
+            if self._trace_open:
+                self._trace_move(-1)
+            else:
+                self.src_offset = max(0, self.src_offset - 1)
+                self._render_panes()
         else:
             self._select(getattr(self, "_index", 1) - 1)
 
@@ -1582,9 +1703,12 @@ class TrenApp(App[None]):
                 self.port_index = (self.port_index + rows) % len(self.pane_ports)
             self._render_panes()
         elif self.active == "source":
-            rows = self._page_rows()
-            self.src_offset = min(self.src_offset + rows, self._source_max_offset(rows))
-            self._render_panes()
+            if self._trace_open:
+                self._trace_move(self._trace_view_rows())
+            else:
+                rows = self._page_rows()
+                self.src_offset = min(self.src_offset + rows, self._source_max_offset(rows))
+                self._render_panes()
         else:
             nodes = self._visible()
             if not nodes:
@@ -1599,13 +1723,23 @@ class TrenApp(App[None]):
                 self.port_index = (self.port_index - rows) % len(self.pane_ports)
             self._render_panes()
         elif self.active == "source":
-            self.src_offset = max(0, self.src_offset - self._page_rows())
-            self._render_panes()
+            if self._trace_open:
+                self._trace_move(-self._trace_view_rows())
+            else:
+                self.src_offset = max(0, self.src_offset - self._page_rows())
+                self._render_panes()
         else:
             self._select(max(0, getattr(self, "_index", 1) - self._page_rows()))
 
     def action_expand(self) -> None:
-        """l: expand the highlighted scope (reveal its children)."""
+        """l: expand the highlighted scope (reveal its children).
+
+        While the trace split is open, l/right crosses the highlighted
+        boundary instead (the split owns the nav keys, as the modal did).
+        """
+        if self._trace_open and self.active == "source":
+            self._trace_enter()
+            return
         node = getattr(self, "_current_node", None)
         if node is None:
             return
@@ -1615,7 +1749,15 @@ class TrenApp(App[None]):
         self._render_panes()
 
     def action_collapse(self) -> None:
-        """h: collapse the highlighted scope (hide its children)."""
+        """h: collapse the highlighted scope (hide its children).
+
+        While the trace split is open, h/left pops the trace instead: the
+        split owns the nav keys, as the modal did. At the trace root this
+        closes the split.
+        """
+        if self._trace_open and self.active == "source":
+            self._trace_back()
+            return
         node = getattr(self, "_current_node", None)
         if node is None:
             return
@@ -1665,10 +1807,11 @@ class TrenApp(App[None]):
     def action_focus_source(self) -> None:
         """enter: show the effective selection in the centre RTL pane, band
         centred with surrounding context - the tree's highlighted module, or
-        the I/O pane's selected port's declaration. The d/L trace
-        modal owns Enter while open (this binding is deliberately not
-        priority=True)."""
-        if self._modal is not None:
+        the I/O pane's selected port's declaration. While the trace split is
+        open, enter crosses the highlighted boundary instead (the split owns
+        the nav keys, as the modal did)."""
+        if self._trace_open and self.active == "source":
+            self._trace_enter()
             return
         focus = self._effective_focus()
         scope = self._scope_data(self._current_node)

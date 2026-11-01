@@ -97,9 +97,9 @@ class RendererTests(unittest.TestCase):
 
     def test_trace_paragraph(self) -> None:
         paragraph = render_trace_paragraph()
-        self.assertTrue(paragraph.startswith("In the **trace modal**: "))
+        self.assertTrue(paragraph.startswith("In the **trace split**: "))
         self.assertIn("`enter` or `right`", paragraph)
-        self.assertIn("`escape` closes it.", paragraph)
+        self.assertIn("`escape` closes the split.", paragraph)
 
 
 if __name__ == "__main__":

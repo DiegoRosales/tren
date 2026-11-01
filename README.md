@@ -197,8 +197,8 @@ away. `z` again restores the three columns at their usual widths. While the
 zoom is on, `1`/`2`/`3` move it - the pane you select becomes the zoomed one,
 so exactly one pane is ever on screen. Every other key keeps its effect: `j`
 still walks the tree, scrolls the source or selects a port, by the active
-pane. `z` does nothing while the trace modal is open, because the modal covers
-the panes.
+pane. While the trace split is open, `z` zooms the centre column to the full
+width: the source keeps the top half and the trace pane keeps the bottom.
 
 ### Keys
 
@@ -221,7 +221,7 @@ pane.
 | `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump) |
 | `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
 | `Y` | cycle the yank format: sv -> vivado -> yosys -> vcd |
-| `d` `L` | trace drivers / loads of the selected net (opens the trace modal) |
+| `d` `L` | trace drivers / loads of the selected net (splits the centre pane) |
 | `X` | cut/restore the highlighted scope (treat it as a black box) |
 | `;` | dump the current trace path as text |
 | `e` | open $EDITOR at the selection's declaration - a scope's instantiation in its parent, a port/net's own declaration |
@@ -229,7 +229,7 @@ pane.
 | `?` | open this navigation cheatsheet |
 | `q` | quit |
 
-In the **trace modal**: `enter` or `right` crosses a boundary into the child scope, `backspace` or `left` pops the trace stack, `down/up` move through the rows, `escape` closes it.
+In the **trace split**: `enter` or `right` crosses a boundary into the child scope, `backspace` or `left` pops the trace tree (at the root, closes the split), `down/up` move through the rows, `escape` closes the split. The split is a bordered pane below the source view. The pane title names the trace head and the visible row range.
 
 <!-- keys:end -->
 

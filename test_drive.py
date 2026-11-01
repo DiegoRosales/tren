@@ -51,6 +51,10 @@ async def drive_fixture() -> None:
         tree = app._tree()
         source: Static = app.query_one("#source")
         ports: Static = app.query_one("#ports")
+        # the centre column is the source pane's container: zoom width and
+        # the display toggle live on it, while the source Static holds the
+        # text (the trace pane appears below it while a trace is open)
+        centre = app.query_one("#centre")
 
         # j -> top/ scope; center shows top's own text
         await pilot.press("j")
@@ -220,7 +224,7 @@ async def drive_fixture() -> None:
         # real-terminal check (tools/pane_cue_capture.sh), because textual's
         # Tree caches rendered lines and used to keep the old background.
         panes = {"1": "tree", "2": "source", "3": "ports"}
-        widgets = {"tree": tree, "source": source, "ports": ports}
+        widgets = {"tree": tree, "source": centre, "ports": ports}
         for key, expected_active in panes.items():
             await pilot.press(key)
             for name, widget in widgets.items():
@@ -252,7 +256,7 @@ async def drive_fixture() -> None:
         # 1/2/3 move the zoom with the active pane (one pane is ever visible)
         await pilot.press("2")
         assert app.active == "source", "2 should activate the source pane"
-        assert source.display and not tree.display and not ports.display, (
+        assert centre.display and not tree.display and not ports.display, (
             "the zoom should follow the active pane"
         )
 
@@ -471,7 +475,7 @@ async def drive_fixture() -> None:
         assert not app.zoomed, "z must be refused while the search is open"
         # and d/L must be refused too (mirror of the trace-under-search guard)
         await pilot.press("d")
-        assert app._modal is None, "d must not open a trace under the search"
+        assert not app._trace_open, "d must not open a trace under the search"
         await pilot.press("escape")
 
         out = Path(__file__).resolve().parent / "out"
@@ -711,30 +715,30 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
             f"tree selection focus after the pane switch: {app._focus}"
         )
 
-        # ---- d/L trace with hierarchy crossing ------------------
+        # ---- d/L trace split with hierarchy crossing -----------
         # walk from top.out to its $xor driver and back; dump shows the path
         app._select_path("top", "out")
         assert status_path(app) == "top.out", f"net under top status: {status_path(app)!r}"
         await pilot.press("d")
-        modal = app._modal
-        assert modal is not None, "d should open the trace modal"
-        # the modal covers the panes, so z must not zoom behind it
+        assert app._trace_open, "d should open the trace split"
+        # the trace is a pane, not a modal: zoom works on it
         await pilot.press("z")
-        assert not app.zoomed, "z must be refused while the trace modal is open"
-        # page keys must not move the tree behind the modal
+        assert app.zoomed, "z should zoom the trace split pane"
+        await pilot.press("z")  # restore the columns
+        # page keys must not move the tree behind the split
         tree_before = app._index
         await pilot.press("pagedown")
         await pilot.press("pageup")
         assert app._index == tree_before, \
-            "page keys must not reach the tree under the trace modal"
-        assert "drivers of top.out" in str(modal.query_one("#trace-title").content)
+            "page keys must not reach the tree while the trace split is open"
+        assert str(app._trace_widget.border_title) == "drivers of top.out"
         assert _trace_path(app) == [("top", "out")], f"trace: {_trace_path(app)}"
-        assert [r["label"] for r in modal.rows] == ["u_core.alu_result  → core"]
+        assert [r["label"] for r in app._trace_rows()] == ["u_core.alu_result  → core"]
 
         await pilot.press("enter")  # cross the boundary into u_core.alu_result
         assert _trace_path(app) == [("top", "out"), ("top.u_core", "alu_result")], \
             f"trace: {_trace_path(app)}"
-        labels = [r["label"] for r in modal.rows]
+        labels = [r["label"] for r in app._trace_rows()]
         assert any("$xor" in l for l in labels), f"no $xor driver: {labels}"
 
         await pilot.press(";")  # dump the trace path
@@ -743,7 +747,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("backspace")  # pop back to top.out
         assert _trace_path(app) == [("top", "out")], f"trace after pop: {_trace_path(app)}"
 
-        # in the modal right descends and left goes back, so an
+        # in the split right descends and left goes back, so an
         # arrow never falls through to the tree behind it
         await pilot.press("right")
         assert _trace_path(app) == [("top", "out"), ("top.u_core", "alu_result")], \
@@ -752,7 +756,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert _trace_path(app) == [("top", "out")], f"left should pop the trace: {_trace_path(app)}"
 
         await pilot.press("escape")
-        assert app._modal is None, "escape should close the trace modal"
+        assert not app._trace_open, "escape should close the trace split"
 
         # ---- ? cheatsheet, incl. opened from inside a trace -----
         await pilot.press("?")
@@ -764,13 +768,12 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("escape")
         assert app._cheat is None, "escape should dismiss the cheatsheet"
 
-        # from inside the d/L modal the cheatsheet also lists the trace keys
+        # from inside the trace split the cheatsheet also lists the trace keys
         app._select_path("top", "out")
         await pilot.press("d")
-        modal = app._modal
-        assert modal is not None, "d should open the trace modal"
+        assert app._trace_open, "d should open the trace split"
         await pilot.press("?")
-        assert app._cheat is not None, "? inside the trace modal"
+        assert app._cheat is not None, "? inside the trace split"
         assert app._cheat.include_trace, "a trace is open: list the trace keys"
         cheat_rows = "\n".join(str(s.content) for s in app._cheat.query("Static"))
         assert "While the trace is open:" in cheat_rows, cheat_rows
@@ -778,9 +781,9 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert "yank the selection" in cheat_rows, "screen keys still there"
         await pilot.press("escape")
         assert app._cheat is None, "escape dismisses the cheatsheet"
-        assert app._modal is not None, "the trace modal survives the cheatsheet"
+        assert app._trace_open, "the trace split survives the cheatsheet"
         await pilot.press("escape")
-        assert app._modal is None, "escape then closes the trace modal"
+        assert not app._trace_open, "escape then closes the trace split"
 
         # ---- black boxes + user cuts ----------------------------
         # sram_stub renders as an opaque scope: marker + its ports
@@ -820,14 +823,14 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # u_sram.addr is a box, enter must not descend
         app._select_path("top.u_core", "x")
         await pilot.press("L")
-        modal = app._modal
-        assert modal is not None and app._trace_dir == "loads"
-        sram_idx = next(i for i, r in enumerate(modal.rows) if "u_sram" in r["label"])
-        assert modal.rows[sram_idx]["kind"] == "box", modal.rows[sram_idx]
-        assert "black box" in modal.rows[sram_idx]["label"]
+        assert app._trace_open and app._trace_dir == "loads"
+        rows = app._trace_rows()
+        sram_idx = next(i for i, r in enumerate(rows) if "u_sram" in r["label"])
+        assert rows[sram_idx]["kind"] == "box", rows[sram_idx]
+        assert "black box" in rows[sram_idx]["label"]
         for _ in range(sram_idx):
-            await pilot.press("down")  # arrow keys reach the modal list
-        assert modal.listwidget.index == sram_idx, f"index {modal.listwidget.index}"
+            await pilot.press("down")  # arrow keys reach the trace rows
+        assert app._trace_index == sram_idx, f"index {app._trace_index}"
         n_before = len(_trace_path(app))
         await pilot.press("enter")
         assert len(_trace_path(app)) == n_before, "trace must stop at a black box"
@@ -898,8 +901,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # ---- enter shows the module; the d/L modal keeps Enter ----
         app._select_path("top", "out")
         await pilot.press("d")
-        modal = app._modal
-        assert modal is not None
+        assert app._trace_open
         await pilot.press("enter")  # must cross the boundary, not trigger focus_source
         assert _trace_path(app) == [("top", "out"), ("top.u_core", "alu_result")], \
             f"trace: {_trace_path(app)}"

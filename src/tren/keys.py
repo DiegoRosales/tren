@@ -36,7 +36,7 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
     KeyDoc("/", "open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump)"),
     KeyDoc("y", "yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard)"),
     KeyDoc("Y", "cycle the yank format: sv -> vivado -> yosys -> vcd"),
-    KeyDoc("d L", "trace drivers / loads of the selected net (opens the trace modal)"),
+    KeyDoc("d L", "trace drivers / loads of the selected net (splits the centre pane)"),
     KeyDoc("X", "cut/restore the highlighted scope (treat it as a black box)"),
     KeyDoc(";", "dump the current trace path as text"),
     KeyDoc("e", "open $EDITOR at the selection's declaration - a scope's instantiation in its parent, a port/net's own declaration"),
@@ -47,9 +47,9 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
 
 TRACE_KEYS: tuple[KeyDoc, ...] = (
     KeyDoc("enter or right", "crosses a boundary into the child scope"),
-    KeyDoc("backspace or left", "pops the trace stack"),
+    KeyDoc("backspace or left", "pops the trace tree (at the root, closes the split)"),
     KeyDoc("down/up", "move through the rows"),
-    KeyDoc("escape", "closes it"),
+    KeyDoc("escape", "closes the split"),
 )
 
 # README markers around the regenerated block (tools/guide.py rewrites only
@@ -74,9 +74,14 @@ def render_keys_table() -> str:
 
 
 def render_trace_paragraph() -> str:
-    """The single sentence the README writes for the trace-modal keys."""
+    """The README prose the trace-split keys: one sentence, plus the pane
+    chrome (a bordered pane below the source, its title naming the head)."""
     phrases = ", ".join(f"{_backtick_keys(doc.keys)} {doc.effect}" for doc in TRACE_KEYS)
-    return f"In the **trace modal**: {phrases}."
+    return (
+        f"In the **trace split**: {phrases}."
+        " The split is a bordered pane below the source view."
+        " The pane title names the trace head and the visible row range."
+    )
 
 
 def render_readme_block() -> str:
