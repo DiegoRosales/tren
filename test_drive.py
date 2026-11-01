@@ -735,6 +735,16 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert _trace_path(app) == [("top", "out")], f"trace: {_trace_path(app)}"
         assert [r["label"] for r in app._trace_rows()] == ["u_core.alu_result  → core"]
 
+        # d/L switch the direction at the same head; the path stays
+        await pilot.press("L")
+        assert app._trace_dir == "loads", "L should switch the trace to loads"
+        assert str(app._trace_widget.border_title) == "loads of top.out"
+        assert _trace_path(app) == [("top", "out")], "a switch keeps the trace path"
+        await pilot.press("d")
+        assert app._trace_dir == "drivers", "d should switch the trace back to drivers"
+        assert str(app._trace_widget.border_title) == "drivers of top.out"
+        assert [r["label"] for r in app._trace_rows()] == ["u_core.alu_result  → core"]
+
         await pilot.press("enter")  # cross the boundary into u_core.alu_result
         assert _trace_path(app) == [("top", "out"), ("top.u_core", "alu_result")], \
             f"trace: {_trace_path(app)}"
@@ -755,8 +765,41 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("left")
         assert _trace_path(app) == [("top", "out")], f"left should pop the trace: {_trace_path(app)}"
 
+        # l/h are the primary spellings of the same crossing
+        await pilot.press("l")
+        assert _trace_path(app) == [("top", "out"), ("top.u_core", "alu_result")], \
+            f"l should cross the boundary: {_trace_path(app)}"
+        await pilot.press("h")
+        assert _trace_path(app) == [("top", "out")], f"h should pop the trace: {_trace_path(app)}"
+
         await pilot.press("escape")
         assert not app._trace_open, "escape should close the trace split"
+
+        # a multi-load net: j/k walk the trace rows, never the tree behind it
+        app._select_path("top", "o")
+        await pilot.press("L")
+        assert app._trace_open and app._trace_dir == "loads", "L should open the loads split"
+        rows = app._trace_rows()
+        assert len(rows) >= 2, f"top.o needs several loads: {rows}"
+        tree_row = app._index
+        await pilot.press("j")
+        assert app._trace_index == 1, f"j should move the trace cursor: {app._trace_index}"
+        assert app._index == tree_row, "j must not move the tree behind the split"
+        await pilot.press("k")
+        assert app._trace_index == 0, f"k should move the trace cursor back: {app._trace_index}"
+        assert app._index == tree_row, "k must not move the tree behind the split"
+
+        # from another pane d/L start a new trace at that pane's selection
+        await pilot.press("1")
+        app._select_path("top", "out")
+        await pilot.press("L")
+        assert app._trace_open and app._trace_dir == "loads", "L from the tree traces top.out"
+        assert _trace_path(app) == [("top", "out")], \
+            f"a new trace replaces the split: {_trace_path(app)}"
+        assert str(app._trace_widget.border_title) == "loads of top.out"
+
+        await pilot.press("escape")
+        assert not app._trace_open
 
         # ---- ? cheatsheet, incl. opened from inside a trace -----
         await pilot.press("?")

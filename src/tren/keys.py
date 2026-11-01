@@ -36,7 +36,7 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
     KeyDoc("/", "open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump)"),
     KeyDoc("y", "yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard)"),
     KeyDoc("Y", "cycle the yank format: sv -> vivado -> yosys -> vcd"),
-    KeyDoc("d L", "trace drivers / loads of the selected net (splits the centre pane)"),
+    KeyDoc("d L", "trace drivers / loads of the selected net (opens the trace split; in the trace pane, switch direction)"),
     KeyDoc("X", "cut/restore the highlighted scope (treat it as a black box)"),
     KeyDoc(";", "dump the current trace path as text"),
     KeyDoc("e", "open $EDITOR at the selection's declaration - a scope's instantiation in its parent, a port/net's own declaration"),
@@ -46,9 +46,10 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
 )
 
 TRACE_KEYS: tuple[KeyDoc, ...] = (
-    KeyDoc("enter or right", "crosses a boundary into the child scope"),
-    KeyDoc("backspace or left", "pops the trace tree (at the root, closes the split)"),
-    KeyDoc("down/up", "move through the rows"),
+    KeyDoc("enter or l", "crosses a boundary into the child scope"),
+    KeyDoc("backspace or h", "pops the trace tree (at the root, closes the split)"),
+    KeyDoc("j k", "move down/up through the trace rows"),
+    KeyDoc("d L", "switch the trace between drivers and loads"),
     KeyDoc("escape", "closes the split"),
 )
 
@@ -74,11 +75,12 @@ def render_keys_table() -> str:
 
 
 def render_trace_paragraph() -> str:
-    """The README prose the trace-split keys: one sentence, plus the pane
-    chrome (a bordered pane below the source, its title naming the head)."""
+    """The README prose the trace-split keys: one sentence of bindings, the
+    arrow aliases, and the pane chrome (a bordered pane below the source)."""
     phrases = ", ".join(f"{_backtick_keys(doc.keys)} {doc.effect}" for doc in TRACE_KEYS)
     return (
         f"In the **trace split**: {phrases}."
+        " The arrows alias j/k and l/h."
         " The split is a bordered pane below the source view."
         " The pane title names the trace head and the visible row range."
     )

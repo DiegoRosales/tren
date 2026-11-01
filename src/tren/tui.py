@@ -1109,7 +1109,7 @@ class TrenApp(App[None]):
         return None
 
     def _trace_rows(self) -> list[dict]:
-        """Driver/load rows of the trace head for the modal."""
+        """Driver/load rows of the trace head for the split."""
         cursor = self._trace_cursor
         if cursor is None:
             return []
@@ -1391,14 +1391,20 @@ class TrenApp(App[None]):
         return max(0, min(lo - rows // 2, max(0, len(lines) - rows)))
 
     def _open_trace(self, direction: str) -> None:
-        """d/L: open the trace split over the centre pane.
+        """d/L: trace the selected net, or switch the direction while traced.
 
-        Refused while a trace is already open or the search finder is open:
-        d/L selects the net the trace starts from, and restarting under an
-        open split would silently discard the accumulated path.
+        d/L always start from a selected net. With the split open and the
+        trace pane holding the cursor, they only swap drivers for loads (and
+        back) at the same head, so the accumulated path stays. From another
+        pane they start a new trace at the tree selection, which replaces
+        the split. The search finder blocks all of them, as the split is not
+        reachable from a modal.
         """
-        if self._trace_open or self._search is not None:
+        if self._search is not None:
             self.bell()
+            return
+        if self._trace_open and self.active == "source":
+            self._set_trace_direction(direction)
             return
         sel = self._selection_net()
         if sel is None:
@@ -1414,6 +1420,21 @@ class TrenApp(App[None]):
         # the user walks. The tree selection follows the trace, so the
         # hierarchy view stays in sync without stealing pane 1.
         self.active = "source"
+        self._render_panes()
+
+    def _set_trace_direction(self, direction: str) -> None:
+        """Swap the trace between drivers and loads at the current head.
+
+        The rows of the other direction differ, so the window starts over.
+        A repeat of the direction in force changes nothing and rings the
+        bell, the app's signal for a key with no effect here.
+        """
+        if self._trace_dir == direction:
+            self.bell()
+            return
+        self._trace_dir = direction
+        self._trace_index = 0
+        self._trace_scroll = 0
         self._render_panes()
 
     def _close_trace(self) -> None:

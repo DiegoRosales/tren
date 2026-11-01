@@ -221,7 +221,7 @@ pane.
 | `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump) |
 | `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
 | `Y` | cycle the yank format: sv -> vivado -> yosys -> vcd |
-| `d` `L` | trace drivers / loads of the selected net (splits the centre pane) |
+| `d` `L` | trace drivers / loads of the selected net (opens the trace split; in the trace pane, switch direction) |
 | `X` | cut/restore the highlighted scope (treat it as a black box) |
 | `;` | dump the current trace path as text |
 | `e` | open $EDITOR at the selection's declaration - a scope's instantiation in its parent, a port/net's own declaration |
@@ -229,7 +229,7 @@ pane.
 | `?` | open this navigation cheatsheet |
 | `q` | quit |
 
-In the **trace split**: `enter` or `right` crosses a boundary into the child scope, `backspace` or `left` pops the trace tree (at the root, closes the split), `down/up` move through the rows, `escape` closes the split. The split is a bordered pane below the source view. The pane title names the trace head and the visible row range.
+In the **trace split**: `enter` or `l` crosses a boundary into the child scope, `backspace` or `h` pops the trace tree (at the root, closes the split), `j` `k` move down/up through the trace rows, `d` `L` switch the trace between drivers and loads, `escape` closes the split. The arrows alias j/k and l/h. The split is a bordered pane below the source view. The pane title names the trace head and the visible row range.
 
 <!-- keys:end -->
 
@@ -301,11 +301,13 @@ sequence (works in any terminal that relays it, e.g. tmux with
 
 ### Tracing drivers/loads
 
-Select a net to the tree, then `d` (drivers) or `L` (loads). The modal lists
-the touching cells; `enter` on a boundary row crosses **positionally** into
-the child scope's net (bits are module-local - matching by ID across a
-boundary is wrong by design). `;` dumps the breadcrumb, e.g.
-`top.out ▶ top.u_core.alu_result`.
+Select a net in the tree, then `d` (drivers) or `L` (loads). The split pane
+lists the touching cells. `enter` on a boundary row crosses **positionally**
+into the child scope's net (bits are module-local - matching by ID across a
+boundary is wrong by design). While the trace pane holds the cursor, `d` and
+`L` switch the direction and the accumulated path stays. From another pane
+they start a new trace at the tree selection. `;` dumps the breadcrumb,
+e.g. `top.out ▶ top.u_core.alu_result`.
 
 ### Black boxes and cuts
 

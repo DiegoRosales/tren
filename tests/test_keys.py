@@ -67,10 +67,11 @@ class KeyMapContentsTests(unittest.TestCase):
             self.assertTrue(doc.keys.strip(), f"empty keys in {doc}")
             self.assertTrue(doc.effect.strip(), f"empty effect in {doc}")
 
-    def test_trace_keys_cover_the_modal_bindings(self) -> None:
-        self.assertTrue(any(doc.keys == "enter or right" for doc in TRACE_KEYS))
-        self.assertTrue(any(doc.keys == "backspace or left" for doc in TRACE_KEYS))
-        self.assertTrue(any(doc.keys == "down/up" for doc in TRACE_KEYS))
+    def test_trace_keys_cover_the_split_bindings(self) -> None:
+        self.assertTrue(any(doc.keys == "enter or l" for doc in TRACE_KEYS))
+        self.assertTrue(any(doc.keys == "backspace or h" for doc in TRACE_KEYS))
+        self.assertTrue(any(doc.keys == "j k" for doc in TRACE_KEYS))
+        self.assertTrue(any(doc.keys == "d L" for doc in TRACE_KEYS))
         self.assertTrue(any(doc.keys == "escape" for doc in TRACE_KEYS))
 
 
@@ -98,7 +99,8 @@ class RendererTests(unittest.TestCase):
     def test_trace_paragraph(self) -> None:
         paragraph = render_trace_paragraph()
         self.assertTrue(paragraph.startswith("In the **trace split**: "))
-        self.assertIn("`enter` or `right`", paragraph)
+        self.assertIn("`enter` or `l`", paragraph)
+        self.assertIn("`backspace` or `h`", paragraph)
         self.assertIn("`escape` closes the split.", paragraph)
 
 
