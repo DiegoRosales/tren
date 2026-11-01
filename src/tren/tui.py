@@ -214,6 +214,24 @@ class CheatSheet(ModalScreen[None]):
         self._app._cheat = None  # type: ignore[attr-defined]
 
 
+class TraceNode:
+    """One net on a trace, with the rows the user could descend into.
+
+    The trace state used to be a flat stack of (scope_path, net_name)
+    pairs. The split view needs a tree: a descend may branch into
+    several boundary rows and the user may walk back to any ancestor.
+    """
+
+    def __init__(self, scope_path: str, net_name: str, parent: "TraceNode | None") -> None:
+        self.scope_path = scope_path
+        self.net_name = net_name
+        self.parent = parent
+        self.children: list["TraceNode"] = []
+        # rows computed the last time this node was the trace head; None
+        # until first built, cleared again when a user cut changes
+        self.rows: list[dict] | None = None
+
+
 class TraceScreen(ModalScreen[None]):
     """Drivers/loads of the trace head: enter descends, backspace pops.
 
@@ -251,7 +269,10 @@ class TraceScreen(ModalScreen[None]):
 
     def _refresh(self) -> None:
         app = self._app
-        scope, net = app._trace[-1]
+        cursor = app._trace_cursor
+        if cursor is None:
+            return
+        scope, net = cursor.scope_path, cursor.net_name
         self.query_one("#trace-title", Label).update(
             f"{app._trace_dir} of {scope}.{net}"
         )
@@ -633,8 +654,9 @@ class TrenApp(App[None]):
         self._render_target: tuple[tuple[str, int, int] | None, str | None] | None = None
         self._file_cache: dict[str, list[str]] = {}
         self.editor_target: str | None = None
-        # trace stack (scope_path, net_name); d/L populates it; ; dumps
-        self._trace: list[tuple[str, str]] = []
+        # trace tree (scope_path, net_name); d/L populates it; ; dumps the path
+        self._trace_root: TraceNode | None = None
+        self._trace_cursor: TraceNode | None = None
         self._trace_dir = "drivers"
         self._modal: "TraceScreen | None" = None
         self.trace_dump: str = ""
@@ -1058,7 +1080,10 @@ class TrenApp(App[None]):
 
     def _trace_rows(self) -> list[dict]:
         """Driver/load rows of the trace head for the modal."""
-        scope_path, net_name = self._trace[-1]
+        cursor = self._trace_cursor
+        if cursor is None:
+            return []
+        scope_path, net_name = cursor.scope_path, cursor.net_name
         scope = self._scopes.get(scope_path)
         if scope is None:
             return []
@@ -1093,6 +1118,7 @@ class TrenApp(App[None]):
                     row["child"] = child
                     row["label"] = f"{cell}.{port}  → {child_scope.module}"
             rows.append(row)
+        cursor.rows = rows
         return rows
 
     def _trace_descend(self, row: dict) -> bool:
@@ -1100,15 +1126,27 @@ class TrenApp(App[None]):
         if row.get("kind") != "boundary":
             return False
         child, net_name = row["child"], row["port"]
-        self._trace.append((child, net_name))
+        parent = self._trace_cursor
+        if parent is None:
+            return False
+        node = next(
+            (c for c in parent.children
+             if c.scope_path == child and c.net_name == net_name),
+            None,
+        )
+        if node is None:
+            node = TraceNode(child, net_name, parent)
+            parent.children.append(node)
+        self._trace_cursor = node
         self._select_path(child, net_name)
         return True
 
     def _trace_pop(self) -> bool:
-        if len(self._trace) <= 1:
+        cursor = self._trace_cursor
+        if cursor is None or cursor.parent is None:
             return False
-        self._trace.pop()
-        self._select_path(*self._trace[-1])
+        self._trace_cursor = cursor.parent
+        self._select_path(self._trace_cursor.scope_path, self._trace_cursor.net_name)
         return True
 
     def _find_scope_node(self, path: str) -> Tree.Node | None:
@@ -1330,7 +1368,8 @@ class TrenApp(App[None]):
         if sel is None:
             self.bell()
             return
-        self._trace = [sel]
+        self._trace_root = TraceNode(sel[0], sel[1], None)
+        self._trace_cursor = self._trace_root
         self._trace_dir = direction
         self.push_screen(TraceScreen())
 
@@ -1341,7 +1380,17 @@ class TrenApp(App[None]):
         self._open_trace("loads")
 
     def action_dump_trace(self) -> None:
-        self.trace_dump = " ▶ ".join(f"{s}.{n}" for s, n in self._trace)
+        cursor = self._trace_cursor
+        if cursor is None:
+            self.trace_dump = ""
+            return
+        parts: list[str] = []
+        node: TraceNode | None = cursor
+        while node is not None:
+            parts.append(f"{node.scope_path}.{node.net_name}")
+            node = node.parent
+        parts.reverse()
+        self.trace_dump = " ▶ ".join(parts)
         self.bell()
 
     def action_toggle_cut(self) -> None:
@@ -1357,7 +1406,16 @@ class TrenApp(App[None]):
         if node is not None:
             base = node.data["label"] if node.data is not None else f"{scope.name}/"
             node.label = base + ("✂" if scope.name in self._user_cut else "")
+        self._invalidate_trace_rows()
         self._render_panes()
+
+    def _invalidate_trace_rows(self) -> None:
+        """Cached rows may spell a user cut that just changed; drop them all."""
+        stack = [self._trace_root] if self._trace_root is not None else []
+        while stack:
+            n = stack.pop()
+            n.rows = None
+            stack.extend(n.children)
 
     # ---- actions ----------------------------------------------------------
 

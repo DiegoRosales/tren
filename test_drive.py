@@ -33,6 +33,17 @@ from tren.tui import (  # noqa: E402
 )
 
 
+def _trace_path(app) -> list[tuple[str, str]]:
+    """The current trace path from root to cursor, as (scope, net) pairs."""
+    path: list[tuple[str, str]] = []
+    node = app._trace_cursor
+    while node is not None:
+        path.append((node.scope_path, node.net_name))
+        node = node.parent
+    path.reverse()
+    return path
+
+
 async def drive_fixture() -> None:
     """Fixture path, IR-loaded tree + source spans, verified keys."""
     app = TrenApp(load_design(), root=Path.cwd())
@@ -717,11 +728,12 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._index == tree_before, \
             "page keys must not reach the tree under the trace modal"
         assert "drivers of top.out" in str(modal.query_one("#trace-title").content)
-        assert app._trace == [("top", "out")], f"trace: {app._trace}"
+        assert _trace_path(app) == [("top", "out")], f"trace: {_trace_path(app)}"
         assert [r["label"] for r in modal.rows] == ["u_core.alu_result  → core"]
 
         await pilot.press("enter")  # cross the boundary into u_core.alu_result
-        assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], f"trace: {app._trace}"
+        assert _trace_path(app) == [("top", "out"), ("top.u_core", "alu_result")], \
+            f"trace: {_trace_path(app)}"
         labels = [r["label"] for r in modal.rows]
         assert any("$xor" in l for l in labels), f"no $xor driver: {labels}"
 
@@ -729,15 +741,15 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app.trace_dump == "top.out ▶ top.u_core.alu_result", app.trace_dump
 
         await pilot.press("backspace")  # pop back to top.out
-        assert app._trace == [("top", "out")], f"trace after pop: {app._trace}"
+        assert _trace_path(app) == [("top", "out")], f"trace after pop: {_trace_path(app)}"
 
         # in the modal right descends and left goes back, so an
         # arrow never falls through to the tree behind it
         await pilot.press("right")
-        assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], \
-            f"right should cross the boundary: {app._trace}"
+        assert _trace_path(app) == [("top", "out"), ("top.u_core", "alu_result")], \
+            f"right should cross the boundary: {_trace_path(app)}"
         await pilot.press("left")
-        assert app._trace == [("top", "out")], f"left should pop the trace: {app._trace}"
+        assert _trace_path(app) == [("top", "out")], f"left should pop the trace: {_trace_path(app)}"
 
         await pilot.press("escape")
         assert app._modal is None, "escape should close the trace modal"
@@ -816,9 +828,9 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         for _ in range(sram_idx):
             await pilot.press("down")  # arrow keys reach the modal list
         assert modal.listwidget.index == sram_idx, f"index {modal.listwidget.index}"
-        n_before = len(app._trace)
+        n_before = len(_trace_path(app))
         await pilot.press("enter")
-        assert len(app._trace) == n_before, "trace must stop at a black box"
+        assert len(_trace_path(app)) == n_before, "trace must stop at a black box"
         await pilot.press("escape")
 
         # ---- yank formats + OSC 52 + editor jump ----------------
@@ -889,7 +901,8 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         modal = app._modal
         assert modal is not None
         await pilot.press("enter")  # must cross the boundary, not trigger focus_source
-        assert app._trace == [("top", "out"), ("top.u_core", "alu_result")], f"trace: {app._trace}"
+        assert _trace_path(app) == [("top", "out"), ("top.u_core", "alu_result")], \
+            f"trace: {_trace_path(app)}"
         await pilot.press("escape")
 
         # ---- / global search on the real IR ---------------------
