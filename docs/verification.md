@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 205 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 225 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -42,7 +42,9 @@ Pure Python plus `make -n` dry runs of the Makefile. 205 tests.
   positional port matching helper.
 - **Elaborator internals** (`tests/test_elaborate.py`): slang-hier line
   parsing, ast-json src/type/default extraction, the yosys constant/x-bit
-  key sentinel (a real quirk surfaced by the HLS test set).
+  key sentinel (a real quirk surfaced by the HLS test set), and cell port
+  directions (explicit map, child-module ports, an unresolved IP falling to
+  `unknown` instead of a guessed direction).
 - **Yank formats** (`tests/test_formats.py`): every preset + a custom format
   diverging in every dimension.
 - **Importers** (`tests/test_importer.py` / `test_vivado.py`): filelist
@@ -86,9 +88,11 @@ fixture (no tools) and real-IR mode. Two flavours:
   l/h expand/collapse, ctrl+u, enter, `z` pane zoom, pageup/pagedown paging
   per pane; fast, no tools.
 - `make drive-real` - `test_drive.py --manifest tests/rtl/demo.manifest.json`:
-  the *real* elaboration, source-pane focus/auto-follow, trace crossing with
-  positional matching down to `$xor`, black-box stops, `X` cuts, yank format
-  rendering + OSC payload, editor target.
+  the *real* elaboration, source-pane focus/auto-follow, trace tree expansion
+  with positional matching down to `$xor` (a branch keeps its siblings), cell
+  rows stepping into their pins and the logic cone behind yosys intermediates,
+  the outward edge of a port, black-box stops, `X` cuts, yank format rendering
+  + OSC payload, editor target.
 
 Both assert **observable app state** (labels, focus, traces, yanked strings)
 rather than screenshots, so they are deterministic and CI-safe. Their blind

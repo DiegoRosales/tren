@@ -46,9 +46,9 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
 )
 
 TRACE_KEYS: tuple[KeyDoc, ...] = (
-    KeyDoc("enter or l", "crosses the row's edge into the child scope or the parent net"),
-    KeyDoc("backspace or h", "pops the trace tree (at the root, closes the split)"),
-    KeyDoc("j k", "move down/up through the trace rows"),
+    KeyDoc("enter or l", "expands the row: into the far net, or a cell into its pins"),
+    KeyDoc("backspace or h", "collapses one trace level (at the root, closes the split)"),
+    KeyDoc("j k", "move down/up through the trace tree"),
     KeyDoc("d L", "switch the trace between drivers and loads"),
     KeyDoc("escape", "closes the split"),
 )
@@ -82,7 +82,8 @@ def render_trace_paragraph() -> str:
         f"In the **trace split**: {phrases}."
         " The arrows alias j/k and l/h."
         " The split is a bordered pane below the source view."
-        " The pane title names the trace head and the visible row range."
+        " The pane title names the net whose rows hold the cursor, with the"
+        " visible row range."
     )
 
 

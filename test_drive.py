@@ -750,11 +750,25 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         labels = [r["label"] for r in app._trace_rows()]
         assert any("$xor" in l for l in labels), f"no $xor driver: {labels}"
 
+        # the crossed row stays above the child's rows: a tree, not a list
+        lines = app._trace_visible()
+        assert lines[0]["label"] == "u_core.alu_result  → core", lines
+        assert lines[0]["node"] is app._trace_root and lines[0]["expanded"]
+        assert lines[0]["depth"] == 0 and lines[1]["depth"] == 1, lines
+        assert app._trace_index == 1, f"cursor in the child rows: {app._trace_index}"
+        await pilot.press("k")  # walk out of the branch onto the parent row
+        assert app._trace_index == 0 and app._trace_cursor is app._trace_root
+        await pilot.press("j")  # and back into the branch
+        assert app._trace_index == 1
+        assert app._trace_cursor.scope_path == "top.u_core"
+
         await pilot.press(";")  # dump the trace path
         assert app.trace_dump == "top.out ▶ top.u_core.alu_result", app.trace_dump
 
-        await pilot.press("backspace")  # pop back to top.out
+        await pilot.press("backspace")  # collapse the branch, select its row
         assert _trace_path(app) == [("top", "out")], f"trace after pop: {_trace_path(app)}"
+        lines = app._trace_visible()
+        assert len(lines) == 1 and not lines[0]["expanded"], lines
 
         # in the split right descends and left goes back, so an
         # arrow never falls through to the tree behind it
@@ -774,6 +788,66 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("escape")
         assert not app._trace_open, "escape should close the trace split"
 
+        # a cell row resolves into the logic it is built from: its pins, the
+        # nets those pins connect to, and the cells driving them
+        app._select_path("top", "out")
+        await pilot.press("d")
+        await pilot.press("enter")  # cross into u_core.alu_result
+        await pilot.press("enter")  # expand the $xor cell
+        lines = app._trace_visible()
+        cell = next(
+            l for l in lines
+            if l["row"] is not None and l["row"].get("kind") == "cell"
+        )
+        assert cell["expanded"] and cell["depth"] == 1, cell
+        assert "$xor" in cell["label"] and "demo.sv:64" in cell["label"], cell["label"]
+        assert "$xor$tests" not in cell["label"], "the mangled yosys name must not show"
+        pins = [l for l in lines if l.get("pin")]
+        assert [p["label"] for p in pins] == [
+            "A <- r0[31:0]",
+            "B <- x[31:0] (alias a[31:0])",
+        ], pins
+        assert all(p["depth"] == 2 for p in pins), pins
+        assert app._trace_cursor is pins[0]["node"], "the cursor enters the first pin"
+        # a pin expands to what drives that net
+        await pilot.press("enter")
+        lines = app._trace_visible()
+        assert any("u_alu0.result  → alu" in l["label"] for l in lines), \
+            [l["label"] for l in lines]
+        # through the instance and its yosys mux: a cell whose inputs have
+        # no source-level name still shows the pins, and each pin its logic
+        await pilot.press("enter")  # cross into u_alu0
+        await pilot.press("enter")  # expand the $pmux cell
+        lines = app._trace_visible()
+        assert any(l["label"].startswith("$pmux.Y") and l["expanded"] for l in lines), \
+            [l["label"] for l in lines]
+        assert any(l.get("pin") and l["label"] == "A" for l in lines), \
+            [l["label"] for l in lines]
+        await pilot.press("enter")  # expand the first pin (A)
+        lines = app._trace_visible()
+        assert any(l["label"].startswith("$xor.Y") and "demo.sv:32" in l["label"]
+                   for l in lines), [l["label"] for l in lines]
+        await pilot.press("enter")  # expand that $xor cell
+        lines = app._trace_visible()
+        assert any(l.get("pin") and l["label"] == "A <- a[31:0]" for l in lines), \
+            [l["label"] for l in lines]
+        await pilot.press("escape")
+
+        # loads step the other way: from a load pin to the cell's output net
+        app._select_path("top.u_core", "x")
+        await pilot.press("L")
+        lines = app._trace_visible()
+        index = next(
+            i for i, l in enumerate(lines)
+            if l["row"] is not None and l["row"].get("kind") == "cell"
+        )
+        app._trace_move(index)
+        await pilot.press("enter")
+        lines = app._trace_visible()
+        assert any(l.get("pin") and l["label"] == "Y -> alu_result[31:0]"
+                   for l in lines), [l["label"] for l in lines]
+        await pilot.press("escape")
+
         # a multi-load net: j/k walk the trace rows, never the tree behind it
         app._select_path("top", "o")
         await pilot.press("L")
@@ -787,6 +861,24 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("k")
         assert app._trace_index == 0, f"k should move the trace cursor back: {app._trace_index}"
         assert app._index == tree_row, "k must not move the tree behind the split"
+
+        # expanding one branch keeps the sibling rows in place
+        await pilot.press("enter")
+        lines = app._trace_visible()
+        assert lines[0]["expanded"] and lines[0]["depth"] == 0, lines
+        assert lines[1]["depth"] == 1, lines
+        assert any(l["depth"] == 0 for l in lines[1:]), \
+            f"the sibling row must stay visible: {[l['label'] for l in lines]}"
+        await pilot.press("d")  # a direction switch re-reads the same rows
+        assert app._trace_dir == "drivers"
+        await pilot.press("L")
+        assert app._trace_dir == "loads"
+        assert any(l["expanded"] for l in app._trace_visible()), \
+            "the branch returns when its row does"
+        await pilot.press("h")
+        lines = app._trace_visible()
+        assert len(lines) == len(rows), f"h collapses the branch: {lines}"
+        assert not any(l["expanded"] for l in lines), lines
 
         # from another pane d/L start a new trace at that pane's selection
         await pilot.press("1")
@@ -862,7 +954,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._cheat.include_trace, "a trace is open: list the trace keys"
         cheat_rows = "\n".join(str(s.content) for s in app._cheat.query("Static"))
         assert "While the trace is open:" in cheat_rows, cheat_rows
-        assert "crosses the row's edge" in cheat_rows, "trace keys listed"
+        assert "expands the row" in cheat_rows, "trace keys listed"
         assert "yank the selection" in cheat_rows, "screen keys still there"
         await pilot.press("escape")
         assert app._cheat is None, "escape dismisses the cheatsheet"

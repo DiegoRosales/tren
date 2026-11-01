@@ -238,7 +238,7 @@ pane.
 | `?` | open this navigation cheatsheet |
 | `q` | quit |
 
-In the **trace split**: `enter` or `l` crosses the row's edge into the child scope or the parent net, `backspace` or `h` pops the trace tree (at the root, closes the split), `j` `k` move down/up through the trace rows, `d` `L` switch the trace between drivers and loads, `escape` closes the split. The arrows alias j/k and l/h. The split is a bordered pane below the source view. The pane title names the trace head and the visible row range.
+In the **trace split**: `enter` or `l` expands the row: into the far net, or a cell into its pins, `backspace` or `h` collapses one trace level (at the root, closes the split), `j` `k` move down/up through the trace tree, `d` `L` switch the trace between drivers and loads, `escape` closes the split. The arrows alias j/k and l/h. The split is a bordered pane below the source view. The pane title names the net whose rows hold the cursor, with the visible row range.
 
 <!-- keys:end -->
 
@@ -313,20 +313,40 @@ sequence (works in any terminal that relays it, e.g. tmux with
 ### Tracing drivers/loads
 
 Select a port or a net in the tree, then `d` (drivers) or `L` (loads). The
-split pane lists the touching cells. `enter` on a boundary row crosses
-**positionally** into the child scope's net (bits are module-local - matching
-by ID across a boundary is wrong by design).
+split pane shows the touching cells as an assignment tree. `enter` on a
+boundary row expands it in place: the far net's rows nest under the row and
+the rows above stay visible. Bits are matched **positionally** across the
+boundary - matching by ID is wrong by design.
+
+A cell row expands too. It shows the pins on its other side: the inputs of a
+driver, the outputs of a load. Each pin names the net it connects to
+(`A <- r0[31:0]`, `Y -> alu_result[31:0]`), and that net expands to the cells
+driving or loading it. A yosys intermediate wire with no source-level name
+shows the pin alone (`A`): its rows are still the logic behind it. This is
+how the tree walks a logic cone to the ports and registers that feed it.
+
+A cell whose module the source set does not define - an IP with no stub, so
+yosys has no port directions for it - has no known direction. Its rows appear
+in both drivers and loads, at the instantiation site and marked
+`(direction unknown)`. TREN never guesses the direction: a wrong guess drops
+a driver from every trace through that instance.
+
+A row with a `+` marker hides lines below it; `-` shows them. A line with no
+marker has nothing below it - a black box, a cut, an unknown-direction
+instance, or a cell whose other pins carry only constants. `j`/`k` walk every
+visible line of the tree, not only the current level. `h` closes one level.
 
 A port also has an edge on the outside. The drivers of an input and the loads
 of an output cross to the parent net that connects the port: `o[31:0] ↑ top`.
 Two net names that carry the same bits alias one wire and show the same
 select, and a net the netlist aliased to a port reaches the same parent edge.
-The design top has no parent, so its ports report that the driver or the load
-is outside the design.
+A cell pin that reaches an alias shows the local name and notes the other,
+as `B <- x[31:0] (alias a[31:0])`. The design top has no parent, so its ports
+report that the driver or the load is outside the design.
 
-While the trace pane holds the cursor, `d` and `L` switch the direction and
-the accumulated path stays. From another pane they start a new trace at the
-tree selection. `;` dumps the breadcrumb, e.g.
+While the trace pane holds the cursor, `d` and `L` switch the direction of
+the whole tree. From another pane they start a new trace at the tree
+selection. `;` dumps the path of the net under the cursor, e.g.
 `top.out ▶ top.u_core.alu_result`.
 
 ### Black boxes and cuts

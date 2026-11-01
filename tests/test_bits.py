@@ -135,6 +135,47 @@ class BitMapTests(unittest.TestCase):
         self.assertTrue(all(r["dir"] == "in" for r in loads))
 
 
+class UnknownDirectionTests(unittest.TestCase):
+    """An instance of a module the netlist lacks has no directions.
+
+    The design note's rule: render the direction as unknown, never guess.
+    """
+
+    def test_cell_directions_returns_none(self) -> None:
+        cell = {"type": "vendor_fifo", "connections": {"dout": [1], "din": [2]}}
+        self.assertIsNone(bits.cell_directions(cell, "vendor_fifo"))
+
+    def test_child_module_ports_supply_the_directions(self) -> None:
+        cell = {"type": "fifo", "connections": {"dout": [1], "din": [2]}}
+        modules = {
+            "fifo": {
+                "ports": {
+                    "dout": {"direction": "output"},
+                    "din": {"direction": "input"},
+                }
+            }
+        }
+        self.assertEqual(
+            bits.cell_directions(cell, "fifo", modules),
+            {"dout": "out", "din": "in"},
+        )
+
+    def test_an_unknown_row_is_not_dropped(self) -> None:
+        module = {
+            "cells": {
+                "u_fifo": {"type": "vendor_fifo", "connections": {"dout": [1]}}
+            },
+            "netnames": {"y": {"bits": [1]}},
+        }
+        rows = bits.rows_hitting_bits(module, {1})
+        self.assertEqual(
+            [(r["cell"], r["port"], r["dir"]) for r in rows],
+            [("u_fifo", "dout", "unknown")],
+        )
+        self.assertEqual(len(bits.drivers_of(module, {1})), 1)
+        self.assertEqual(len(bits.loads_of(module, {1})), 1)
+
+
 class BoundaryTests(unittest.TestCase):
     def test_trace_crosses_the_boundary(self) -> None:
         chain = bits.trace_drivers(design(), "top", "out")

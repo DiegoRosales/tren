@@ -38,11 +38,13 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from .bits import output_ports, unmangle
+from .bits import cell_directions, unmangle
 from .cache import IrCache
 from .ir import (
     BitLink,
     BoundaryLink,
+    Cell,
+    CellPin,
     Design,
     Endpoint,
     Instance,
@@ -524,6 +526,43 @@ def _nets_for(mod: dict, decl: dict[str, Any] | None = None) -> tuple[Net, ...]:
     return tuple(sorted(nets, key=lambda n: n.name))
 
 
+def _cells_for(mod: dict, modules: dict[str, Any]) -> tuple[Cell, ...]:
+    """Internal netlist cells of one module, with their pin directions.
+
+    Submodule instance cells are skipped: they are the scope's `instances`
+    and the trace crosses them by boundary, never as a cell. A cell row in
+    the trace steps to the nets on its other side, so the directions matter:
+    the inputs of a cell that drives the traced net, the outputs of a cell
+    that loads it. An unresolved instance keeps `unknown` pins: the tree
+    must not invent an input side for it.
+    """
+    cells: list[Cell] = []
+    for name, cell in sorted((mod.get("cells") or {}).items()):
+        ctype = cell.get("type", "")
+        if ctype in modules:
+            continue
+        directions = cell_directions(cell, ctype, modules)
+        pins: list[CellPin] = []
+        for port in cell.get("connections") or {}:
+            direction = "unknown" if directions is None else directions.get(port, "unknown")
+            pins.append(
+                CellPin(
+                    name=port,
+                    direction=direction,
+                    width=len(cell.get("connections", {}).get(port) or []),
+                )
+            )
+        cells.append(
+            Cell(
+                name=name,
+                type=ctype,
+                src=(cell.get("attributes") or {}).get("src"),
+                pins=tuple(sorted(pins, key=lambda p: p.name)),
+            )
+        )
+    return tuple(cells)
+
+
 def _params_for(
     node: dict[str, Any], decl: dict[str, Any] | None
 ) -> tuple[Param, ...]:
@@ -551,23 +590,44 @@ def _build_connectivity(
         mod = netlist["modules"].get(key) or {}
         if not mod.get("cells"):
             continue
-        hits: dict[int, list[tuple[str, str, int, bool]]] = {}
+        named_bits = {
+            tuple(n.get("bits") or [])
+            for name, n in (mod.get("netnames") or {}).items()
+            if not name.startswith("$")
+        }
+        seen_bits = set(named_bits)
+        hits: dict[int, list[tuple[str, str, int, str | None]]] = {}
         for cname, cell in sorted((mod.get("cells") or {}).items()):
-            outs = output_ports(cell, cell.get("type", ""))
+            directions = cell_directions(cell, cell.get("type", ""), netlist.get("modules"))
             for port, conn in (cell.get("connections") or {}).items():
+                direction = None if directions is None else directions.get(port)
+                if direction == "inout":
+                    direction = None
                 for pos, b in enumerate(conn):
                     if isinstance(b, int):
-                        hits.setdefault(b, []).append((cname, port, pos, port in outs))
+                        hits.setdefault(b, []).append((cname, port, pos, direction))
         for nname, n in sorted((mod.get("netnames") or {}).items()):
-            if nname.startswith("$"):
-                continue
             bits = n.get("bits") or []
+            # A `$` name is a yosys intermediate wire (the cone through cells
+            # needs it) unless another name already carries the same bits;
+            # then that name is the one to trace.
+            if nname.startswith("$") and tuple(bits) in seen_bits:
+                continue
+            seen_bits.add(tuple(bits))
             links: list[BitLink] = []
             for position, b in enumerate(bits):
                 rows = sorted(hits.get(_bit_key(b), []), key=lambda r: (r[0], r[1], r[2]))
-                drivers = tuple(Endpoint(cell=c, port=p, bit=pos) for (c, p, pos, o) in rows if o)
-                loads = tuple(Endpoint(cell=c, port=p, bit=pos) for (c, p, pos, o) in rows if not o)
-                links.append(BitLink(position=position, drivers=drivers, loads=loads))
+                drivers = tuple(Endpoint(cell=c, port=p, bit=pos) for (c, p, pos, d) in rows if d == "out")
+                loads = tuple(Endpoint(cell=c, port=p, bit=pos) for (c, p, pos, d) in rows if d == "in")
+                unknown = tuple(Endpoint(cell=c, port=p, bit=pos) for (c, p, pos, d) in rows if d is None)
+                links.append(
+                    BitLink(
+                        position=position,
+                        drivers=drivers,
+                        loads=loads,
+                        unknown=unknown,
+                    )
+                )
             out.append(NetConnectivity(scope=base, net=nname, bits=tuple(links)))
     return tuple(sorted(out, key=lambda c: (c.scope, c.net)))
 
@@ -637,6 +697,7 @@ def build_design(
             params=_params_for(node, decls.get(base)),
             ports=_ports_for(mod, decls.get(base)),
             nets=_nets_for(mod, decls.get(base)),
+            cells=_cells_for(mod, netlist["modules"]),
             src=((mod.get("attributes") or {}).get("src") or node.get("file")),
         )
 

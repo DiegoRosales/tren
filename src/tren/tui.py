@@ -55,7 +55,16 @@ from textual.widgets import (
 from .cache import IrCache
 from .elaborate import elaborate
 from .formats import BY_NAME, DEFAULT, PathFormat, render as render_format
-from .ir import Design, Net, Port, Scope, design_from_fixture, parse_src as _parse_src
+from .ir import (
+    Cell,
+    CellPin,
+    Design,
+    Net,
+    Port,
+    Scope,
+    design_from_fixture,
+    parse_src as _parse_src,
+)
 from .keys import SCREEN_KEYS, TRACE_KEYS, KeyDoc
 from .manifest import Manifest
 from .search import SearchEntry, build_search_index, filter_and_rank
@@ -184,6 +193,38 @@ def _net_slice(net: Net, positions: list[int]) -> str:
     return f"[{start}:{end}]"
 
 
+def _pin_slice(pin: CellPin, positions: list[int]) -> str:
+    """Bits of a cell pin one net touches, as the pin select to show."""
+    if not positions:
+        return ""
+    lo, hi = min(positions), max(positions)
+    if pin.width and len(positions) == pin.width and lo == 0 and hi == pin.width - 1:
+        return ""
+    if lo == hi:
+        return f"[{lo}]"
+    return f"[{hi}:{lo}]"
+
+
+def _cell_row_label(cell: Cell | None, cell_name: str, port: str) -> str:
+    """Leaf text for a netlist cell row: '<type>.<pin>  <file>:<line>'.
+
+    An internal yosys cell reads by its type (`$xor.Y`); an unresolved
+    instance has no module to name, so it reads by the cell name the source
+    uses (`mix_fifo.m_axis_tvalid`). The yosys cell name embeds a mangled
+    copy of the source span; the stored attribute spells it once.
+    """
+    if cell is not None and cell.type.startswith("$"):
+        head = f"{cell.type}.{port}"
+    else:
+        head = f"{cell_name}.{port}"
+    if cell is None:
+        return head
+    span = _parse_src(cell.src)
+    if span is None:
+        return head
+    return f"{head}  {span[0].rsplit('/', 1)[-1]}:{span[1]}"
+
+
 def cheat_line(doc: KeyDoc) -> str:
     """Cheatsheet row: the keys in a fixed column, then the effect."""
     return f"{doc.keys:<16} {doc.effect}"
@@ -275,18 +316,34 @@ class CheatSheet(ModalScreen[None]):
 class TraceNode:
     """One net on a trace, with the rows the user could descend into.
 
-    The trace state used to be a flat stack of (scope_path, net_name)
-    pairs. The split view needs a tree: a descend may branch into
-    several boundary rows and the user may walk back to any ancestor.
+    The trace pane renders these nodes as a tree: the rows of the root sit
+    at the left edge, and the rows of a crossed net nest one level under
+    the row that crossed. A branch stays visible while another one grows.
     """
 
-    def __init__(self, scope_path: str, net_name: str, parent: "TraceNode | None") -> None:
+    def __init__(
+        self,
+        scope_path: str,
+        net_name: str,
+        parent: "TraceNode | None",
+        *,
+        via: tuple | None = None,
+        pin_label: str | None = None,
+    ) -> None:
         self.scope_path = scope_path
         self.net_name = net_name
         self.parent = parent
         self.children: list["TraceNode"] = []
-        # rows computed the last time this node was the trace head; None
-        # until first built, cleared again when a user cut changes
+        # the row key that reached this net: an edge row or a cell pin row
+        self.via = via
+        # a net reached through a cell pin renders as "pin <-/-> net"
+        self.pin_label = pin_label
+        # a crossed net shows its rows only while it is expanded
+        self.expanded = False
+        # cell rows whose pins are shown (the key lives on the owner node)
+        self.expanded_rows: set[tuple] = set()
+        # rows of this net, cached for the direction in force; None until
+        # first built, cleared when the direction or a user cut changes
         self.rows: list[dict] | None = None
 
 
@@ -651,6 +708,11 @@ class TrenApp(App[None]):
         self._trace_open = False
         self._trace_index = 0
         self._trace_scroll = 0
+        # per-module cell lookup and (cell, pin) -> nets, built on first use
+        self._cells_by_module: dict[str, dict[str, Cell]] = {}
+        self._cell_pins_by_module: dict[
+            str, dict[tuple[str, str], list[tuple[str, str]]]
+        ] = {}
         self.trace_dump: str = ""
         # user cuts (X): scope paths made opaque at runtime
         self._user_cut: set[str] = set()
@@ -1002,40 +1064,55 @@ class TrenApp(App[None]):
         return src
 
     def _render_trace_pane(self) -> RichText:
-        """The trace pane's rows: the trace head's drivers or loads.
+        """The trace pane's tree: the head's rows, plus every expanded branch.
 
-        The border title names the head and, while the rows overflow the
-        pane, the visible row range. The rows render bounded (the same
-        count `_trace_view_rows` uses), so a move can never leave the
-        cursor outside the window.
+        The border title names the net whose rows hold the cursor and, while
+        the tree overflows the pane, the visible line range. The lines render
+        bounded (the same count `_trace_view_rows` uses), so a move can never
+        leave the cursor outside the window.
         """
         trace = RichText()
         cursor = self._trace_cursor
         if cursor is None:
             return trace
-        rows = self._trace_rows()
-        self._trace_index = max(0, min(self._trace_index, len(rows) - 1))
+        lines = self._trace_visible()
+        self._trace_index = max(0, min(self._trace_index, max(0, len(lines) - 1)))
         view = self._trace_view_rows()
-        if self._trace_scroll >= len(rows):
-            self._trace_scroll = max(0, len(rows) - view)
+        if self._trace_scroll >= len(lines):
+            self._trace_scroll = max(0, len(lines) - view)
         lo = self._trace_scroll
-        hi = min(len(rows), lo + view)
-        title = f"{self._trace_dir} of {cursor.scope_path}.{cursor.net_name}"
-        if len(rows) > view:
-            title += f"  (rows {lo + 1}-{hi} of {len(rows)})"
+        hi = min(len(lines), lo + view)
+        if lines:
+            self._trace_cursor = lines[self._trace_index]["node"]
+            cursor = self._trace_cursor
+        title = f"{self._trace_dir} of {self._trace_head_label(cursor)}"
+        if len(lines) > view:
+            title += f"  (rows {lo + 1}-{hi} of {len(lines)})"
         self._trace_widget.border_title = title
-        if not rows:
+        if not lines:
             trace.append(f"  {self._trace_empty_note()}\n", style="dim italic")
             return trace
         if lo:
             trace.append("…… (↑ scroll to see earlier rows)\n", style="dim italic")
         for i in range(lo, hi):
-            row = rows[i]
-            sel = "▸ " if i == self._trace_index else "  "
-            style = "bold #ffa62b" if i == self._trace_index else "#a6c9ff"
-            trace.append(f"{sel}{row['label']}\n", style=style)
-        if hi < len(rows):
-            trace.append(f"…… (↓ {len(rows) - hi} more rows)\n", style="dim italic")
+            line = lines[i]
+            selected = i == self._trace_index
+            sel = "▸ " if selected else "  "
+            indent = "  " * line["depth"]
+            if line["empty"]:
+                style = "bold #ffa62b" if selected else "dim italic"
+                trace.append(f"{sel}{indent}{line['label']}\n", style=style)
+                continue
+            if line["expanded"]:
+                branch = "- "
+            elif line["expandable"]:
+                branch = "+ "
+            else:
+                branch = "  "
+            style = "bold #ffa62b" if selected else "#a6c9ff"
+            trace.append(f"{sel}{indent}{branch}{line['label']}\n", style=style)
+        if hi < len(lines):
+            trace.append(f"…… (↓ {len(lines) - hi} more rows)\n", style="dim italic")
         return trace
 
     def _render_panes(self) -> None:
@@ -1164,29 +1241,54 @@ class TrenApp(App[None]):
             node = node.parent
         return None
 
+    def _trace_head_label(self, node: TraceNode) -> str:
+        """How the trace head reads in the title and the `;` dump.
+
+        A named net is its path. A yosys `$...` intermediate has no name
+        worth showing, so it reads as the pin it was reached through, e.g.
+        `top.u_core.u_alu0.A`.
+        """
+        if not node.net_name.startswith("$"):
+            return f"{node.scope_path}.{node.net_name}"
+        if node.pin_label:
+            return f"{node.scope_path}.{node.pin_label}"
+        return f"{node.scope_path}.{node.net_name}"
+
     def _trace_rows(self) -> list[dict]:
-        """Driver/load rows of the trace head for the split.
+        """Driver/load rows of the net under the cursor."""
+        cursor = self._trace_cursor
+        return self._trace_rows_of(cursor) if cursor is not None else []
+
+    def _trace_rows_of(self, node: TraceNode) -> list[dict]:
+        """Driver/load rows of one trace node, cached for the direction.
 
         A net's rows stop at the module edge. A port also has the connection
         on the other side of that edge, so the outward rows of
-        `_outward_rows` join the in-scope ones.
+        `_outward_rows` join the in-scope ones. An internal cell row carries
+        the nets on its other side, so the tree can step into the logic.
         """
-        cursor = self._trace_cursor
-        if cursor is None:
-            return []
-        scope_path, net_name = cursor.scope_path, cursor.net_name
+        if node.rows is not None:
+            return node.rows
+        scope_path, net_name = node.scope_path, node.net_name
         scope = self._scopes.get(scope_path)
         if scope is None:
-            return []
+            node.rows = []
+            return node.rows
         conn = next(
             (c for c in self.design.connectivity if c.scope == scope.module and c.net == net_name),
             None,
         )
+        cells = self._cells_of(scope)
+        other_side = "in" if self._trace_dir == "drivers" else "out"
+        pin_nets: dict[tuple[str, str], list[tuple[str, str]]] | None = None
         seen: set[tuple[str, str]] = set()
         rows: list[dict] = []
         for bit in conn.bits if conn is not None else ():
             eps = bit.drivers if self._trace_dir == "drivers" else bit.loads
-            for endpoint in eps:
+            # a port whose direction the netlist cannot tell shows in both
+            # directions, marked; it must never vanish from a trace
+            marked = [(e, False) for e in eps] + [(e, True) for e in bit.unknown]
+            for endpoint, unknown in marked:
                 cell, port = endpoint.cell, endpoint.port
                 if (cell, port) in seen:
                     continue
@@ -1205,10 +1307,218 @@ class TrenApp(App[None]):
                         row["kind"] = "boundary"
                         row["target"] = (child, port)
                         row["label"] = f"{cell}.{port}  → {child_scope.module}"
+                        row["key"] = ("edge", child, port)
+                else:
+                    meta = cells.get(cell)
+                    row["kind"] = "cell"
+                    row["label"] = _cell_row_label(meta, cell, port)
+                    # the key carries the direction: the other side of a
+                    # driver is its inputs, of a load its outputs
+                    row["key"] = ("cell", self._trace_dir, cell, port)
+                    if meta is not None:
+                        if pin_nets is None:
+                            pin_nets = self._cell_pin_nets(scope)
+                        row["pins"] = [
+                            (pin.name, net, label)
+                            for pin in meta.pins
+                            if pin.direction == other_side
+                            for net, label in pin_nets.get((cell, pin.name), ())
+                        ]
+                if unknown:
+                    row["unknown"] = True
+                    row["label"] += "  (direction unknown)"
                 rows.append(row)
         rows.extend(self._outward_rows(scope, scope_path, net_name))
-        cursor.rows = rows
+        node.rows = rows
         return rows
+
+    def _cells_of(self, scope: Scope) -> dict[str, Cell]:
+        """Netlist cells of a scope by name (shared per module)."""
+        key = scope.module or scope.name
+        cells = self._cells_by_module.get(key)
+        if cells is None:
+            cells = {cell.name: cell for cell in scope.cells}
+            self._cells_by_module[key] = cells
+        return cells
+
+    def _cell_pin_nets(
+        self, scope: Scope
+    ) -> dict[tuple[str, str], list[tuple[str, str]]]:
+        """(cell, pin) -> [(net, label)] for the nets a pin connects to.
+
+        Built once per module from the connectivity map: every bit endpoint
+        names the net that carries it, so a pin's nets fall out of the same
+        data the rows use. A pin wired only to constants has no entry.
+
+        Netnames that carry the same bits are aliases of one wire (a plain
+        `assign x = a`). They collapse to one entry, so the cone below is
+        walked once; the label names the wire and notes the other names. A
+        wire with no source-level name (a yosys `$...` intermediate) leaves
+        the net part out, so the line reads as the pin alone. A pin spread
+        over several wires carries its bit select, as `S[0]`.
+        """
+        key = scope.module or scope.name
+        index = self._cell_pins_by_module.get(key)
+        if index is not None:
+            return index
+        nets = {net.name: net for net in scope.nets}
+        ports = {port.name for port in scope.ports}
+        pins = {
+            (cell.name, pin.name): pin for cell in scope.cells for pin in cell.pins
+        }
+        hits: dict[tuple[str, str], dict[str, list[tuple[int, int]]]] = {}
+        for conn in self.design.connectivity:
+            if conn.scope != scope.module:
+                continue
+            for bit in conn.bits:
+                for endpoint in (*bit.drivers, *bit.loads, *bit.unknown):
+                    hits.setdefault((endpoint.cell, endpoint.port), {}).setdefault(
+                        conn.net, []
+                    ).append((bit.position, endpoint.bit))
+        index = {}
+        for pin_key, by_net in hits.items():
+            pin = pins.get(pin_key)
+            groups: dict[tuple, list[tuple[str, str, list[int]]]] = {}
+            for net_name in sorted(by_net):
+                pairs = by_net[net_name]
+                net = nets.get(net_name)
+                positions = [position for position, _ in pairs]
+                select = _net_slice(net, positions) if net is not None else ""
+                if net is None:
+                    signature: tuple = (net_name,)
+                else:
+                    signature = tuple(net.bits[position] for position in positions)
+                groups.setdefault(signature, []).append(
+                    (net_name, select, [bit for _, bit in pairs])
+                )
+            entries: list[tuple[int, str, str]] = []
+            for members in groups.values():
+                members.sort(
+                    key=lambda item: (
+                        item[0].startswith("$"),
+                        item[0] in ports,
+                        item[0],
+                    )
+                )
+                primary, select, pin_bits = members[0]
+                named = [
+                    f"{name}{sel}"
+                    for name, sel, _ in members
+                    if not name.startswith("$")
+                ]
+                head = f"{pin.name if pin else pin_key[1]}"
+                if pin is not None:
+                    head += _pin_slice(pin, pin_bits)
+                if named:
+                    text = named[0]
+                    if len(named) > 1:
+                        text += " (alias " + ", ".join(named[1:]) + ")"
+                    arrow = "<-" if pin is None or pin.direction == "in" else "->"
+                    label = f"{head} {arrow} {text}"
+                else:
+                    label = head
+                entries.append((min(pin_bits), primary, label))
+            index[pin_key] = [
+                (net, label) for _, net, label in sorted(entries)
+            ]
+        self._cell_pins_by_module[key] = index
+        return index
+
+    def _trace_children(self, node: TraceNode, row: dict) -> list[TraceNode]:
+        """Child nodes a row leads to, once they exist."""
+        key = row.get("key")
+        if key is None:
+            return []
+        return [child for child in node.children if child.via == key]
+
+    def _trace_visible(self) -> list[dict]:
+        """The trace tree as indented lines, depth-first.
+
+        Each node contributes its rows. An expanded edge row contributes the
+        rows of the net it crossed to, one level deeper. An expanded cell row
+        contributes a line per net on its other side, and each of those lines
+        can expand to that net's rows. A net with no rows of its own (a design
+        input, say) keeps one dim note line, so the cursor can rest on it and
+        the path stays whole.
+        """
+        lines: list[dict] = []
+        root = self._trace_root
+        if root is not None:
+            self._walk_trace(root, 0, lines)
+        return lines
+
+    def _walk_trace(self, node: TraceNode, depth: int, lines: list[dict]) -> None:
+        for row in self._trace_rows_of(node):
+            key = row.get("key")
+            if key is not None and key[0] == "cell":
+                expanded = key in node.expanded_rows
+                lines.append(
+                    {
+                        "label": row["label"],
+                        "row": row,
+                        "node": node,
+                        "depth": depth,
+                        "expandable": bool(row.get("pins")),
+                        "expanded": expanded,
+                        "empty": False,
+                        "pin": False,
+                    }
+                )
+                if not expanded:
+                    continue
+                for child in self._trace_children(node, row):
+                    self._walk_pin(child, depth + 1, lines)
+                continue
+            child = next(iter(self._trace_children(node, row)), None)
+            expanded = child is not None and child.expanded
+            lines.append(
+                {
+                    "label": row["label"],
+                    "row": row,
+                    "node": node,
+                    "depth": depth,
+                    "expandable": key is not None,
+                    "expanded": expanded,
+                    "empty": False,
+                    "pin": False,
+                }
+            )
+            if not expanded or child is None:
+                continue
+            self._walk_branch(child, depth + 1, lines)
+
+    def _walk_pin(self, child: TraceNode, depth: int, lines: list[dict]) -> None:
+        lines.append(
+            {
+                "label": child.pin_label or child.net_name,
+                "row": None,
+                "node": child,
+                "depth": depth,
+                "expandable": True,
+                "expanded": child.expanded,
+                "empty": False,
+                "pin": True,
+            }
+        )
+        if child.expanded:
+            self._walk_branch(child, depth + 1, lines)
+
+    def _walk_branch(self, child: TraceNode, depth: int, lines: list[dict]) -> None:
+        if self._trace_rows_of(child):
+            self._walk_trace(child, depth, lines)
+        else:
+            lines.append(
+                {
+                    "label": self._trace_empty_note(child),
+                    "row": None,
+                    "node": child,
+                    "depth": depth,
+                    "expandable": False,
+                    "expanded": False,
+                    "empty": True,
+                    "pin": False,
+                }
+            )
 
     def _port_aliases(
         self, scope: Scope, net_name: str
@@ -1267,7 +1577,7 @@ class TrenApp(App[None]):
                             e.cell == link.instance
                             and e.port == link.port
                             and e.bit in positions
-                            for e in (*bit.drivers, *bit.loads)
+                            for e in (*bit.drivers, *bit.loads, *bit.unknown)
                         )
                     ]
                     if not touched:
@@ -1282,62 +1592,122 @@ class TrenApp(App[None]):
                             "port": link.port,
                             "kind": "up",
                             "target": (link.parent_scope, conn.net),
+                            "key": ("edge", link.parent_scope, conn.net),
                             "label": f"{conn.net}{select}  ↑ {link.parent_scope}",
                         }
                     )
         return rows
 
-    def _trace_empty_note(self) -> str:
-        """Why the trace head has no rows.
+    def _trace_empty_note(self, node: TraceNode | None = None) -> str:
+        """Why a trace net has no rows.
 
         A design top's input is driven outside the design and its output is
         loaded outside it, so such a port has no row on that side. Every
-        other empty head is a plain "(no rows)".
+        other empty net is a plain "(no rows)".
         """
-        cursor = self._trace_cursor
-        if cursor is None or _scope_parent(cursor.scope_path) is not None:
+        node = node if node is not None else self._trace_cursor
+        if node is None or _scope_parent(node.scope_path) is not None:
             return "(no rows)"
-        scope = self._scopes.get(cursor.scope_path)
+        scope = self._scopes.get(node.scope_path)
         if scope is None:
             return "(no rows)"
-        directions = {port.direction for port, _ in self._port_aliases(scope, cursor.net_name)}
+        directions = {port.direction for port, _ in self._port_aliases(scope, node.net_name)}
         if self._trace_dir == "drivers" and directions & {"in", "inout"}:
             return "(design input - its driver is outside the design)"
         if self._trace_dir == "loads" and directions & {"out", "inout"}:
             return "(design output - its loads are outside the design)"
         return "(no rows)"
 
-    def _trace_cross(self, row: dict) -> bool:
-        """Cross the highlighted row to the net on its far side.
+    def _trace_expand(self, picked: dict) -> bool:
+        """Open the highlighted line one level.
 
-        A boundary row enters the child scope's port net; an upward row
-        enters the parent scope's net that connects the port.
+        A cell row reveals one line per net on its other side (the inputs of
+        a driver, the outputs of a load). An edge row reveals the net it
+        crossed to. A pin line reveals the rows of the net it names. The
+        cursor moves onto the first line of the new branch (a note line when
+        a net has no rows). A leaf row rings the bell.
         """
-        target = row.get("target")
-        if target is None:
-            return False
-        scope_path, net_name = target
-        parent = self._trace_cursor
-        if parent is None:
-            return False
-        node = next(
-            (c for c in parent.children
-             if c.scope_path == scope_path and c.net_name == net_name),
-            None,
-        )
-        if node is None:
-            node = TraceNode(scope_path, net_name, parent)
-            parent.children.append(node)
-        self._trace_cursor = node
-        self._select_path(scope_path, net_name)
+        node = picked["node"]
+        index = self._trace_index
+        if picked.get("pin"):
+            node.expanded = True
+        else:
+            row = picked["row"]
+            key = row.get("key") if row is not None else None
+            if row is None or key is None:
+                return False
+            if key[0] == "cell":
+                if not row.get("pins"):
+                    return False
+                node.expanded_rows.add(key)
+                if not self._trace_children(node, row):
+                    for _pin, net_name, label in row["pins"]:
+                        node.children.append(
+                            TraceNode(
+                                node.scope_path,
+                                net_name,
+                                node,
+                                via=key,
+                                pin_label=label,
+                            )
+                        )
+            else:
+                target = row.get("target")
+                if target is None:
+                    return False
+                children = self._trace_children(node, row)
+                if children:
+                    child = children[0]
+                else:
+                    child = TraceNode(target[0], target[1], node, via=key)
+                    node.children.append(child)
+                child.expanded = True
+                self._select_path(child.scope_path, child.net_name)
+        lines = self._trace_visible()
+        self._trace_index = min(index + 1, len(lines) - 1)
+        self._trace_cursor = lines[self._trace_index]["node"]
         return True
 
-    def _trace_pop(self) -> bool:
-        cursor = self._trace_cursor
-        if cursor is None or cursor.parent is None:
+    def _trace_collapse(self) -> bool:
+        """Close one trace level, or step to the parent line.
+
+        An open line closes in place. Otherwise the cursor goes to the line
+        one level up. At the first level there is no line above, so the
+        caller closes the split.
+        """
+        lines = self._trace_visible()
+        if not (0 <= self._trace_index < len(lines)):
             return False
-        self._trace_cursor = cursor.parent
-        self._select_path(self._trace_cursor.scope_path, self._trace_cursor.net_name)
+        line = lines[self._trace_index]
+        node = line["node"]
+        if line["expanded"]:
+            if line["pin"]:
+                node.expanded = False
+            elif line["row"] is not None and line["row"].get("key", ("",))[0] == "cell":
+                node.expanded_rows.discard(line["row"]["key"])
+            elif line["row"] is not None:
+                for child in self._trace_children(node, line["row"]):
+                    child.expanded = False
+            return True
+        if line["depth"] == 0:
+            return False
+        parent = next(
+            i
+            for i in range(self._trace_index - 1, -1, -1)
+            if lines[i]["depth"] == line["depth"] - 1
+        )
+        parent_line = lines[parent]
+        if parent_line["pin"]:
+            parent_line["node"].expanded = False
+        elif parent_line["row"] is not None:
+            row = parent_line["row"]
+            if row.get("key", ("",))[0] == "cell":
+                parent_line["node"].expanded_rows.discard(row["key"])
+            else:
+                for child in self._trace_children(parent_line["node"], row):
+                    child.expanded = False
+        self._trace_index = parent
+        self._trace_cursor = parent_line["node"]
         return True
 
     def _find_scope_node(self, path: str) -> Tree.Node | None:
@@ -1586,18 +1956,28 @@ class TrenApp(App[None]):
         self._render_panes()
 
     def _set_trace_direction(self, direction: str) -> None:
-        """Swap the trace between drivers and loads at the current head.
+        """Swap the trace between drivers and loads on the same tree.
 
-        The rows of the other direction differ, so the window starts over.
-        A repeat of the direction in force changes nothing and rings the
-        bell, the app's signal for a key with no effect here.
+        Every node's rows depend on the direction, so the row cache drops.
+        The cursor keeps the net it was on; the window follows. A repeat of
+        the direction in force changes nothing and rings the bell, the app's
+        signal for a key with no effect here.
         """
         if self._trace_dir == direction:
             self.bell()
             return
+        cursor = self._trace_cursor
         self._trace_dir = direction
-        self._trace_index = 0
-        self._trace_scroll = 0
+        self._invalidate_trace_rows()
+        lines = self._trace_visible()
+        if not any(line["node"] is cursor for line in lines):
+            cursor = self._trace_root
+        self._trace_cursor = cursor
+        self._trace_index = next(
+            (i for i, line in enumerate(lines) if line["node"] is cursor),
+            0,
+        )
+        self._scroll_trace_into_view(len(lines))
         self._render_panes()
 
     def _close_trace(self) -> None:
@@ -1622,43 +2002,47 @@ class TrenApp(App[None]):
         height = self._trace_widget.size.height or self._trace_pane_rows
         return max(1, min(TRACE_MAX_ROWS, height - 2))
 
-    def _trace_move(self, delta: int) -> None:
-        """j/k in the trace pane: walk the rows of the trace head.
-
-        The cursor stays inside the visible window: a move past an edge
-        slides the scroll offset, so the highlighted row never renders
-        below the pane's clip.
-        """
-        rows = self._trace_rows()
-        if not rows:
-            self.bell()
-            return
-        self._trace_index = max(0, min(len(rows) - 1, self._trace_index + delta))
+    def _scroll_trace_into_view(self, count: int) -> None:
+        """Slide the window so the cursor line stays inside it."""
         view = self._trace_view_rows()
         if self._trace_index < self._trace_scroll:
             self._trace_scroll = self._trace_index
         elif self._trace_index >= self._trace_scroll + view:
             self._trace_scroll = self._trace_index - view + 1
+        self._trace_scroll = max(0, min(self._trace_scroll, max(0, count - view)))
+
+    def _trace_move(self, delta: int) -> None:
+        """j/k in the trace pane: walk the visible tree lines.
+
+        The cursor stays inside the visible window: a move past an edge
+        slides the scroll offset, so the highlighted line never renders
+        below the pane's clip.
+        """
+        lines = self._trace_visible()
+        if not lines:
+            self.bell()
+            return
+        self._trace_index = max(0, min(len(lines) - 1, self._trace_index + delta))
+        self._trace_cursor = lines[self._trace_index]["node"]
+        self._scroll_trace_into_view(len(lines))
         self._render_panes()
 
     def _trace_enter(self) -> None:
-        """enter/right in the trace pane: cross the highlighted row's edge."""
-        rows = self._trace_rows()
-        if not (0 <= self._trace_index < len(rows)):
+        """enter/right in the trace pane: expand the highlighted row's edge."""
+        lines = self._trace_visible()
+        if not (0 <= self._trace_index < len(lines)):
             self.bell()
             return
-        if self._trace_cross(rows[self._trace_index]):
-            self._trace_index = 0
-            self._trace_scroll = 0
+        if self._trace_expand(lines[self._trace_index]):
+            self._scroll_trace_into_view(len(self._trace_visible()))
             self._render_panes()
         else:
             self.bell()
 
     def _trace_back(self) -> None:
-        """backspace/left in the trace pane: pop to the parent scope."""
-        if self._trace_pop():
-            self._trace_index = 0
-            self._trace_scroll = 0
+        """backspace/left in the trace pane: close one tree level."""
+        if self._trace_collapse():
+            self._scroll_trace_into_view(len(self._trace_visible()))
             self._render_panes()
         else:
             # at the trace root: backspace closes the split view
@@ -1678,7 +2062,7 @@ class TrenApp(App[None]):
         parts: list[str] = []
         node: TraceNode | None = cursor
         while node is not None:
-            parts.append(f"{node.scope_path}.{node.net_name}")
+            parts.append(self._trace_head_label(node))
             node = node.parent
         parts.reverse()
         self.trace_dump = " ▶ ".join(parts)

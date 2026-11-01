@@ -17,10 +17,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tren.ir import Net, Port
+from tren.ir import Cell, CellPin, Net, Port
 from tren.tui import (
+    _cell_row_label,
     _net_slice,
     _parse_src,
+    _pin_slice,
     _window_start,
     net_leaf_label,
     port_leaf_label,
@@ -176,6 +178,40 @@ class NetSliceTests(unittest.TestCase):
 
     def test_a_scalar_has_no_select(self) -> None:
         self.assertEqual(_net_slice(Net(name="we", width=1), [0]), "")
+
+
+class CellRowLabelTests(unittest.TestCase):
+    """A netlist cell row reads as its type, pin and source line."""
+
+    def test_type_pin_and_source_line(self) -> None:
+        cell = Cell(name="$xor$...", type="$xor", src="tests/rtl/demo.sv:64.18-64.24")
+        self.assertEqual(_cell_row_label(cell, cell.name, "Y"), "$xor.Y  demo.sv:64")
+
+    def test_without_metadata_keeps_the_cell_name(self) -> None:
+        self.assertEqual(_cell_row_label(None, "u_sram", "rdata"), "u_sram.rdata")
+
+    def test_an_unresolved_instance_reads_by_cell_name(self) -> None:
+        cell = Cell(name="mix_fifo", type="axis_fifo", src="hw/fifo.sv:173.1-190.2")
+        self.assertEqual(
+            _cell_row_label(cell, "mix_fifo", "m_axis_tvalid"),
+            "mix_fifo.m_axis_tvalid  fifo.sv:173",
+        )
+
+
+class PinSliceTests(unittest.TestCase):
+    """The pin-side select a net covers on a cell connection."""
+
+    def test_a_full_pin_has_no_select(self) -> None:
+        pin = CellPin(name="A", direction="in", width=32)
+        self.assertEqual(_pin_slice(pin, list(range(32))), "")
+
+    def test_part_of_a_wide_pin_keeps_its_bits(self) -> None:
+        pin = CellPin(name="B", direction="in", width=96)
+        self.assertEqual(_pin_slice(pin, list(range(64, 96))), "[95:64]")
+
+    def test_one_bit(self) -> None:
+        pin = CellPin(name="S", direction="in", width=3)
+        self.assertEqual(_pin_slice(pin, [2]), "[2]")
 
 
 class SearchWindowStartTests(unittest.TestCase):

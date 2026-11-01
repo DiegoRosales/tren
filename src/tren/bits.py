@@ -66,20 +66,39 @@ def describe_module(design: Netlist) -> dict[str, dict[str, Any]]:
 # Cell port directions
 # --------------------------------------------------------------------------
 
-def output_ports(cell: dict, cell_type: str) -> set[str]:
-    """Ports of this cell that are driven (outputs).
+def cell_directions(
+    cell: dict, cell_type: str, modules: dict[str, dict[str, Any]] | None = None
+) -> dict[str, str] | None:
+    """Port directions of a cell as ``in``/``out``/``inout``, or None.
 
-    Submodule cells carry an explicit ``port_directions`` map; internal
-    ``$...`` cells drive through their ``Y`` port (true for every cell in the
-    demo fixture: ``$add``, ``$xor``, ``$eq``, ``$logic_not``, ``$pmux``,
-    ``$concat``, ...).
+    The netlist knows a cell's directions only when it has the module it
+    instantiates: either the explicit ``port_directions`` map, or the child
+    module's port declarations. An unresolved module - an IP with no stub in
+    the source set - has neither. Return None for that case, so the caller
+    can render the direction as unknown instead of guessing (a wrong
+    direction silently drops a driver or a load from every trace through it).
+    Internal ``$...`` cells drive through ``Y``.
     """
     directions = cell.get("port_directions")
-    if isinstance(directions, dict):
-        return {name for name, direction in directions.items() if direction == "output"}
+    if isinstance(directions, dict) and directions:
+        names = {"input": "in", "output": "out", "inout": "inout"}
+        return {name: names.get(direction, "inout") for name, direction in directions.items()}
+    module = (modules or {}).get(cell_type)
+    if module is not None:
+        names = {"input": "in", "output": "out", "inout": "inout"}
+        known = {
+            name: names[direction]
+            for name, port in (module.get("ports") or {}).items()
+            if (direction := port.get("direction")) in names
+        }
+        if known:
+            return known
     if cell_type.startswith("$"):
-        return {"Y"}
-    return set()
+        return {
+            port: ("out" if port == "Y" else "in")
+            for port in cell.get("connections") or {}
+        }
+    return None
 
 
 def cell_connections(cell: dict) -> Iterable[tuple[str, list[int]]]:
@@ -99,23 +118,28 @@ def rows_hitting_bits(
 ) -> list[dict[str, Any]]:
     """Every cell connection that touches any of ``bits``, with direction.
 
-    A row is: {cell, type, port, dir (in|out), bits (ordered as in the
-    connection), src (cell src attribute)}.
+    A row is: {cell, type, port, dir (in|out|unknown), bits (ordered as in
+    the connection), src (cell src attribute)}. An instance of a module with
+    no definition has ``dir`` unknown: the caller must not treat it as a
+    driver or a load by default.
     """
     rows: list[dict[str, Any]] = []
     for name, cell in module.get("cells", {}).items():
         cell_type = cell.get("type", "")
-        outs = output_ports(cell, cell_type)
+        directions = cell_directions(cell, cell_type)
         for port, conn_bits in cell_connections(cell):
             hit = [b for b in conn_bits if b in bits]
             if not hit:
                 continue
+            direction = None if directions is None else directions.get(port)
+            if direction == "inout":
+                direction = None
             rows.append(
                 {
                     "cell": name,
                     "type": cell_type,
                     "port": port,
-                    "dir": "out" if port in outs else "in",
+                    "dir": direction or "unknown",
                     "bits": hit,
                     "src": cell.get("attributes", {}).get("src"),
                 }
@@ -124,13 +148,17 @@ def rows_hitting_bits(
 
 
 def drivers_of(module: dict, bits: set[int]) -> list[dict[str, Any]]:
-    """Driver rows: the cell ports that compute these bits."""
-    return [r for r in rows_hitting_bits(module, bits) if r["dir"] == "out"]
+    """Driver rows: the cell ports that compute these bits.
+
+    A row whose direction is unknown is listed too: it may be the driver,
+    and dropping it is worse than marking it.
+    """
+    return [r for r in rows_hitting_bits(module, bits) if r["dir"] in ("out", "unknown")]
 
 
 def loads_of(module: dict, bits: set[int]) -> list[dict[str, Any]]:
-    """Load rows: the cell ports that read these bits."""
-    return [r for r in rows_hitting_bits(module, bits) if r["dir"] == "in"]
+    """Load rows: the cell ports that read these bits (unknown included)."""
+    return [r for r in rows_hitting_bits(module, bits) if r["dir"] in ("in", "unknown")]
 
 
 # --------------------------------------------------------------------------

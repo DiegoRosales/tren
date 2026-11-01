@@ -21,6 +21,7 @@ from tren.cache import IrCache  # noqa: E402
 from tren.importer import import_manifest  # noqa: E402
 from tren.elaborate import (  # noqa: E402
     _bit_key,
+    _build_connectivity,
     _decl_default,
     _effective_incdirs,
     _net_type_string,
@@ -40,6 +41,7 @@ from tren.elaborate import (  # noqa: E402
 from tren.ir import (  # noqa: E402
     BoundaryLink,
     Design,
+    Endpoint,
     NetConnectivity,
     Port,
     Scope,
@@ -260,6 +262,39 @@ class BuildDesignUnitTests(unittest.TestCase):
         self.assertEqual(a, b)
 
 
+@unittest.skipUnless(
+    shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
+    "requires the nix dev shell (yosys/slang on PATH)",
+)
+class UnknownDirectionAcceptanceTests(unittest.TestCase):
+    """An unresolved IP keeps its direction unknown through elaboration.
+
+    `vendor_ip` has no definition in the fixture's source set, so yosys
+    emits no port_directions. The endpoint must reach the IR as `unknown`,
+    not as a guessed driver or load (see tests/rtl/unknown_direction.sv).
+    """
+
+    def test_unresolved_instance_reaches_the_ir_as_unknown(self) -> None:
+        manifest = Manifest.read(
+            REPO / "tests" / "rtl" / "unknown_direction.manifest.json"
+        )
+        design = elaborate(manifest, REPO, cache=None)
+        scope = design.scope("unknown_direction")
+        assert scope is not None
+        cell = {c.name: c for c in scope.cells}["u_ip"]
+        self.assertEqual({pin.direction for pin in cell.pins}, {"unknown"})
+        self.assertEqual(scope.instances, ())
+        conn = {
+            c.net: c for c in design.connectivity if c.scope == "unknown_direction"
+        }
+        link = conn["y"].bits[0]
+        self.assertEqual((link.drivers, link.loads), ((), ()))
+        self.assertEqual(
+            [(endpoint.cell, endpoint.port) for endpoint in link.unknown],
+            [("u_ip", "dout")],
+        )
+
+
 class SlangOverlayUnitTests(unittest.TestCase):
     """Pure-function tests for the slang decl overlay."""
 
@@ -419,6 +454,63 @@ class BitKeyTests(unittest.TestCase):
         self.assertEqual(net.bits, (1, 0, -1))
 
 
+class ConnectivityDirectionTests(unittest.TestCase):
+    """A cell whose module the netlist lacks has unknown port directions.
+
+    yosys emits no ``port_directions`` for an instance of an unresolved
+    module (an IP with no stub in the source set). The endpoint must not be
+    guessed into drivers or loads: it lands in ``BitLink.unknown`` and the
+    trace shows it in both directions, marked.
+    """
+
+    def test_unresolved_instance_lands_in_unknown(self) -> None:
+        netlist = {
+            "modules": {
+                "top": {
+                    "cells": {
+                        "u_fifo": {
+                            "type": "vendor_fifo",
+                            "connections": {"dout": [1]},
+                        }
+                    },
+                    "netnames": {"y": {"bits": [1]}},
+                }
+            }
+        }
+        conn = _build_connectivity(netlist, {"top": "top"})
+        link = conn[0].bits[0]
+        self.assertEqual(link.drivers, ())
+        self.assertEqual(link.loads, ())
+        self.assertEqual(
+            link.unknown, (Endpoint(cell="u_fifo", port="dout", bit=0),)
+        )
+
+    def test_known_directions_stay_split(self) -> None:
+        netlist = {
+            "modules": {
+                "top": {
+                    "cells": {
+                        "u_alu": {
+                            "type": "alu",
+                            "port_directions": {"a": "input", "y": "output"},
+                            "connections": {"a": [2], "y": [1]},
+                        }
+                    },
+                    "netnames": {"y": {"bits": [1]}, "a": {"bits": [2]}},
+                },
+                "alu": {
+                    "ports": {
+                        "a": {"direction": "input"},
+                        "y": {"direction": "output"},
+                    }
+                },
+            }
+        }
+        conn = {c.net: c for c in _build_connectivity(netlist, {"top": "top"})}
+        self.assertEqual(conn["y"].bits[0].drivers, (Endpoint("u_alu", "y", 0),))
+        self.assertEqual(conn["a"].bits[0].loads, (Endpoint("u_alu", "a", 0),))
+
+
 @unittest.skipUnless(
     shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
     "requires the nix dev shell (yosys/slang on PATH)",
@@ -539,6 +631,29 @@ class DemoAcceptanceTests(unittest.TestCase):
         self.assertIn("alu", by_scope)
         self.assertGreater(len(design.connectivity), 0)
         self.assertGreater(len(design.boundaries), 0)
+
+    def test_cells_carry_pins_and_source(self) -> None:
+        design = elaborate(self.manifest, REPO, cache=None)
+        core = design.scope("top.u_core")
+        alu0 = design.scope("top.u_core.u_alu0")
+        assert core is not None and alu0 is not None
+        xor = {cell.type: cell for cell in core.cells}["$xor"]
+        self.assertEqual(
+            [(pin.name, pin.direction, pin.width) for pin in xor.pins],
+            [("A", "in", 32), ("B", "in", 32), ("Y", "out", 32)],
+        )
+        self.assertIn(":64", xor.src or "")
+        # a submodule instance is a scope, not a cell row
+        self.assertNotIn("u_alu0", {cell.name for cell in core.cells})
+        self.assertEqual(
+            {cell.type for cell in alu0.cells}
+            & {"$pmux", "$eq", "$logic_not"},
+            {"$pmux", "$eq", "$logic_not"},
+        )
+        # the proc intermediate wires stay traceable: the mux inputs are
+        # `$...` nets with no source-level name
+        names = {c.net for c in design.connectivity if c.scope == "alu"}
+        self.assertTrue(any(n.startswith("$procmux") for n in names), names)
 
     def test_declared_ranges_reach_the_demo_ir(self) -> None:
         design = elaborate(self.manifest, REPO, cache=None)

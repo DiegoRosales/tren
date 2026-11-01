@@ -1,0 +1,11 @@
+{
+  "name": "unknown_direction",
+  "sources": [
+    "tests/rtl/unknown_direction.sv"
+  ],
+  "incdirs": [],
+  "defines": [],
+  "params": [],
+  "top": "unknown_direction",
+  "blackboxes": []
+}

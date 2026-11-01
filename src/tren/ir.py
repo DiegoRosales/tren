@@ -157,6 +157,31 @@ class Instance:
 
 
 @dataclass(frozen=True)
+class CellPin:
+    """One port of a netlist cell, with the direction yosys reports."""
+
+    name: str
+    direction: str = "in"  # "in" | "out"
+    width: int = 0  # bits in the cell connection, constant positions included
+
+
+@dataclass(frozen=True)
+class Cell:
+    """An internal netlist cell of a scope (a yosys cell, not an instance).
+
+    `pins` carries the connection directions, so a trace can step from a
+    cell to the nets on its other side: the inputs of a driver, or the
+    outputs of a load. Submodule instances are not cells: they are the
+    scope's `instances` and the trace crosses them by boundary.
+    """
+
+    name: str
+    type: str = ""
+    src: str | None = None
+    pins: tuple[CellPin, ...] = ()
+
+
+@dataclass(frozen=True)
 class Scope:
     name: str  # hierarchical scope path (e.g. top.u_core.g[0].u_alu_g); the
     #            hand-written fixture is module-keyed instead (name == module)
@@ -165,6 +190,7 @@ class Scope:
     params: tuple[Param, ...] = ()
     ports: tuple[Port, ...] = ()
     nets: tuple[Net, ...] = ()
+    cells: tuple[Cell, ...] = ()
     instances: tuple[Instance, ...] = ()
     src: str | None = None
     # Source pane helpers: the RTL snippet for this scope and the 1-based
@@ -184,11 +210,17 @@ class Endpoint:
 
 @dataclass(frozen=True)
 class BitLink:
-    """Drivers/loads of one bit position of a net."""
+    """Drivers/loads of one bit position of a net.
+
+    `unknown` holds the endpoints whose direction the netlist cannot tell
+    (an instance of a module with no definition in the source set). The
+    trace shows them in both directions, marked, rather than guessing.
+    """
 
     position: int
     drivers: tuple[Endpoint, ...] = ()
     loads: tuple[Endpoint, ...] = ()
+    unknown: tuple[Endpoint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -361,7 +393,7 @@ def design_from_fixture(path: str | Path) -> Design:
     """Load the demo-tree.json fixture (sibling/eval or vendored copy).
 
     The fixture is a hand-written TREN-IR-ish shape with scopes -> {ports,
-    nets, instances, params, rtl, rtl_focus, blackbox} and no bit
+    nets, cells, instances, params, rtl, rtl_focus, blackbox} and no bit
     connectivity; connectivity/boundaries come back empty until the yosys
     adapter (elaborate.py) fills them.
     """
@@ -384,6 +416,22 @@ def design_from_fixture(path: str | Path) -> Design:
                 nets=tuple(
                     Net(name=n["name"], width=int(n.get("width", 0)), src=n.get("src"), range=n.get("range"), type=n.get("type"))
                     for n in s.get("nets", [])
+                ),
+                cells=tuple(
+                    Cell(
+                        name=c["name"],
+                        type=c.get("type", ""),
+                        src=c.get("src"),
+                        pins=tuple(
+                            CellPin(
+                                name=p["name"],
+                                direction=p.get("direction", "in"),
+                                width=int(p.get("width", 0)),
+                            )
+                            for p in c.get("pins", [])
+                        ),
+                    )
+                    for c in s.get("cells", [])
                 ),
                 instances=tuple(
                     Instance(
