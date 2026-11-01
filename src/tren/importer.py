@@ -2,7 +2,7 @@
 
 The first importer is the plain SystemVerilog filelist (``.f``) — the
 least-work option. slang consumes these natively as *command files* (``-f``
-cwd-relative, ``-F`` file-relative). Verified on sv-lang 11.0 that ``//``
+cwd-relative, ``-F`` file-relative). Verified on sv-lang 12.0 that ``//``
 line comments, ``-D``/``-I``, ``+incdir+`` and source paths all parse inside
 one, and that an unknown option is a hard error. This importer mirrors that
 grammar, reads paths *file-relative* (the ``-F`` reading, so the manifest
@@ -180,7 +180,7 @@ def _default_incdirs(sources: list[str], anchor: Path | None, root: Path) -> lis
 
     slang and Vivado resolve a `` `include `` relative to the
     including file's directory; yosys `read_verilog` searches the cwd and that
-    directory before its ``-I`` dirs (verified against yosys 0.69 - a
+    directory before its ``-I`` dirs (verified against yosys 0.70 - a
     cross-directory include needs ``-I``). slang does not search the cwd, so a
     source at the root records ``.``: a root header included from a
     subdirectory source needs ``-I.``. Explicit filelist incdirs are merged

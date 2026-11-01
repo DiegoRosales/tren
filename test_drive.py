@@ -724,6 +724,26 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("z")
         assert app.zoomed, "z should zoom the trace split pane"
         await pilot.press("z")  # restore the columns
+        # a split opened from a zoomed pane moves the zoom to the centre, or
+        # the trace renders in a hidden column
+        await pilot.press("escape")
+        await pilot.press("1")  # the tree pane, so the zoom starts there
+        await pilot.press("z")
+        assert app.zoomed and app.active == "tree", (app.zoomed, app.active)
+        await pilot.press("d")
+        await pilot.pause()
+        assert app._trace_open and app.active == "source", (
+            "d must take the centre pane even when another pane holds the zoom"
+        )
+        assert app._centre.display and not app._tree_widget.display, (
+            app._centre.display, app._tree_widget.display
+        )
+        assert app._trace_widget.region.width > 0, app._trace_widget.region
+        await pilot.press("escape")
+        await pilot.press("z")  # restore the three columns
+        assert not app.zoomed, "z restores the three columns"
+        await pilot.press("d")
+        assert app._trace_open, "d reopens the split"
         # page keys must not move the tree behind the split
         tree_before = app._index
         await pilot.press("pagedown")
@@ -916,6 +936,18 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
             f"a new trace replaces the split: {_trace_path(app)}"
         assert str(app._trace_widget.border_title) == "loads of top.out"
 
+        await pilot.press("escape")
+        assert not app._trace_open
+
+        # the I/O pane's marker is the selection for d/L, as it is for enter:
+        # the tree cursor stays on another net while the trace starts on the
+        # port the marker names
+        await pilot.press("3")
+        app._select_path("top", "o")
+        app.port_index = [p.name for p in app.pane_ports].index("hi")
+        await pilot.press("d")
+        assert _trace_path(app) == [("top", "hi")], \
+            f"d on the I/O marker: {_trace_path(app)}"
         await pilot.press("escape")
         assert not app._trace_open
 

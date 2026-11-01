@@ -60,8 +60,8 @@ TREN needs Python 3.11 or newer and two external tools on `PATH`:
 
 | Tool | Version | Source |
 |---|---|---|
-| `yosys` | 0.69 | <https://github.com/YosysHQ/yosys> |
-| `slang` | 11.0 | <https://github.com/MikePopoloski/slang> |
+| `yosys` | 0.70 | <https://github.com/YosysHQ/yosys> |
+| `slang` | 12.0 | <https://github.com/MikePopoloski/slang> |
 
 Install each tool with your distribution package manager, or build it from
 source at the linked repository. pip installs the Python dependencies
@@ -408,11 +408,11 @@ make, tmux) so they cannot drift apart on tool versions. They differ in how
 
 | Shell | tren comes from | yosys build | Use it for |
 |---|---|---|---|
-| `nix develop` | the checkout's `src/`, via `PYTHONPATH` | nixpkgs (0.69) | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
-| `nix develop .#tren` | the nix store (`buildPythonPackage`) | nixpkgs (0.69) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
-| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | nixpkgs (0.69) | the textbook Python flow on nix's interpreter - an editable install, so edits are live too |
+| `nix develop` | the checkout's `src/`, via `PYTHONPATH` | nixpkgs (0.70) | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
+| `nix develop .#tren` | the nix store (`buildPythonPackage`) | nixpkgs (0.70) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
+| `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | nixpkgs (0.70) | the textbook Python flow on nix's interpreter - an editable install, so edits are live too |
 | `nix develop .#tren-yosys-src` | the checkout's `src/` | yosys git (`github:YosysHQ/yosys`, flake pin) | verifying against yosys main. The first entry builds the whole tool from source |
-| `nix develop .#xilinx` | the checkout's `src/` | nixpkgs (0.69) | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
+| `nix develop .#xilinx` | the checkout's `src/` | nixpkgs (0.70) | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
 
 Every `make` target runs in the shell you are already in, and calls `tren` from
 `PATH`. Every shell above puts `tren` and `tren-tui` there (verified in all but
@@ -443,10 +443,11 @@ revision and fetches the tool's git submodules (needs Nix >= 2.27); bump
 with `nix flake lock --update-input yosys`. The first entry compiles the
 whole tool, so allow some time. Verify a bumped source against the tests
 (`docs/verification.md`, layer 2) before relying on it. The pinned source
-carries the macro-argument token-pasting fix; nixpkgs 0.69 does
-not, so an RTL design that hits the multi-line macro-argument bug elaborates
-here and not in the default shell. The `slang_flags` / `yosys_flags`
-manifest fields work identically in both shells.
+carries the macro-argument token-pasting fix that nixpkgs 0.69 lacked. The
+default shell (nixpkgs 0.70) elaborates the zybo_sampler design, so this
+shell now serves as the check against yosys main, not as the only way past
+that bug. The `slang_flags` / `yosys_flags` manifest fields work identically
+in both shells.
 
 Dependencies are declared once, in `pyproject.toml`, and read by both the nix
 build (through `pyproject.nix`) and pip.
@@ -455,7 +456,7 @@ The spike (`python -m tren.spike tests/rtl/demo.sv`) runs yosys, builds the bit 
 and prints drivers/loads of `top.out`, descending across the core boundary
 down to the `$xor` that computes it - every row carries its `src` attribute.
 Use `--keep` to keep the generated netlist under `.cache/tren/` for
-inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.69 -
+inspection. Note: `assign o = {hi, lo}` produces **no cell** in yosys 0.70 -
 the concatenation collapses to pure net aliasing, so `o` shows no driver
 (its bit list literally overlays `hi` and `lo`); the loads are all there.
 
@@ -476,7 +477,7 @@ The committed `tests/hls_examples/hls/<block>/rtl_output` exports are read
 directly: `make hls-import`, `make hls-elaborate` and `make hls-run` import /
 elaborate / browse one block (`BLOCK` defaults to `fft_wrapper`). The
 elaborator handles the generated Verilog-2005 including yosys's constant / x
-bits. Example: `fft_wrapper` bundles 140 scopes, ~50k bit-links and 1763
+bits. Example: `fft_wrapper` bundles 140 scopes, ~72k bit-links and 1763
 boundaries.
 
 ### Manifest schema and backend tolerance flags
@@ -507,10 +508,10 @@ slang-clean.
 Always on, no manifest needed: slang gets `--ignore-unknown-modules` (an
 unresolved module is a normal black box in TREN) and yosys gets `-nolatches`
 (TREN wants the net graph, not a synthesis result). The zybo_sampler design
-(39 scopes, 13566 bit-links) is the reference case: `tren open` on its `.xpr`
-elaborates with no hand-written manifest. Run it under `.#tren-yosys-src`:
-nixpkgs yosys 0.69 stops on the macro-argument token-pasting bug in
-`codec_registers.sv`, and no manifest flag fixes that.
+(39 scopes, 20984 bit-links) is the reference case: `tren open` on its `.xpr`
+elaborates with no hand-written manifest. It elaborates in the default shell
+on yosys 0.70; nixpkgs yosys 0.69 stopped on the macro-argument
+token-pasting bug in `codec_registers.sv`, and no manifest flag fixed that.
 
 When a backend fails, `tren elaborate` prints that tool's own stderr
 (trimmed to 40 lines) followed by the full command line, then exits 1 - no
@@ -539,7 +540,7 @@ root. A `` `include `` next to its source, or in a sibling source directory,
 therefore resolves without a manual entry. The reason is a backend mismatch:
 slang and Vivado resolve a relative `` `include `` against the including
 file's directory. yosys `read_verilog` searches the cwd and that directory
-before its `-I` dirs (verified on yosys 0.69: a cross-directory include needs
+before its `-I` dirs (verified on yosys 0.70: a cross-directory include needs
 `-I`). slang does not search the cwd, so the root is an incdir when a source
 sits there. Explicit `+incdir+` filelist entries and Vivado header-typed
 FileSet entries (`.vh`/`.svh`) add their dirs too - the default is a floor,
@@ -623,8 +624,8 @@ flake.nix            dev shells (default / #tren / #tren-venv / #tren-yosys-src 
   (`report.md` for backends, `report-tui.md` for the framework verdict,
   `t1_yosys/` `t3_slang/` `tui_textual/` for reproductions).
 - Task breakdown: Nextcloud Deck board **"TREN"**.
-- Pinned versions: Python 3.14, textual 8.2.8, rust 1.98, ratatui 0.30.2,
-  yosys 0.69, sv-lang 11.0.
+- Pinned versions: Python 3.14, textual 8.2.8, rust 1.99, ratatui 0.30.2,
+  yosys 0.70, sv-lang 12.0.
 - How TREN is verified: `docs/verification.md` - the layered strategy
   (unit -> elaboration acceptance -> Pilot drives -> real-terminal round trip ->
   scale/cache profile -> real-artefact importers) and the change checklist.

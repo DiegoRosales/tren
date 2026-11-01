@@ -49,7 +49,7 @@ expectations carry that same prefix.
 
 ## 3. Decisions already made - do not re-derive
 
-- **Backends** (verified against installed tools, yosys 0.69 / sv-lang 11.0):
+- **Backends** (verified against installed tools, yosys 0.70 / sv-lang 12.0):
   yosys `write_json` for connectivity; `slang-hier --params` and/or
   `slang --ast-json` for scope tree + resolved params. `slang --ast-json`
   flags that matter: `--ast-json-source-info`, `--ast-json-detailed-types`.
@@ -236,9 +236,10 @@ to commit messages.
   neither (only up/down/enter/space/shift+... are in Tree.BINDINGS), and
   ListViews bind nothing beyond up/down/enter. App-level paging must
   therefore be its own priority binding dispatching on `self.active`,
-  and `on_event` must stop the page keys while a modal owns the screen -
-  otherwise they page the tree behind the trace/search modal, whose lists
-  have no page handling to claim them.
+  and `on_event` must stop the page keys while the search modal owns the
+  screen - otherwise they page the tree behind it, whose list has no page
+  handling to claim them. The trace split is a pane, so it pages its own
+  rows.
 - textual 8.2 `Input.select_on_focus` defaults to **True**: refocusing an
   Input selects the whole value, so the next keystroke REPLACES the text.
   A committed search that returns focus to the query box keeps the caret by
@@ -253,10 +254,10 @@ to commit messages.
   its list on every keystroke must render a bounded window (the search modal
   caps at `MAX_ROWS = 200`) and show the real count in a label; otherwise a
   broad query on a large design blocks the UI for seconds per key.
-- yosys 0.69 JSON: `write_json` needs `proc`; `opt` is destructive; generate
+- yosys 0.70 JSON: `write_json` needs `proc`; `opt` is destructive; generate
   instances appear as `g[i].u_alu_g`-style cell names; body-less modules
   serialize `ports` + `blackbox=1`.
-- sv-lang 11 `--ast-json` keeps a **declared range** as the source writes it
+- sv-lang 12 `--ast-json` keeps a **declared range** as the source writes it
   (`[7:1]`, `[0:7]`, `[15:8]`) on the type node of a `Port`, `Variable` or
   `Net` member, and resolves a parametrised bound per instance. yosys carries
   a bit count only, so the range is the overlay's to provide. Body nets are

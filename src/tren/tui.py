@@ -234,11 +234,12 @@ def _cell_row_label(
 
 
 def _src_focus(src: str | None) -> tuple[str, int, int] | None:
-    """Source span of a cell src, which yosys may join with '|'.
+    """Source span of an IR src, which yosys may join with '|'.
 
     Yosys writes one span per source location, e.g. the expression that
     became the cell and the always block around it. The first span is the
-    cell's own expression, so it is the one the RTL view highlights.
+    cell's own expression, so it is the one the RTL view highlights. A cell,
+    a net and an instance src can all arrive joined this way.
     """
     for part in (src or "").split("|"):
         span = _parse_src(part)
@@ -669,8 +670,9 @@ class TrenApp(App[None]):
         Binding("h", "collapse", "collapse", priority=True),
         # page up/down: editor-style, a screenful of the active pane.
         # priority, like j/k: they must win even though nothing
-        # on the main screen holds focus. Under a trace/search modal the
-        # app must NOT page the tree behind it, so on_event stops them.
+        # on the main screen holds focus. The search modal owns the screen
+        # while it is open, so on_event stops them there rather than page
+        # the tree behind it; in the trace split they page the trace rows.
         Binding("pageup", "prev_page", "page up", priority=True),
         Binding("pagedown", "next_page", "page down", priority=True),
         # arrow aliases of j/k/l/h. NOT priority, and that is the
@@ -956,21 +958,39 @@ class TrenApp(App[None]):
             if kind in ("port", "net"):
                 for signal in (data[kind], data.get("net")):
                     if signal is not None:
-                        declaration = _parse_src(signal.src)
+                        declaration = _src_focus(signal.src)
                         if declaration is not None:
                             return declaration
             if data.get("kind") == "instance":
-                return _parse_src(data["instance"].src)
+                return _src_focus(data["instance"].src)
             if data.get("kind") == "scope":
                 scope = data["scope"]
                 parent = _scope_parent(scope.name)
                 if parent in self._scopes:
                     for inst in self._scopes[parent].instances:
                         if f"{parent}.{inst.name}" == scope.name:
-                            return _parse_src(inst.src)
-                return _parse_src(scope.src)
+                            return _src_focus(inst.src)
+                return _src_focus(scope.src)
             node = node.parent
         return None
+
+    def _io_selection_port(self) -> Port | None:
+        """The I/O pane's marked port, while that pane owns the selection.
+
+        The marker is the selection for `enter`, `e` and `d`/`L` only while
+        the I/O pane is active. A hidden marker (no ports, an out-of-range
+        index), an open trace split and the search modal all give the
+        selection back to the tree.
+        """
+        if (
+            self.active != "ports"
+            or self._trace_open
+            or self._search is not None
+            or not self.pane_ports
+            or not (0 <= self.port_index < len(self.pane_ports))
+        ):
+            return None
+        return self.pane_ports[self.port_index]
 
     def _effective_focus(self) -> tuple[str, int, int] | None:
         """Source focus of the *effective* selection.
@@ -994,14 +1014,9 @@ class TrenApp(App[None]):
             traced = self._trace_focus()
             if traced is not None:
                 return traced
-        if (
-            self.active == "ports"
-            and not self._trace_open
-            and self._search is None
-            and self.pane_ports
-            and 0 <= self.port_index < len(self.pane_ports)
-        ):
-            declared = _parse_src(self.pane_ports[self.port_index].src)
+        port = self._io_selection_port()
+        if port is not None:
+            declared = _src_focus(port.src)
             if declared is not None:
                 return declared
         return self._focus_for(self._current_node)
@@ -1271,11 +1286,17 @@ class TrenApp(App[None]):
     # ---- trace (drivers/loads, hierarchy crossing) ------------------------
 
     def _selection_net(self) -> tuple[str, str] | None:
-        """(scope_path, net_name) of the current tree selection, else None.
+        """(scope_path, net_name) of the effective selection, else None.
 
-        A port row carries the net the netlist lists for it, so tracing a
-        port works like tracing the net it names.
+        The I/O pane's marker is the selection while that pane is active,
+        as it is for the source focus. Everywhere else the tree row names
+        the net; a port row carries the net the netlist lists for it, so
+        tracing a port works like tracing the net it names.
         """
+        scope = self._scope_data(self._current_node)
+        port = self._io_selection_port()
+        if port is not None and scope is not None:
+            return scope.name, port.name
         node = self._current_node
         while node is not None and node.data is not None:
             net = node.data.get("net")
@@ -1455,13 +1476,13 @@ class TrenApp(App[None]):
             return None
         for net in scope.nets:
             if net.name == net_name:
-                declared = _parse_src(net.src)
+                declared = _src_focus(net.src)
                 if declared is not None:
                     return declared
                 break
         for port in scope.ports:
             if port.name == net_name:
-                return _parse_src(port.src)
+                return _src_focus(port.src)
         return None
 
     def _cell_pin_nets(
@@ -2037,16 +2058,16 @@ class TrenApp(App[None]):
     ) -> tuple[tuple[str, int, int] | None, Scope | None]:
         """(focus, scope) the source pane would show for a search result."""
         if entry.kind == "module":
-            return _parse_src(entry.src), entry.scope
+            return _src_focus(entry.src), entry.scope
         if entry.kind == "instance":
             inst = entry.instance
             if inst is not None:
-                return _parse_src(inst.src or entry.src), (
+                return _src_focus(inst.src or entry.src), (
                     self._scopes.get(inst.module) if inst.module else entry.scope
                 )
-            return _parse_src(entry.src), entry.scope
+            return _src_focus(entry.src), entry.scope
         if entry.kind in ("port", "net", "file"):
-            return _parse_src(entry.src), entry.scope
+            return _src_focus(entry.src), entry.scope
         return None, None
 
     def _preview_offset(self, focus: tuple[str, int, int], rows: int) -> int:
@@ -2083,9 +2104,10 @@ class TrenApp(App[None]):
         self._trace_scroll = 0
         # the split owns j/k while it is open: the trace rows are the list
         # the user walks. The tree selection follows the trace, so the
-        # hierarchy view stays in sync without stealing pane 1.
-        self.active = "source"
-        self._render_panes()
+        # hierarchy view stays in sync without stealing pane 1. Select the
+        # pane through _select_pane: it moves an active zoom to the centre,
+        # so a split opened from a zoomed pane is not hidden behind it.
+        self._select_pane("source")
 
     def _set_trace_direction(self, direction: str) -> None:
         """Swap the trace between drivers and loads on the same tree.
@@ -2674,7 +2696,7 @@ class TrenApp(App[None]):
         (Scope.src carries the declaration span), regardless of where the
         selection sits. Leaves defer to the scope they belong to."""
         scope = self._scope_data(self._current_node)
-        self._open_editor(_parse_src(scope.src) if scope is not None else None)
+        self._open_editor(_src_focus(scope.src) if scope is not None else None)
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         self._current_node = event.node

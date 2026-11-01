@@ -248,7 +248,7 @@ def _net_type_string(node: dict) -> str | None:
 def _type_range(node: dict | None) -> str | None:
     """Declared range of a slang type node ('[7:1]'), or None for a scalar.
 
-    slang keeps the range as the source writes it - verified sv-lang 11:
+    slang keeps the range as the source writes it - verified sv-lang 12:
     ``logic [0:7]`` stays '[0:7]' and ``logic [15:8]`` stays '[15:8]' - and
     resolves a parametrised bound to the instance's value.
     """
@@ -262,7 +262,7 @@ def _decl_default(lines: list[str], src: str | None) -> str | None:
     """Source-text default of a parameter at its declaration span.
 
     slang's --ast-json resolves the parameter *value* but does not expose the
-    declared default (verified sv-lang 11: only resolved value + the
+    declared default (verified sv-lang 12: only resolved value + the
     per-instance initializer exist). TREN reads the default where it is
     written: the same source line as the declaration, the text after the
     first '=' up to the next terminator (',', ';', or a ')' that closes the

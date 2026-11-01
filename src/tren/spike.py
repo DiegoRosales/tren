@@ -137,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     chain = trace_drivers(design, module_key, args.net)
     show_driver_chain(design, chain)
     if not chain:
-        # e.g. `assign o = {hi, lo}`: yosys 0.69 promotes the concatenation to
+        # e.g. `assign o = {hi, lo}`: yosys 0.70 promotes the concatenation to
         # pure net aliasing — o's bit list overlays hi/lo, no cell drives it.
         print("  (no cell drives this net — likely a top-level port or a")
         print("   bit-aliased assignment like o = {hi, lo})")
