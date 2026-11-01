@@ -200,6 +200,14 @@ declaration and follows `j`/`k` through the list. `enter` re-centres the
 band. A port with no source location falls back to the module view, as a
 tree leaf does.
 
+### Source line numbers
+
+The source pane prefixes every RTL line with its file line number, so a
+selection maps directly to the line the editor opens with `e`. The numbers
+stay absolute while the view scrolls, and the column is wide enough for the
+last line of the file. `n` hides the gutter and `n` again restores it. The
+file header and the scroll markers never carry a number.
+
 ### Zooming a pane
 
 `z` zooms the active pane: it takes the full width and the other two panes go
@@ -221,6 +229,7 @@ pane.
 |---|---|
 | `1` `2` `3` | select the tree / source / I/O pane |
 | `z` | zoom the active pane to the full width, or restore the three columns |
+| `n` | toggle line numbers in the RTL view |
 | `j` `k` | move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port |
 | `pageup` `pagedown` | move a screen up/down in the active pane: in the tree, jump to the next/previous page of nodes; in source, scroll a screen; in I/O, select a port a page away |
 | `l` | tree: expand the highlighted scope (reveal its children) |

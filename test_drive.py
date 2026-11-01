@@ -44,6 +44,20 @@ def _trace_path(app) -> list[tuple[str, str]]:
     return path
 
 
+def _numbered_rows(text: str, number: int, content: str) -> list[str]:
+    """Source rows whose gutter reads `number` and whose text holds `content`.
+
+    The gutter width follows the file length, so a number may carry left
+    padding. Compare the first token, never a fixed-width prefix.
+    """
+    found: list[str] = []
+    for line in text.splitlines():
+        head, sep, rest = line.lstrip().partition(" ")
+        if sep and head == str(number) and content in rest:
+            found.append(line)
+    return found
+
+
 async def drive_fixture() -> None:
     """Fixture path, IR-loaded tree + source spans, verified keys."""
     app = TrenApp(load_design(), root=Path.cwd())
@@ -64,6 +78,19 @@ async def drive_fixture() -> None:
         assert "module top" in source_text, "source pane did not focus top"
         assert status_path(app) == "top", f"status: {status_path(app)!r}"
         assert node.is_expanded, "top must start expanded"
+
+        # line numbers are on by default and count the snippet from 1; the
+        # column is sized for the whole snippet, not the visible window
+        assert _numbered_rows(source_text, 1, "module top ("), \
+            f"line numbers at mount: {source_text.splitlines()[:2]!r}"
+        await pilot.press("n")
+        assert app.line_numbers is False, "n should hide the line numbers"
+        assert not _numbered_rows(str(source.content), 1, "module top ("), \
+            f"line numbers after n: {str(source.content).splitlines()[:2]!r}"
+        await pilot.press("n")
+        assert app.line_numbers is True, "n should show the line numbers again"
+        assert _numbered_rows(str(source.content), 1, "module top ("), \
+            f"line numbers after the second n: {str(source.content).splitlines()[:2]!r}"
 
         # a source set with extra root modules keeps them under one
         # unselectable group row, below the top's own contents
@@ -365,6 +392,8 @@ async def drive_fixture() -> None:
         assert search._cursor == 0, f"commit keeps the cursor: {search._cursor}"
         await pilot.press("n")
         assert search._cursor == 1, "n steps to the next match"
+        assert app.line_numbers is True, \
+            "n in the committed finder must not toggle the line numbers"
         await pilot.press("n")
         await pilot.press("N")
         assert search._cursor == 1, "N steps back one match"
@@ -604,6 +633,12 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert "u_alu0" in app._current_node.label.plain, f"cursor: {app._current_node}"
         assert app._focus == ("tests/rtl/demo.sv", 56, 56), f"u_alu0 focus: {app._focus}"
         assert "alu #(W) u_alu0(" in str(source.content), "u_alu0 instantiation not focused"
+        assert _numbered_rows(str(source.content), 56, "alu #(W) u_alu0("), \
+            "line numbers must read the file's absolute lines"
+        await pilot.press("n")
+        assert not _numbered_rows(str(source.content), 56, "alu #(W) u_alu0("), \
+            "n should hide the real-file line numbers"
+        await pilot.press("n")
         assert status_path(app) == "top.u_core.u_alu0", f"status: {status_path(app)!r}"
 
         # k walks back up one visible row -> u_core path again

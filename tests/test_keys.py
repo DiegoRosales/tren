@@ -43,6 +43,7 @@ class KeyMapContentsTests(unittest.TestCase):
         for keys in (
             "1 2 3",
             "z",
+            "n",
             "j k",
             "pageup pagedown",
             "l",

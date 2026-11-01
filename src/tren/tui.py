@@ -17,7 +17,8 @@ at the selection's declaration line, `E` at the module definition.
 Keys: j/k move, pgup/pgdn page a screenful in the active pane,
 l expand, h collapse, enter shows the selection in the centre (the module,
 or the I/O pane's selected port declaration), ctrl+u jumps up a
-level, 1/2/3 pane select, z zoom the active pane, y yank,
+level, 1/2/3 pane select, z zoom the active pane, n toggle the source
+line numbers, y yank,
 / global search (modules, instances, ports, nets, files; enter
 commits, n/N walk the matches, ctrl+enter selects and closes),
 ? navigation cheatsheet, e editor at the selection's declaration, E editor at
@@ -105,6 +106,15 @@ def _window_start(cursor: int, total: int, window: int) -> int:
     if total <= window:
         return 0
     return max(0, min(cursor - window // 2, total - window))
+
+
+def _gutter_width(last_line: int) -> int:
+    """Width of the line-number gutter: the digits of the last line.
+
+    The column is sized for the whole file, not the visible window, so the
+    numbers do not shift left and right while the view scrolls.
+    """
+    return len(str(max(1, last_line)))
 
 
 # The trace split renders at most this many rows per refresh; the window
@@ -664,6 +674,10 @@ class TrenApp(App[None]):
         Binding("2", "select_pane_source", "source", priority=True),
         Binding("3", "select_pane_ports", "ports", priority=True),
         Binding("z", "toggle_zoom", "zoom", priority=True),
+        # line numbers: NOT priority. The finder's Input owns every printable
+        # key while it is open, and the committed finder binds n for its next
+        # match - the modal screen wins there, so the toggle never steals it.
+        Binding("n", "toggle_line_numbers", "lines"),
         Binding("j", "next_item", "down", priority=True),
         Binding("k", "prev_item", "up", priority=True),
         Binding("l", "expand", "expand", priority=True),
@@ -711,6 +725,7 @@ class TrenApp(App[None]):
         self.active = "tree"  # which pane j/k/l/h/y act on: tree | source | ports
         self._cue: str | None = None  # pane the background cue is painted for
         self.zoomed = False  # z: the active pane fills the screen
+        self.line_numbers = True  # n: line-number gutter in the source view
         self.src_offset = 0
         self._source_rows = 30  # last known source-pane height (see _follow)
         self._trace_pane_rows = 12  # last known trace-pane height (see _trace_view_rows)
@@ -1107,9 +1122,12 @@ class TrenApp(App[None]):
                 view = lines[off :]
                 if off:
                     src.append("…… (↑ scroll to see earlier lines)\n", style="dim italic")
+                width = _gutter_width(len(lines)) if self.line_numbers else 0
                 for i, line in enumerate(view):
                     abs_i = off + i + 1
                     style = "bold #ffa62b" if lo <= abs_i <= hi else "dim white"
+                    if width:
+                        src.append(f"{abs_i:>{width}} ", style="dim")
                     src.append(f"{line}\n", style=style)
                 return src
             if scope is None or not scope.rtl:
@@ -1126,9 +1144,12 @@ class TrenApp(App[None]):
             view = rtl[off :]
             if off:
                 src.append("…… (↑ scroll to see earlier lines)\n", style="dim italic")
+            width = _gutter_width(len(rtl)) if self.line_numbers else 0
             for i, line in enumerate(view):
                 abs_i = i + 1 + off
                 style = "bold #ffa62b" if lo <= abs_i <= hi else "dim white"
+                if width:
+                    src.append(f"{abs_i:>{width}} ", style="dim")
                 src.append(f"{line}\n", style=style)
         return src
 
@@ -2330,6 +2351,11 @@ class TrenApp(App[None]):
             return
         self.zoomed = not self.zoomed
         self._apply_layout()
+        self._render_panes()
+
+    def action_toggle_line_numbers(self) -> None:
+        """n: show or hide the source view's line-number gutter."""
+        self.line_numbers = not self.line_numbers
         self._render_panes()
 
     def action_show_cheatsheet(self) -> None:

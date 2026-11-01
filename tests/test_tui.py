@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from tren.ir import Cell, CellPin, Net, Port
 from tren.tui import (
     _cell_row_label,
+    _gutter_width,
     _net_slice,
     _parse_src,
     _pin_slice,
@@ -237,6 +238,26 @@ class PinSliceTests(unittest.TestCase):
     def test_one_bit(self) -> None:
         pin = CellPin(name="S", direction="in", width=3)
         self.assertEqual(_pin_slice(pin, [2]), "[2]")
+
+
+class GutterWidthTests(unittest.TestCase):
+    """The line-number column is sized for the whole file.
+
+    A column that follows the visible window would jump between one and two
+    digits while the source scrolls.
+    """
+
+    def test_single_digit_file(self) -> None:
+        self.assertEqual(_gutter_width(9), 1)
+
+    def test_two_digit_file(self) -> None:
+        self.assertEqual(_gutter_width(99), 2)
+
+    def test_three_digit_file(self) -> None:
+        self.assertEqual(_gutter_width(100), 3)
+
+    def test_an_empty_file_still_gets_one_column(self) -> None:
+        self.assertEqual(_gutter_width(0), 1)
 
 
 class SearchWindowStartTests(unittest.TestCase):

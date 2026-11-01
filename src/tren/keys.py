@@ -26,6 +26,7 @@ class KeyDoc:
 SCREEN_KEYS: tuple[KeyDoc, ...] = (
     KeyDoc("1 2 3", "select the tree / source / I/O pane"),
     KeyDoc("z", "zoom the active pane to the full width, or restore the three columns"),
+    KeyDoc("n", "toggle line numbers in the RTL view"),
     KeyDoc("j k", "move down/up: in the tree, through the visible nodes; in source, scroll; in I/O, select a port"),
     KeyDoc("pageup pagedown", "move a screen up/down in the active pane: in the tree, jump to the next/previous page of nodes; in source, scroll a screen; in I/O, select a port a page away"),
     KeyDoc("l", "tree: expand the highlighted scope (reveal its children)"),
