@@ -23,6 +23,7 @@ from tren.elaborate import (  # noqa: E402
     _bit_key,
     _decl_default,
     _effective_incdirs,
+    _net_type_string,
     _nets_for,
     _parse_ast_decls,
     _src_pos,
@@ -317,16 +318,34 @@ class SlangOverlayUnitTests(unittest.TestCase):
         self.assertIsNone(_type_range({**packed, "range": ""}))
         self.assertIsNone(_type_range(None))
 
-    def test_nets_for_reads_the_declared_range(self) -> None:
+    def test_nets_for_reads_the_declared_type_and_range(self) -> None:
         mod = {"netnames": {
             "nd": {"bits": [1, 2], "attributes": {"src": "f.sv:8"}},
             "unknown": {"bits": [3, 4], "attributes": {}},
         }}
         decl = {"nets": {"nd": {"range": "[15:8]", "type": "logic [15:8]"}}}
         nets = {n.name: n for n in _nets_for(mod, decl)}
+        self.assertEqual(nets["nd"].type, "logic [15:8]")
         self.assertEqual(nets["nd"].range, "[15:8]")
         # a net the AST walk never reached keeps None and falls back to width
+        self.assertIsNone(nets["unknown"].type)
         self.assertIsNone(nets["unknown"].range)
+
+    def test_net_type_string_reads_the_declared_keyword(self) -> None:
+        packed = {
+            "kind": "PackedArrayType",
+            "elementType": {"name": "logic"},
+            "range": "[3:0]",
+        }
+        wire = {"kind": "Net", "type": packed, "netType": {"name": "wire"}}
+        reg = {
+            "kind": "Variable",
+            "type": {**packed, "elementType": {"name": "reg"}},
+        }
+        integer = {"kind": "Variable", "type": {"kind": "PredefinedIntegerType", "name": "integer"}}
+        self.assertEqual(_net_type_string(wire), "wire [3:0]")
+        self.assertEqual(_net_type_string(reg), "reg [3:0]")
+        self.assertEqual(_net_type_string(integer), "integer")
 
 
 def _decl_ast_instance(module: str, ports: list[str]) -> dict:
@@ -702,11 +721,12 @@ class DeclaredRangeAcceptanceTests(unittest.TestCase):
         assert scope is not None
         ports = {p.name: p for p in scope.ports}
         nets = {n.name: n for n in scope.nets}
-        self.assertEqual(port_leaf_label(ports["down"]), "port in    down[7:1]")
-        self.assertEqual(port_leaf_label(ports["up"]), "port in    up[0:7]")
-        self.assertEqual(port_leaf_label(ports["sc"]), "port in    sc")
-        self.assertEqual(net_leaf_label(nets["nd"]), "net nd[15:8]")
-        self.assertEqual(net_leaf_label(nets["nu"]), "net nu[0:3]")
+        self.assertEqual(port_leaf_label(ports["down"]), "port in    logic [7:1] down")
+        self.assertEqual(port_leaf_label(ports["up"]), "port in    logic [0:7] up")
+        self.assertEqual(port_leaf_label(ports["sc"]), "port in    logic sc")
+        self.assertEqual(net_leaf_label(nets["nd"]), "logic [15:8] nd")
+        self.assertEqual(net_leaf_label(nets["nu"]), "logic [0:3] nu")
+        self.assertEqual(net_leaf_label(nets["ns"]), "logic ns")
 
 
 if __name__ == "__main__":

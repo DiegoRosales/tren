@@ -103,14 +103,22 @@ class BuildIndexTests(unittest.TestCase):
             ],
         )
         self.assertIn("core.alu_result", by_kind["port"])
-        self.assertIn("core.alu_result", by_kind["net"])
+        # the netlist lists the port net again; the index holds it once
+        self.assertNotIn("core.alu_result", by_kind["net"])
         self.assertEqual(by_kind["file"], ["tests/rtl/demo.sv"])
 
     def test_entries_carry_their_scope_and_src(self) -> None:
         entries = fixture_index()
-        net = next(e for e in entries if e.kind == "net" and e.path == "core.alu_result")
+        net = next(e for e in entries if e.kind == "net" and e.path == "core.x")
         self.assertEqual(net.scope.name, "core")
-        self.assertEqual(net.src, "tests/rtl/demo.sv:48")
+        self.assertEqual(net.src, "tests/rtl/demo.sv:50")
+
+    def test_a_port_the_netlist_lists_is_one_entry(self) -> None:
+        entries = fixture_index()
+        merged = [e for e in entries if e.path == "core.alu_result"]
+        self.assertEqual([e.kind for e in merged], ["port"])
+        # the port carries no src in the fixture; the merged net supplies it
+        self.assertEqual(merged[0].src, "tests/rtl/demo.sv:48")
 
     def test_file_entry_keeps_a_representative_src(self) -> None:
         entries = fixture_index()
@@ -123,10 +131,10 @@ class BuildIndexTests(unittest.TestCase):
 class RankTests(unittest.TestCase):
     """filter_and_rank returns answers for the finder's promises."""
 
-    def test_substring_of_a_net_name_finds_it_across_scopes(self) -> None:
+    def test_substring_of_a_signal_name_finds_it_across_scopes(self) -> None:
         rows = filter_and_rank(fixture_index(), "alu_result")
         self.assertEqual(
-            [e.kind for e in rows if e.path == "core.alu_result"], ["port", "net"]
+            [e.kind for e in rows if e.path == "core.alu_result"], ["port"]
         )
 
     def test_one_result_per_matching_entity(self) -> None:
@@ -139,13 +147,13 @@ class RankTests(unittest.TestCase):
 
     def test_empty_query_lists_everything_grouped_by_kind(self) -> None:
         rows = filter_and_rank(fixture_index(), "")
-        self.assertEqual(len(rows), 28)
+        self.assertEqual(len(rows), 27)
         self.assertEqual(
             [r.kind for r in rows],
             ["module"] * 4
             + ["instance"] * 5
             + ["port"] * 14
-            + ["net"] * 4
+            + ["net"] * 3
             + ["file"] * 1,
         )
 

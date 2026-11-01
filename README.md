@@ -137,24 +137,33 @@ its nets:
 
 ```
 u_alu0/
-  port in    a[31:0]
-  port in    op[3:0]
-  port in    clk
-  port out   result[31:0]
-  net x[31:0]
-  net we
+  port in    logic [31:0] a
+  port in    logic [3:0] op
+  port in    logic clk
+  port out   logic [31:0] result
+  logic [31:0] x
+  wire we
 ```
 
-A port leaf reads `port <direction> <name>[msb:lsb]`. The direction sits in a
-fixed column, so `in`, `out` and `inout` all start the name at the same
-offset. A net leaf reads `net <name>[msb:lsb]`, with the same range spelling
-and no direction. A scalar (one bit) carries no range.
+A port leaf reads `port <direction> <type> <name>`; the type carries the
+declared range, so the name needs no suffix. The direction sits in a fixed
+column, so `in`, `out` and `inout` all start the type at the same offset. A
+net leaf reads as its declaration, `<type> <name>`: `logic [31:0] x` for a
+variable and `wire we` for a net. The type is the keyword the source writes,
+from the slang overlay.
 
-The range is the one the source declares, from the slang overlay: `[7:1]`
-and `[0:7]` read as they are written, and a parametrised bound shows the
-value this instance resolves. A signal the overlay never reached (a module
-outside the slang pass) keeps the range derived from the yosys bit count,
-`[width-1:0]`.
+The netlist lists a port a second time as a net, because yosys names every
+port net. TREN shows such a signal once, as the port row: the direction is
+the fact a net row lacks. Tracing and source jumps still use that net.
+
+A signal the overlay never reached (a module outside the slang pass) has no
+type. A port row then reads `port <direction> <name>[msb:lsb]` and a net row
+reads `net <name>[msb:lsb]`, with the range derived from the yosys bit
+count.
+
+Otherwise the range is the one the source declares: `[7:1]` and `[0:7]` read
+as they are written, and a parametrised bound shows the value this instance
+resolves.
 
 ### The I/O pane
 
@@ -221,7 +230,7 @@ pane.
 | `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump) |
 | `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
 | `Y` | cycle the yank format: sv -> vivado -> yosys -> vcd |
-| `d` `L` | trace drivers / loads of the selected net (opens the trace split; in the trace pane, switch direction) |
+| `d` `L` | trace drivers / loads of the selected signal (opens the trace split; in the trace pane, switch direction) |
 | `X` | cut/restore the highlighted scope (treat it as a black box) |
 | `;` | dump the current trace path as text |
 | `e` | open $EDITOR at the selection's declaration - a scope's instantiation in its parent, a port/net's own declaration |
@@ -249,8 +258,9 @@ the top), with the focused range highlighted and kept in view - `e` opens
 the editor at exactly that line, `E` at the module's own definition.
 
 Selecting a **port** or **net** leaf focuses that signal's own *declaration*
-line rather than the enclosing module - `port a` under `top/u_core` lands on
-`input logic [W-1:0] a,`, `net x` on `logic [W-1:0] x, y, rd, r0;`. A leaf
+line rather than the enclosing module - the `a` port leaf under `top/u_core`
+lands on `input logic [W-1:0] a,`, the `x` net leaf on
+`logic [W-1:0] x, y, rd, r0;`. A leaf
 whose backend carried no `src` falls back to the module-level focus, and a
 `src` naming a file that is not on disk (fixtures, moved sources) falls back
 to the inline RTL snippet. The focus band follows the selection; scrolling
@@ -261,13 +271,14 @@ the pane.
 
 `/` opens a fuzzy finder over **everything**: modules (every scope path),
 instances, ports, nets and files (the source files the scopes' `src` spans
-name). Type a substring of `alu_result` and the net rows across every scope
-narrow to it - fuzzy, so `alr` finds it too. The results list shows the kind
-first: `net top.u_core.alu_result`, `port alu.op`, `module core`,
-`instance top.u_core.u_sram -> core`. Up/down (the j/k aliases) move the
-cursor, and the right column previews the source at that result's
-declaration. The query box holds focus, so every letter types - the letters
-`j`/`k` move the list only when you let the arrows do it for you.
+name). Type a substring of `alu_result` and the matching rows across every
+scope narrow to it - fuzzy, so `alr` finds it too. The results list shows the
+kind first: `port top.u_core.alu_result`, `net top.u_core.x`, `module core`,
+`instance top.u_core.u_sram -> core`. A port the netlist also lists gives one
+result, the port. Up/down (the j/k aliases) move the cursor, and the right
+column previews the source at that result's declaration. The query box holds
+focus, so every letter types - the letters `j`/`k` move the list only when
+you let the arrows do it for you.
 
 The walk is vim-style. `enter` commits the query and keeps the finder open:
 `n`/`N` then step to the next / previous match through the whole result set,
@@ -301,13 +312,13 @@ sequence (works in any terminal that relays it, e.g. tmux with
 
 ### Tracing drivers/loads
 
-Select a net in the tree, then `d` (drivers) or `L` (loads). The split pane
-lists the touching cells. `enter` on a boundary row crosses **positionally**
-into the child scope's net (bits are module-local - matching by ID across a
-boundary is wrong by design). While the trace pane holds the cursor, `d` and
-`L` switch the direction and the accumulated path stays. From another pane
-they start a new trace at the tree selection. `;` dumps the breadcrumb,
-e.g. `top.out ▶ top.u_core.alu_result`.
+Select a port or a net in the tree, then `d` (drivers) or `L` (loads). The
+split pane lists the touching cells. `enter` on a boundary row crosses
+**positionally** into the child scope's net (bits are module-local - matching
+by ID across a boundary is wrong by design). While the trace pane holds the
+cursor, `d` and `L` switch the direction and the accumulated path stays. From
+another pane they start a new trace at the tree selection. `;` dumps the
+breadcrumb, e.g. `top.out ▶ top.u_core.alu_result`.
 
 ### Black boxes and cuts
 

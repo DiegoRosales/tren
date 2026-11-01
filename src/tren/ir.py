@@ -144,6 +144,7 @@ class Net:
     bits: tuple[int, ...] = ()
     src: str | None = None
     range: str | None = None  # declared range as written, e.g. "[0:7]"
+    type: str | None = None  # declared type as written, e.g. "wire [3:0]"
 
 
 @dataclass(frozen=True)
@@ -377,11 +378,11 @@ def design_from_fixture(path: str | Path) -> Design:
                     for p in s.get("params", [])
                 ),
                 ports=tuple(
-                    Port(name=p["name"], direction=p.get("dir", "in"), width=int(p.get("width", 0)), src=p.get("src"), range=p.get("range"))
+                    Port(name=p["name"], direction=p.get("dir", "in"), width=int(p.get("width", 0)), src=p.get("src"), range=p.get("range"), type=p.get("type"))
                     for p in s.get("ports", [])
                 ),
                 nets=tuple(
-                    Net(name=n["name"], width=int(n.get("width", 0)), src=n.get("src"), range=n.get("range"))
+                    Net(name=n["name"], width=int(n.get("width", 0)), src=n.get("src"), range=n.get("range"), type=n.get("type"))
                     for n in s.get("nets", [])
                 ),
                 instances=tuple(

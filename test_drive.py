@@ -157,8 +157,8 @@ async def drive_fixture() -> None:
         assert app.active == "tree", "1 should reactivate the tree pane"
         await pilot.press("j")
         assert app._current_node.label.plain.startswith("port"), f"cursor: {app._current_node}"
-        # the leaf reads 'port <dir> <name>[msb:lsb]'
-        assert app._current_node.label.plain == "port in    a[31:0]", \
+        # the leaf reads 'port <dir> <type> <name>'
+        assert app._current_node.label.plain == "port in    logic [31:0] a", \
             f"port leaf label: {app._current_node.label.plain!r}"
         assert "core #(32) u_core(" in str(source.content), "pane unlinked from selection"
         assert status_path(app) == "top.u_core.a", f"port leaf status: {status_path(app)!r}"
@@ -323,15 +323,15 @@ async def drive_fixture() -> None:
         # modal (j/k/d/L/...) would fire the app bindings
         assert app.focused is app._search.inputwidget, \
             f"query box focused? {app.focused}"
-        # a substring of a signal name finds the net across scopes
+        # a substring of a signal name finds it across scopes; the netlist
+        # lists the port net again, but the finder shows the port once
         await pilot.press(*"alu_result")
         rows = app._search.rows
-        assert [e.kind for e in rows] == ["port", "net"], (
+        assert [e.kind for e in rows] == ["port"], (
             f"alu_result rows: {[(e.kind, e.path) for e in rows]}"
         )
         assert all(e.path == "core.alu_result" for e in rows)
-        # down moves to the net row; enter commits; ctrl+enter selects it
-        await pilot.press("down")
+        # enter commits; ctrl+enter selects the port row
         await pilot.press("enter")
         assert app._search is not None, "enter commits, never dismisses"
         assert app._search._committed, "enter should commit the query"
@@ -340,7 +340,7 @@ async def drive_fixture() -> None:
         assert app._search is None, "ctrl+enter should dismiss the search"
         node = app._current_node
         assert node is not None and node.data is not None, "no selection"
-        assert node.data["kind"] == "net", node.data
+        assert node.data["kind"] == "port", node.data
         # the fixture is module-keyed: core's own scope row owns the leaf
         assert status_path(app) == "core.alu_result", status_path(app)
         assert app._focus == ("tests/rtl/demo.sv", 48, 48), f"focus: {app._focus}"
@@ -398,14 +398,13 @@ async def drive_fixture() -> None:
         await pilot.press("slash")
         await pilot.press(*"alu_result")
         rows = app._search.rows
-        assert [e.kind for e in rows] == ["port", "net"], rows
-        await pilot.press("down")  # onto the net row
+        assert [e.kind for e in rows] == ["port"], rows
         await pilot.press("enter")
         await pilot.pause()
         search = app._search
         assert search._committed, "enter should commit"
         assert search.matchlist.display, "the matched-lines pane appears"
-        # one source line per shown result: the net row is line 48
+        # one source line per shown result: the merged port row is line 48
         match_rows = "\n".join(str(c.content) for c in search.matchlist.query("ListItem > Static"))
         assert "alu_result" in match_rows, f"match pane rows: {match_rows!r}"
         assert search.matchlist.index == search._cursor - search._wstart, (
@@ -417,7 +416,7 @@ async def drive_fixture() -> None:
         await pilot.press("tab")
         assert search._pane == "matches", "tab switches to the matches pane"
         await pilot.press("down")
-        # the pane walks the shared match position (2 rows wrap: 1 -> 0)
+        # the pane walks the shared match position (one row: it stays at 0)
         assert search._cursor == 0, f"down in the pane walks the results: {search._cursor}"
         assert search.listwidget.index == search._cursor - search._wstart, (
             "the results cursor must follow the pane"
@@ -486,8 +485,8 @@ async def drive_fixture() -> None:
 def select_leaf(app: TrenApp, scope_path: str, kind: str, name: str) -> None:
     """Select a port/net leaf under a scope.
 
-    The app's own `_select_path` resolves nets only (it exists for the trace
-    modal's boundary crossing), so the port half needs this.
+    The app's own `_select_path` resolves a net, or the port row that
+    merged it; this helper picks a leaf of a named kind directly.
     """
     scope_node = app._find_scope_node(scope_path)
     assert scope_node is not None, f"no scope node for {scope_path}"
@@ -651,8 +650,8 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # The two backends spell the span differently and both land here:
         # Port.src is slang's file:line:col, Net.src the yosys file:l.c-l.c.
         select_leaf(app, "top.u_core.u_alu0", "port", "op")
-        # a real port leaf reads 'port <dir> <name>[msb:lsb]'
-        assert app._current_node.label.plain == "port in    op[3:0]", \
+        # a real port leaf reads 'port <dir> <type> <name>'
+        assert app._current_node.label.plain == "port in    logic [3:0] op", \
             f"port leaf label: {app._current_node.label.plain!r}"
         assert app._focus == ("tests/rtl/demo.sv", 24, 24), f"port op focus: {app._focus}"
         assert "input  logic [3:0]   op," in str(source.content), "op declaration not shown"
@@ -663,8 +662,8 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         )
 
         select_leaf(app, "top.u_core", "net", "x")
-        # a net leaf carries the port's range spelling
-        assert app._current_node.label.plain == "net x[31:0]", \
+        # a net leaf reads as the declaration
+        assert app._current_node.label.plain == "logic [31:0] x", \
             f"net leaf label: {app._current_node.label.plain!r}"
         assert app._focus == ("tests/rtl/demo.sv", 50, 50), f"net x focus: {app._focus}"
         assert "logic [W-1:0] x, y, rd, r0;" in str(source.content), "net declaration not shown"
@@ -835,16 +834,27 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert "BLACK BOX" in ports_text, f"no black box marker: {ports_text!r}"
         assert "rdata" in ports_text, "black box ports missing"
         assert status_path(app) == "top.u_core.u_sram", f"black box status: {status_path(app)!r}"
-        # a scalar port carries no range, and out lines up with in
+        # a scalar port carries no range; out lines up with in
         select_leaf(app, "top.u_core.u_sram", "port", "we")
-        assert app._current_node.label.plain == "port in    we", \
+        assert app._current_node.label.plain == "port in    logic we", \
             f"scalar port leaf label: {app._current_node.label.plain!r}"
         select_leaf(app, "top.u_core.u_sram", "port", "rdata")
-        assert app._current_node.label.plain == "port out   rdata[31:0]", \
+        assert app._current_node.label.plain == "port out   logic [31:0] rdata", \
             f"out port leaf label: {app._current_node.label.plain!r}"
-        select_leaf(app, "top.u_core.u_sram", "net", "we")
-        assert app._current_node.label.plain == "net we", \
-            f"scalar net leaf label: {app._current_node.label.plain!r}"
+        # the netlist lists the ports again as nets; each shows once, as the
+        # port row, so the scope has no net rows of its own
+        u_sram = app._find_scope_node("top.u_core.u_sram")
+        app._ensure_children(u_sram)
+        labels = [child.label.plain for child in u_sram.children]
+        assert labels == [
+            "port in    logic [31:0] addr",
+            "port in    logic [31:0] wdata",
+            "port in    logic we",
+            "port out   logic [31:0] rdata",
+        ], f"ports should list once: {labels}"
+        select_leaf(app, "top.u_core", "net", "x")
+        assert app._current_node.label.plain == "logic [31:0] x", \
+            f"internal net leaf label: {app._current_node.label.plain!r}"
 
         # X toggles a user cut on core (opaque and back)
         app._select_path("top.u_core")
@@ -955,12 +965,12 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._search is not None, "/ should open the search modal"
         assert app.focused is app._search.inputwidget, \
             f"query box focused? {app.focused}"
-        # typing a substring of a signal name finds the net across scopes
+        # typing a substring of a signal name finds it across scopes; the
+        # port the netlist lists again is one row
         await pilot.press(*"alu_result")
         rows = app._search.rows
         assert [e.kind for e in rows if e.path == "top.u_core.alu_result"] == [
-            "port", "net"], rows
-        await pilot.press("down")  # -> the net row
+            "port"], rows
         await pilot.press("enter")  # commit; the finder stays open
         assert app._search is not None and app._search._committed, \
             "enter commits the query"
@@ -978,8 +988,8 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         )
         await pilot.press("tab")
         assert search._pane == "results", "tab switches back"
-        await pilot.press("N")  # back onto the net row before the jump below
-        assert search._cursor == 1, f"N returns to the net row: {search._cursor}"
+        await pilot.press("N")  # back to the alu_result port row
+        assert search._cursor == 0, f"N returns to the first match: {search._cursor}"
         await pilot.press("slash")  # / returns to the query box
         assert not app._search._committed, "/ un-commits the finder"
         assert app.focused is app._search.inputwidget, "/ refocuses the query box"
@@ -988,7 +998,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("ctrl+enter")  # select the highlighted result
         assert app._search is None, "ctrl+enter should dismiss the search"
         assert status_path(app) == "top.u_core.alu_result", status_path(app)
-        # yosys attributes the net to the declaration line (the output port)
+        # the merged port row keeps the netlist's declaration line
         assert app._focus == ("tests/rtl/demo.sv", 48, 48), f"focus: {app._focus}"
 
         # file search jumps to the first scope carrying a src in the file

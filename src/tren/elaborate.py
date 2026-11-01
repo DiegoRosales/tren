@@ -228,6 +228,21 @@ def _type_string(node: dict | None) -> str | None:
     return None
 
 
+def _net_type_string(node: dict) -> str | None:
+    """Declared type of a Variable/Net member: 'wire [3:0]', 'reg [3:0]'.
+
+    A net keeps its net type ('wire', 'tri', ...) apart from the data type,
+    so slang reports a `wire [3:0]` as net type wire and element type logic.
+    A variable carries no net type; its data type names the keyword. The
+    range joins the keyword, so a leaf reads as the declaration.
+    """
+    net_type = (node.get("netType") or {}).get("name")
+    rng = _type_range(node.get("type"))
+    if net_type:
+        return f"{net_type} {rng}" if rng else net_type
+    return _type_string(node.get("type"))
+
+
 def _type_range(node: dict | None) -> str | None:
     """Declared range of a slang type node ('[7:1]'), or None for a scalar.
 
@@ -388,7 +403,7 @@ def _parse_ast_decls(
                 # The body declarations: 'logic [W-1:0] x' and 'wire [3:0] w'.
                 # A port appears here a second time, with the same type.
                 decl(module)["nets"][f"{prefix}{m['name']}"] = {
-                    "type": _type_string(m.get("type")),
+                    "type": _net_type_string(m),
                     "range": _type_range(m.get("type")),
                     "src": _ast_src(m),
                 }
@@ -482,12 +497,12 @@ def _bit_key(b: Any) -> int:
 
 
 def _nets_for(mod: dict, decl: dict[str, Any] | None = None) -> tuple[Net, ...]:
-    """Nets of one module: yosys for the bits, slang's declaration for the range.
+    """Nets of one module: yosys for the bits, slang for the type and range.
 
-    yosys carries a bit count only, so a net declared ``[7:1]`` or ``[0:7]``
-    has no range to show without the overlay. A net the AST walk
-    never reached keeps its range None, and the reader falls back to the
-    width.
+    yosys carries a bit count only, so a net declared ``wire [7:1]`` or
+    ``logic [0:7]`` has no type or range to show without the overlay. A net
+    the AST walk never reached keeps both None, and the reader falls back to
+    the width.
     """
     decl_nets = (decl or {}).get("nets") or {}
     nets: list[Net] = []
@@ -503,6 +518,7 @@ def _nets_for(mod: dict, decl: dict[str, Any] | None = None) -> tuple[Net, ...]:
                 bits=tuple(_bit_key(b) for b in bits),
                 src=(n.get("attributes") or {}).get("src"),
                 range=decl_net.get("range"),
+                type=decl_net.get("type"),
             )
         )
     return tuple(sorted(nets, key=lambda n: n.name))

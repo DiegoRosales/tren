@@ -5,12 +5,12 @@
       "blackbox": false,
       "params": [],
       "ports": [
-        { "name": "hi", "dir": "in",  "width": 32 },
-        { "name": "lo", "dir": "in",  "width": 32 },
-        { "name": "out", "dir": "out", "width": 32 }
+        { "name": "hi", "dir": "in",  "width": 32, "type": "logic [31:0]" },
+        { "name": "lo", "dir": "in",  "width": 32, "type": "logic [31:0]" },
+        { "name": "out", "dir": "out", "width": 32, "type": "logic [31:0]" }
       ],
       "nets": [
-        { "name": "o", "width": 64, "driver": "$concat$tests/rtl/demo.sv:76$9", "src": "tests/rtl/demo.sv:75" }
+        { "name": "o", "width": 64, "type": "logic [63:0]", "driver": "$concat$tests/rtl/demo.sv:76$9", "src": "tests/rtl/demo.sv:75" }
       ],
       "instances": [
         { "name": "u_core", "module": "core", "params": [{ "name": "W", "value": "32" }], "src": "tests/rtl/demo.sv:77" }
@@ -37,14 +37,14 @@
         { "name": "OP", "value": "3",      "default": "-",   "kind": "localparam" }
       ],
       "ports": [
-        { "name": "a",         "dir": "in",  "width": 32, "bound_to": "o[31:0]" },
-        { "name": "b",         "dir": "in",  "width": 32, "bound_to": "o[63:32]" },
-        { "name": "alu_result","dir": "out", "width": 32 }
+        { "name": "a",         "dir": "in",  "width": 32, "type": "logic [31:0]", "bound_to": "o[31:0]" },
+        { "name": "b",         "dir": "in",  "width": 32, "type": "logic [31:0]", "bound_to": "o[63:32]" },
+        { "name": "alu_result","dir": "out", "width": 32, "type": "logic [31:0]" }
       ],
       "nets": [
-        { "name": "x",  "width": 32, "driver": "connection from a", "src": "tests/rtl/demo.sv:50" },
-        { "name": "r0", "width": 32, "driver": "u_alu0.result", "src": "tests/rtl/demo.sv:50" },
-        { "name": "alu_result", "width": 32, "driver": "$xor$tests/rtl/demo.sv:64$10 (always_comb)", "src": "tests/rtl/demo.sv:48" }
+        { "name": "x",  "width": 32, "type": "logic [31:0]", "driver": "connection from a", "src": "tests/rtl/demo.sv:50" },
+        { "name": "r0", "width": 32, "type": "logic [31:0]", "driver": "u_alu0.result", "src": "tests/rtl/demo.sv:50" },
+        { "name": "alu_result", "width": 32, "type": "logic [31:0]", "driver": "$xor$tests/rtl/demo.sv:64$10 (always_comb)", "src": "tests/rtl/demo.sv:48" }
       ],
       "instances": [
         { "name": "u_alu0",    "module": "alu",       "params": [{ "name": "W", "value": "32" }], "src": "tests/rtl/demo.sv:56" },
@@ -65,10 +65,10 @@
       "blackbox": false,
       "params": [ { "name": "W", "value": "32'd32", "default": "8", "kind": "parameter" } ],
       "ports": [
-        { "name": "a", "dir": "in",  "width": 32 },
-        { "name": "b", "dir": "in",  "width": 32 },
-        { "name": "op", "dir": "in",  "width": 4 },
-        { "name": "result", "dir": "out", "width": 32, "driver": "$pmux (always_comb case op)" }
+        { "name": "a", "dir": "in",  "width": 32, "type": "logic [31:0]" },
+        { "name": "b", "dir": "in",  "width": 32, "type": "logic [31:0]" },
+        { "name": "op", "dir": "in",  "width": 4, "type": "logic [3:0]" },
+        { "name": "result", "dir": "out", "width": 32, "type": "logic [31:0]", "driver": "$pmux (always_comb case op)" }
       ],
       "nets": [],
       "instances": [],
@@ -86,10 +86,10 @@
       "blackbox": true,
       "params": [],
       "ports": [
-        { "name": "addr",  "dir": "in",  "width": 32 },
-        { "name": "wdata", "dir": "in",  "width": 32 },
-        { "name": "we",    "dir": "in",  "width": 1 },
-        { "name": "rdata", "dir": "out", "width": 32 }
+        { "name": "addr",  "dir": "in",  "width": 32, "type": "logic [31:0]" },
+        { "name": "wdata", "dir": "in",  "width": 32, "type": "logic [31:0]" },
+        { "name": "we",    "dir": "in",  "width": 1, "type": "logic" },
+        { "name": "rdata", "dir": "out", "width": 32, "type": "logic [31:0]" }
       ],
       "nets": [],
       "instances": [],

@@ -90,11 +90,17 @@ def build_search_index(design: Design) -> SearchIndex:
                 SearchEntry("instance", path, inst.name, scope=scope, instance=inst, src=inst.src)
             )
             _remember(files, inst.src, scope)
+        port_names = {port.name for port in scope.ports}
+        nets = {net.name: net for net in scope.nets}
         for port in scope.ports:
             path = f"{scope.name}.{port.name}"
-            entries.append(SearchEntry("port", path, port.name, scope=scope, src=port.src))
-            _remember(files, port.src, scope)
+            net = nets.get(port.name)
+            src = port.src or (net.src if net is not None else None)
+            entries.append(SearchEntry("port", path, port.name, scope=scope, src=src))
+            _remember(files, src, scope)
         for net in scope.nets:
+            if net.name in port_names:
+                continue  # the port row stands for this net too
             path = f"{scope.name}.{net.name}"
             entries.append(SearchEntry("net", path, net.name, scope=scope, src=net.src))
             _remember(files, net.src, scope)

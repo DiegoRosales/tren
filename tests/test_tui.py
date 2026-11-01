@@ -67,50 +67,54 @@ class ParseSrcEdgeTests(unittest.TestCase):
 
 
 class PortLeafLabelTests(unittest.TestCase):
-    """'port <dir> <name>[msb:lsb]', the names in one column."""
+    """'port <dir> <type> <name>'; the type carries the declared range."""
 
     def test_input_port(self) -> None:
-        port = Port(name="a", direction="in", width=32)
-        self.assertEqual(port_leaf_label(port), "port in    a[31:0]")
+        port = Port(name="a", direction="in", width=32, type="logic [31:0]")
+        self.assertEqual(port_leaf_label(port), "port in    logic [31:0] a")
 
     def test_output_port(self) -> None:
-        port = Port(name="result", direction="out", width=32)
-        self.assertEqual(port_leaf_label(port), "port out   result[31:0]")
+        port = Port(name="result", direction="out", width=32, type="logic [31:0]")
+        self.assertEqual(port_leaf_label(port), "port out   logic [31:0] result")
 
     def test_inout_port(self) -> None:
-        port = Port(name="sda", direction="inout", width=8)
-        self.assertEqual(port_leaf_label(port), "port inout sda[7:0]")
+        port = Port(name="sda", direction="inout", width=8, type="logic [7:0]")
+        self.assertEqual(port_leaf_label(port), "port inout logic [7:0] sda")
 
-    def test_every_direction_starts_the_name_at_one_column(self) -> None:
+    def test_every_direction_starts_the_type_at_one_column(self) -> None:
         labels = [
-            port_leaf_label(Port(name="n", direction=direction, width=4))
+            port_leaf_label(
+                Port(name="n", direction=direction, width=4, type="logic [3:0]")
+            )
             for direction in ("in", "out", "inout")
         ]
-        self.assertEqual({label.index("n[") for label in labels}, {len("port ") + 6})
+        self.assertEqual(
+            {label.index("logic") for label in labels}, {len("port ") + 6}
+        )
 
-    def test_scalar_port_has_no_range(self) -> None:
-        port = Port(name="clk", direction="in", width=1)
-        self.assertEqual(port_leaf_label(port), "port in    clk")
+    def test_scalar_port_type_reads_without_a_range(self) -> None:
+        port = Port(name="clk", direction="in", width=1, type="logic")
+        self.assertEqual(port_leaf_label(port), "port in    logic clk")
 
-    def test_two_bit_port_keeps_the_range(self) -> None:
+    def test_a_port_without_a_type_falls_back_to_its_range(self) -> None:
         port = Port(name="mode", direction="in", width=2)
         self.assertEqual(port_leaf_label(port), "port in    mode[1:0]")
 
 
 class NetLeafLabelTests(unittest.TestCase):
-    """'net <name>[msb:lsb]' - the port's range, no direction."""
+    """'<type> <name>' - a net row reads as the declaration."""
 
     def test_multi_bit_net(self) -> None:
+        net = Net(name="x", width=32, type="logic [31:0]")
+        self.assertEqual(net_leaf_label(net), "logic [31:0] x")
+
+    def test_scalar_net(self) -> None:
+        self.assertEqual(
+            net_leaf_label(Net(name="we", width=1, type="wire")), "wire we"
+        )
+
+    def test_a_net_without_a_type_falls_back_to_the_marker(self) -> None:
         self.assertEqual(net_leaf_label(Net(name="x", width=32)), "net x[31:0]")
-
-    def test_scalar_net_has_no_range(self) -> None:
-        self.assertEqual(net_leaf_label(Net(name="we", width=1)), "net we")
-
-    def test_range_reads_the_same_as_a_port(self) -> None:
-        net = net_leaf_label(Net(name="rd", width=8))
-        port = port_leaf_label(Port(name="rd", direction="in", width=8))
-        self.assertTrue(net.endswith("rd[7:0]"))
-        self.assertTrue(port.endswith("rd[7:0]"))
 
 
 class DeclaredRangeLabelTests(unittest.TestCase):
@@ -120,19 +124,24 @@ class DeclaredRangeLabelTests(unittest.TestCase):
     descending range that does not end at 0 and for an ascending one.
     """
 
-    def test_declared_range_wins_over_the_width(self) -> None:
-        port = Port(name="down", direction="in", width=7, range="[7:1]")
-        self.assertEqual(port_leaf_label(port), "port in    down[7:1]")
+    def test_declared_range_rides_in_the_type(self) -> None:
+        port = Port(
+            name="down", direction="in", width=7, range="[7:1]", type="logic [7:1]"
+        )
+        self.assertEqual(port_leaf_label(port), "port in    logic [7:1] down")
 
     def test_ascending_range(self) -> None:
         self.assertEqual(
-            net_leaf_label(Net(name="up", width=8, range="[0:7]")), "net up[0:7]"
+            net_leaf_label(Net(name="up", width=8, range="[0:7]", type="logic [0:7]")),
+            "logic [0:7] up",
         )
 
     def test_a_one_bit_vector_keeps_its_range(self) -> None:
         # 'logic [0:0] v' is a vector, not a scalar: the source says so.
-        port = Port(name="v", direction="out", width=1, range="[0:0]")
-        self.assertEqual(port_leaf_label(port), "port out   v[0:0]")
+        port = Port(
+            name="v", direction="out", width=1, range="[0:0]", type="logic [0:0]"
+        )
+        self.assertEqual(port_leaf_label(port), "port out   logic [0:0] v")
 
     def test_without_the_overlay_the_width_still_spells_it(self) -> None:
         self.assertEqual(

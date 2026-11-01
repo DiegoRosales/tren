@@ -128,20 +128,28 @@ def _bit_range(width: int, declared: str | None = None) -> str:
 
 
 def port_leaf_label(port: Port) -> str:
-    """Hierarchy leaf text for a port: 'port <dir> <name>[msb:lsb]'.
+    """Hierarchy leaf text for a port: 'port <dir> <type> <name>'.
 
-    The direction is left-aligned in a fixed column, so in / out / inout all
-    start the name at the same offset.
+    The type carries the declared range, so the name needs no suffix. The
+    direction stays left-aligned in a fixed column. A port the overlay never
+    reached has no type: the row falls back to the range suffix
+    ('port in    a[31:0]') and the same direction column.
     """
+    if port.type:
+        return f"port {port.direction:<{PORT_DIR_WIDTH}} {port.type} {port.name}"
     suffix = _bit_range(port.width, port.range)
     return f"port {port.direction:<{PORT_DIR_WIDTH}} {port.name}{suffix}"
 
 
 def net_leaf_label(net: Net) -> str:
-    """Hierarchy leaf text for a net: 'net <name>[msb:lsb]'.
+    """Hierarchy leaf text for a net: '<type> <name>'.
 
-    The range reads the same as a port's. A net has no direction column.
+    The type is the declared keyword and range ('wire [3:0]', 'reg [3:0]'),
+    so the row reads as the declaration. A net the overlay never reached
+    falls back to the 'net' marker and the range derived from the bit count.
     """
+    if net.type:
+        return f"{net.type} {net.name}"
     return f"net {net.name}{_bit_range(net.width, net.range)}"
 
 
@@ -759,12 +767,23 @@ class TrenApp(App[None]):
                 self._add_ports_nets(node, inst_scope)
 
     def _add_ports_nets(self, node: Tree.Node, scope: Scope) -> None:
+        """Leaves for a scope: ports first, then the internal nets.
+
+        The netlist lists a port a second time as a net, because yosys names
+        every port net. Show such a signal once, as the port row, and keep
+        its net on that row: the direction is the fact a net row lacks, and
+        the trace and source jumps still need the net.
+        """
+        nets = {net.name: net for net in scope.nets}
         for port in scope.ports:
             node.add_leaf(
                 port_leaf_label(port),
-                data={"kind": "port", "port": port},
+                data={"kind": "port", "port": port, "net": nets.get(port.name)},
             )
+        port_names = {port.name for port in scope.ports}
         for net in scope.nets:
+            if net.name in port_names:
+                continue
             node.add_leaf(
                 net_leaf_label(net),
                 data={"kind": "net", "net": net},
@@ -806,8 +825,10 @@ class TrenApp(App[None]):
 
         A port or net leaf focuses its own *declaration*:
         Port.src comes from slang --ast-json, Net.src from the yosys netname
-        attributes. Either may be missing (black boxes, synthesised nets), in
-        which case the walk continues up and the module-level focus stands.
+        attributes. A merged port row falls back to its net's src when the
+        slang pass gave the port none. Either may be missing (black boxes,
+        synthesised nets), in which case the walk continues up and the
+        module-level focus stands.
 
         An instance node carries its own src (the instantiation site). A
         sub-scope node focuses its instantiation in the parent (the parent's
@@ -818,9 +839,11 @@ class TrenApp(App[None]):
             data = node.data
             kind = data.get("kind")
             if kind in ("port", "net"):
-                declaration = _parse_src(data[kind].src)
-                if declaration is not None:
-                    return declaration
+                for signal in (data[kind], data.get("net")):
+                    if signal is not None:
+                        declaration = _parse_src(signal.src)
+                        if declaration is not None:
+                            return declaration
             if data.get("kind") == "instance":
                 return _parse_src(data["instance"].src)
             if data.get("kind") == "scope":
@@ -1096,15 +1119,17 @@ class TrenApp(App[None]):
     # ---- trace (drivers/loads, hierarchy crossing) ------------------------
 
     def _selection_net(self) -> tuple[str, str] | None:
-        """(scope_path, net_name) of the current tree selection, else None."""
+        """(scope_path, net_name) of the current tree selection, else None.
+
+        A port row carries the net the netlist lists for it, so tracing a
+        port works like tracing the net it names.
+        """
         node = self._current_node
         while node is not None and node.data is not None:
-            data = node.data
-            if data.get("kind") == "net":
+            net = node.data.get("net")
+            if net is not None:
                 scope = self._scope_data(node)
-                if scope is not None:
-                    return scope.name, data["net"].name
-                return None
+                return (scope.name, net.name) if scope is not None else None
             node = node.parent
         return None
 
@@ -1214,12 +1239,14 @@ class TrenApp(App[None]):
         self._ensure_children(event.node)
 
     def _find_net_leaf(self, scope_node: Tree.Node, net_name: str) -> Tree.Node | None:
+        """The leaf for a net: its own row, or the port row that merged it."""
         self._ensure_children(scope_node)  # final node of the descend above is unbuilt
         stack = list(scope_node.children)
         while stack:
             n = stack.pop()
             d = n.data
-            if d is not None and d.get("kind") == "net" and d["net"].name == net_name:
+            net = d.get("net") if d is not None else None
+            if net is not None and net.name == net_name:
                 return n
             stack.extend(n.children)
         return None
