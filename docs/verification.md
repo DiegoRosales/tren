@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 271 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 282 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -57,6 +57,11 @@ Pure Python plus `make -n` dry runs of the Makefile. 271 tests.
   errors on an unknown key or a bad type or value, the project layer's ban on
   `editor.command`, an export that reloads to the same settings, and the two
   `--debug-config*` flags.
+- **Release metadata** (`tests/test_release.py`): `pyproject.toml`,
+  `tren.__version__`, the README install tag and `tren --version` agree. The
+  command also reports the Python version and, in a source checkout, the
+  short Git SHA as `dev-<sha>`. `--version-debug` adds interpreter, platform,
+  package, dependency and configuration paths.
 
 All are skipped-free by design (pure), so they are the project's fastest
 regression net - ~0.3s for the whole suite.

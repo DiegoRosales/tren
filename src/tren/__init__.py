@@ -1,3 +1,3 @@
-"""TREN — TUI RTL Explorer & Navigator."""
+"""TREN - TUI RTL Explorer & Navigator."""
 
-__version__ = "0.0.0"
+__version__ = "0.0.1"

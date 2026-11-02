@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tren"
-# Keep in step with src/tren/__init__.py:__version__.
-version = "0.0.0"
-description = "TREN — TUI RTL Explorer & Navigator"
+# Keep in step with src/tren/__init__.py:__version__ and the README tag.
+version = "0.0.1"
+description = "TREN - TUI RTL Explorer & Navigator"
 readme = "README.md"
 # Syntax floor, checked with python3.11 -m compileall. The project is
 # developed and gated on the 3.14 the dev shell pins (see README, Pinned

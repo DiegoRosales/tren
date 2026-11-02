@@ -50,12 +50,14 @@ not available to other commands in that shell. `nix run . -- <args>` passes
 
 ## Installation using pip
 
-WARNING: TREN is not on PyPI yet. Point pip at the repository until a release
-exists:
+WARNING: TREN is not on PyPI yet. Point pip at the current release tag:
 
 ```sh
-pip install "tren @ git+https://github.com/DiegoRosales/tren"
+pip install "tren @ git+https://github.com/DiegoRosales/tren@v0.0.1"
 ```
+
+The tag installs the same code every time. A later release changes the tag in
+this command and in the source install below.
 
 TREN needs Python 3.11 or newer and two external tools on `PATH`:
 
@@ -81,14 +83,36 @@ lists them with source links.
 ```sh
 git clone https://github.com/DiegoRosales/tren
 cd tren
+git checkout v0.0.1
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
 tren tests/rtl
 ```
 
-The editable install reads `src/` directly, so an edit is live on the next
-command.
+The checkout is detached at the release tag. The editable install reads
+`src/` directly, so an edit is live on the next command. Contributors work
+from the repository default branch instead of the release tag.
+
+## Releases
+
+TREN uses Semantic Versioning and tags each release `vMAJOR.MINOR.PATCH`.
+Until the package is on PyPI, the install commands above pin the current
+release tag. See [docs/release.md](docs/release.md) for the version bump,
+gates, tag and publish steps.
+
+`tren --version` prints the package version and the Python version. A source
+checkout adds the short Git SHA as `dev-<sha>`:
+
+```sh
+tren 0.0.1 (Python 3.14.8)                    # tagged install
+tren 0.0.1 (dev-abc1234, Python 3.14.8)       # source checkout
+```
+
+`tren --version-debug` prints the same first line, then the interpreter
+executable, platform, package path, Git clean/dirty state, textual and rich
+versions, and the configuration layer paths. It does not read the config
+files; use `--debug-config` for values.
 
 ## User guide
 
@@ -99,6 +123,8 @@ tren tests/rtl                    # import + elaborate + open (one command)
 tren open tests/rtl               # the same, with the explicit verb
 tren tests/rtl/demo.manifest.json # open an existing manifest
 tren-tui                          # vendored demo fixture, no backends
+tren --version                    # version, source SHA, Python version
+tren --version-debug              # version plus environment and config paths
 ```
 
 `tren <target>` (or the explicit `tren open <target>`) accepts anything an
@@ -679,8 +705,8 @@ tests/               unit tests, the Pilot workdir, and the executable
                      declared ranges) + hls_examples/ (Vitis HLS flows and
                      their committed rtl_output/ exports)
 manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
-docs/                verification.md + notes/ mirrors; tech-concepts.md and
-                     sw-bom.md (the technical-concepts / SW BOM documents)
+docs/                verification.md, release.md + notes/ mirrors;
+                     tech-concepts.md and sw-bom.md
 tools/               osc52_roundtrip.sh, pane_cue_capture.sh, profile_1k_scopes.py,
                      bom.py (SW BOM generator)
 pyproject.toml       PEP 621 metadata + deps - read by both nix and pip
