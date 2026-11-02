@@ -32,6 +32,7 @@ nix run . -- tests/rtl/demo.manifest.json      # the same, from an existing mani
 nix run . -- import tests/rtl                  # -> tests/rtl/manifest.json (first importer: .f filelist / dir scan)
 nix run . -- import tests/rtl/some.xpr         # Vivado project.xpr (auto-detected)
 nix run . -- elaborate tests/rtl/manifest.json # elaborate a manifest (yosys + slang-hier + slang -> IR)
+nix run . -- config                            # show the effective settings and their origins
 ```
 
 Or put the packaged `tren` and `tren-tui` commands on `PATH` for the session:
@@ -119,11 +120,80 @@ live on `j`/`k`/`l`/`h`/`ctrl+u`/`enter`, the final segment highlighted.
 The pane `1`/`2`/`3` selected - the one `j`/`k`/`y` act on - is lifted out of
 the background; the other two stay dark. Exactly one pane is ever lit.
 
-The first run elaborates (yosys + slang) and caches the IR under
-`.cache/tren/`; later runs start instantly. The cache is keyed on the
-manifest, the sources' mtimes **and** the shape of the IR itself - so editing
-RTL *or* upgrading to a tren whose IR carries new fields re-elaborates once,
-instead of serving a blob that predates them.
+The first run elaborates (yosys + slang) and caches the IR under the
+configured cache directory (`.cache/tren/` by default); later runs start
+instantly. The cache is keyed on the manifest, the sources' mtimes **and** the
+shape of the IR itself - so editing RTL *or* upgrading to a tren whose IR
+carries new fields re-elaborates once, instead of serving a blob that
+predates them.
+
+### Settings
+
+TREN reads three optional TOML files and merges them in a fixed order. A key
+in a later layer replaces the same key in an earlier layer:
+
+| Layer | Path |
+|---|---|
+| built-in defaults | - |
+| system | `/etc/tren/config.toml` |
+| user | `$XDG_CONFIG_HOME/tren/config.toml`, or `~/.config/tren/config.toml` |
+| project | `.tren.toml`, the nearest file from the current directory up to the repository root |
+
+Discovery is deterministic. The user layer uses `XDG_CONFIG_HOME` only when it
+holds an absolute path. Outside a git repository only the current directory
+is searched for `.tren.toml`. Inside a repository the search stops at the
+root, and the nearest `.tren.toml` wins. The project layer never stacks two
+files.
+
+Every key is optional. An unknown key, a wrong type or an invalid value stops
+the command and names the file and the key.
+
+| Key | Default | Effect |
+|---|---|---|
+| `cache.dir` | `.cache/tren` | IR cache directory. A relative path resolves from the current directory. |
+| `editor.command` | empty | Editor command for `e` and `E`. `TREN_EDITOR` wins; otherwise this value, then `EDITOR`, then `VISUAL`. System and user layers only; a project file may set it empty. |
+| `tui.theme` | `textual-dark` | Textual theme name for the TUI chrome. |
+| `tui.line_numbers` | `true` | Show the line-number gutter at startup. `n` still toggles it. |
+| `yank.format` | `sv` | Initial format for `y` and `Y`: `sv`, `vivado`, `yosys` or `vcd`. |
+
+A project file that changes only the yank format and the line numbers:
+
+```toml
+[yank]
+format = "yosys"
+
+[tui]
+line_numbers = false
+```
+
+`tren config` shows every effective value and the file that set it. `tren
+config export` writes a complete TOML template at those values, so one file
+works as a template and as a report:
+
+```sh
+tren config                              # effective values + origins
+tren config export > .tren.toml          # full template at the current values
+tren config export --out .tren.toml      # the same, written to a file
+tren config export --out config-dir      # writes config-dir/config.toml
+```
+
+`TREN_SYSTEM_CONFIG`, `TREN_USER_CONFIG` and `TREN_PROJECT_CONFIG` override
+the three layer paths. Tests and unusual installs use them; normal discovery
+does not.
+
+### Configuration safety
+
+A project file is not trusted to choose a command. `editor.command` is
+accepted only from the system and user layers; a `.tren.toml` that sets a
+non-empty value is an error. This stops a cloned repository from choosing the
+executable that `e` runs. The other settings only select paths, colors and
+display options, so a project may set them.
+
+`TREN_EDITOR`, `EDITOR`, and `VISUAL` are process environment variables. They
+remain explicit user choices and are not part of the project layer.
+
+An exported file used as a project `.tren.toml` must leave `editor.command`
+empty. Keep a non-empty command in the user or system file.
 
 ### The tree pane
 
@@ -592,9 +662,10 @@ src/tren/            package
   importer.py        manifest producers (.f filelist; dir/single file; Vivado via vivado.py)
   vivado.py          Vivado project.xpr parser (FileSets, TopModule, $PSRCDIR vars)
   bringup.py         one-command target -> manifest -> IR -> TUI
+  config.py          layered configuration files + the `tren config` command
   formats.py         yank format registry + templates
   tui.py             the textual app (implements the screen + keys only)
-  __main__.py        subcommand front door (tren import / tren elaborate / bare target)
+  __main__.py        subcommand front door (import / elaborate / open / config / bare target)
 tests/               unit tests, the Pilot workdir, and the executable
                      fixtures: rtl/ (demo.sv for the drives and ranges.sv for
                      declared ranges) + hls_examples/ (Vitis HLS flows and

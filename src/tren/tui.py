@@ -54,8 +54,9 @@ from textual.widgets import (
 )
 
 from .cache import IrCache
+from .config import Config, ConfigError, load_config
 from .elaborate import elaborate
-from .formats import BY_NAME, DEFAULT, PathFormat, render as render_format
+from .formats import BY_NAME, PathFormat, render as render_format
 from .ir import (
     Cell,
     CellPin,
@@ -715,17 +716,25 @@ class TrenApp(App[None]):
         Binding("q", "quit", "quit", priority=True),
     ]
 
-    def __init__(self, design: Design, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        design: Design,
+        root: Path | None = None,
+        settings: Config | None = None,
+    ) -> None:
         super().__init__()
+        settings = Config() if settings is None else settings
         self.design = design
         self.root = Path.cwd() if root is None else Path(root)
         self.yanked: list[str] = []
-        self.yank_format: PathFormat = DEFAULT
+        self.yank_format: PathFormat = BY_NAME[settings.yank_format]
         self.osc_events: list[str] = []
         self.active = "tree"  # which pane j/k/l/h/y act on: tree | source | ports
         self._cue: str | None = None  # pane the background cue is painted for
         self.zoomed = False  # z: the active pane fills the screen
-        self.line_numbers = True  # n: line-number gutter in the source view
+        self.line_numbers = settings.line_numbers  # n toggles the gutter
+        self.editor_command = settings.editor_command
+        self.theme = settings.theme
         self.src_offset = 0
         self._source_rows = 30  # last known source-pane height (see _follow)
         self._trace_pane_rows = 12  # last known trace-pane height (see _trace_view_rows)
@@ -2736,6 +2745,7 @@ class TrenApp(App[None]):
             return  # Pilot run: only the target is test-relevant
         editor = (
             os.environ.get("TREN_EDITOR")
+            or self.editor_command
             or os.environ.get("EDITOR")
             or os.environ.get("VISUAL")
             or ""
@@ -2786,20 +2796,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--cache",
         type=Path,
-        default=Path(".cache/tren"),
-        help="IR cache directory (reused across runs; second start is instant)",
+        default=None,
+        help="IR cache directory (default: the cache.dir setting)",
     )
     args = parser.parse_args(argv)
+    try:
+        settings = load_config().config
+    except ConfigError as exc:
+        print(f"tren-tui: {exc}", file=sys.stderr)
+        return 2
+    cache = args.cache if args.cache is not None else Path(settings.cache_dir)
     if args.manifest is not None:
         root = Path.cwd()
         design = elaborate(
             Manifest.read(args.manifest),
             root,
-            cache=IrCache(args.cache, root=root),
+            cache=IrCache(cache, root=root),
         )
     else:
         design = load_design()
-    TrenApp(design).run()
+    TrenApp(design, settings=settings).run()
     return 0
 
 

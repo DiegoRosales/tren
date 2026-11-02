@@ -40,6 +40,7 @@ from typing import Any
 
 from .bits import cell_directions, unmangle
 from .cache import IrCache
+from .config import ConfigError, load_config
 from .ir import (
     BitLink,
     BoundaryLink,
@@ -818,16 +819,26 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path, help="manifest JSON (sources relative to --root)")
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="repo root for relative paths")
-    parser.add_argument("--cache", type=Path, default=Path(".cache/tren"), help="cache directory")
+    parser.add_argument(
+        "--cache", type=Path, default=None,
+        help="cache directory (default: the cache.dir setting)",
+    )
     parser.add_argument("--refresh", action="store_true", help="rebuild even on a cache hit")
     args = parser.parse_args(argv)
+
+    try:
+        settings = load_config().config
+    except ConfigError as exc:
+        print(f"tren: {exc}", file=sys.stderr)
+        return 2
+    cache = args.cache if args.cache is not None else Path(settings.cache_dir)
 
     manifest = Manifest.read(args.manifest)
     try:
         design = elaborate(
             manifest,
             args.root,
-            cache=IrCache(args.cache, root=args.root),
+            cache=IrCache(cache, root=args.root),
             refresh=args.refresh,
         )
     except subprocess.CalledProcessError as exc:

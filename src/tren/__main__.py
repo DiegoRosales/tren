@@ -10,6 +10,9 @@ Commands:
     open <target> [--root DIR] [--cache DIR] [--refresh] [--out PATH]
                 import the target unless it is a manifest, elaborate it and
                 open the TUI (tren.bringup)
+    config [show|export] [--out PATH]
+                show the effective settings with their origins, or export a
+                complete TOML template (tren.config)
 
 A bare ``tren <target>`` (no subcommand) is the same as ``tren open <target>``.
 """
@@ -31,6 +34,9 @@ commands:
   open <target> [--root DIR] [--cache DIR] [--refresh] [--out PATH]
                 import the target unless it is a manifest, elaborate it and
                 open the TUI
+  config [show|export] [--out PATH]
+                show the effective settings with their origins, or export a
+                complete TOML template
 
 A bare 'tren <target>' is the same as 'tren open <target>'. Run
 'tren open --help' for the full option list.
@@ -52,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "open":
         from .bringup import main as bringup_main
         return bringup_main(rest, prog="tren open")
+    if cmd == "config":
+        from .config import main as config_main
+        return config_main(rest)
     from .bringup import main as bringup_main
     return bringup_main(argv)
 

@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tren import __main__ as cli  # noqa: E402
 from tren.bringup import is_manifest_target, load_target, main  # noqa: E402
+from tren.config import Config  # noqa: E402
 from tren.elaborate import elaborate  # noqa: E402
 from tren.importer import import_manifest  # noqa: E402
 from tren.ir import Design  # noqa: E402
@@ -111,7 +112,9 @@ class WarningTests(unittest.TestCase):
             failure = subprocess.CalledProcessError(
                 1, ["yosys"], stderr="ERROR: bad design\n"
             )
-            with mock.patch("tren.bringup.load_target") as load:
+            with mock.patch(
+                "tren.bringup.load_config", return_value=_loaded(Config())
+            ), mock.patch("tren.bringup.load_target") as load:
                 def fake_load(*args, warnings_out=None, **kwargs):
                     warnings_out.append("missing include")
                     raise failure
@@ -125,7 +128,9 @@ class WarningTests(unittest.TestCase):
 
     def test_missing_target_reports_without_a_traceback(self) -> None:
         err = io.StringIO()
-        with redirect_stderr(err), redirect_stdout(io.StringIO()):
+        with mock.patch(
+            "tren.bringup.load_config", return_value=_loaded(Config())
+        ), redirect_stderr(err), redirect_stdout(io.StringIO()):
             code = main(["/nonexistent/tren-target"])
         self.assertEqual(code, 2)
         self.assertIn("tren: no such file or directory", err.getvalue())
@@ -145,11 +150,25 @@ class SubcommandTests(unittest.TestCase):
         run.assert_called_once_with(["rtl"])
 
 
+def _loaded(config: Config):
+    from tren.config import ConfigFiles, LoadedConfig, OPTIONS
+
+    values = {
+        option.key: getattr(config, option.field) for option in OPTIONS
+    }
+    origins = {option.key: "default" for option in OPTIONS}
+    files = ConfigFiles(system=Path("/nonexistent"), user=Path("/nonexistent"), project=None)
+    return LoadedConfig(config=config, values=values, origins=origins, files=files)
+
+
 class LaunchTests(unittest.TestCase):
     def test_main_opens_the_tui_on_the_loaded_design(self) -> None:
         design = Design(top="top")
         manifest = Manifest(sources=("a.sv",))
+        settings = Config()
         with mock.patch(
+            "tren.bringup.load_config", return_value=_loaded(settings)
+        ), mock.patch(
             "tren.bringup.load_target", return_value=(manifest, design)
         ), mock.patch("tren.bringup.run_tui") as launch, redirect_stdout(
             io.StringIO()
@@ -158,6 +177,37 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(code, 0)
         launch.assert_called_once()
         self.assertIs(launch.call_args.args[0], design)
+        self.assertIs(launch.call_args.args[2], settings)
+
+    def test_cache_dir_defaults_from_the_config(self) -> None:
+        design = Design(top="top")
+        manifest = Manifest(sources=("a.sv",))
+        with mock.patch(
+            "tren.bringup.load_config",
+            return_value=_loaded(Config(cache_dir="config-cache")),
+        ), mock.patch(
+            "tren.bringup.load_target", return_value=(manifest, design)
+        ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
+            io.StringIO()
+        ):
+            code = main(["a.sv"])
+        self.assertEqual(code, 0)
+        self.assertEqual(load.call_args.kwargs["cache"], Path("config-cache"))
+
+    def test_explicit_cache_overrides_the_config(self) -> None:
+        design = Design(top="top")
+        manifest = Manifest(sources=("a.sv",))
+        with mock.patch(
+            "tren.bringup.load_config",
+            return_value=_loaded(Config(cache_dir="config-cache")),
+        ), mock.patch(
+            "tren.bringup.load_target", return_value=(manifest, design)
+        ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
+            io.StringIO()
+        ):
+            code = main(["a.sv", "--cache", "cli-cache"])
+        self.assertEqual(code, 0)
+        self.assertEqual(load.call_args.kwargs["cache"], Path("cli-cache"))
 
 
 @unittest.skipUnless(

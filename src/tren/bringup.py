@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .config import Config, ConfigError, load_config
 from .elaborate import IrCache, design_summary, elaborate, tool_failure_message
 from .importer import import_manifest
 from .ir import Design
@@ -85,11 +86,15 @@ def load_target(
     return manifest, design
 
 
-def run_tui(design: Design, root: Path) -> None:
+def run_tui(
+    design: Design,
+    root: Path,
+    settings: Config | None = None,
+) -> None:
     """Open the explorer on an elaborated design (a seam for unit tests)."""
     from .tui import TrenApp
 
-    TrenApp(design, root=root).run()
+    TrenApp(design, root=root, settings=settings).run()
 
 
 def _print_warnings(warnings: list[str]) -> None:
@@ -115,8 +120,8 @@ def main(argv: list[str] | None = None, *, prog: str = "tren") -> int:
         help="anchor for relative paths and tools (default: current directory)",
     )
     parser.add_argument(
-        "--cache", type=Path, default=Path(".cache/tren"),
-        help="IR cache directory (reused across runs)",
+        "--cache", type=Path, default=None,
+        help="IR cache directory (default: the cache.dir setting)",
     )
     parser.add_argument(
         "--refresh", action="store_true", help="rebuild even on a cache hit"
@@ -141,13 +146,20 @@ def main(argv: list[str] | None = None, *, prog: str = "tren") -> int:
     )
     args = parser.parse_args(argv)
 
+    try:
+        settings = load_config().config
+    except ConfigError as exc:
+        print(f"tren: {exc}", file=sys.stderr)
+        return 2
+    cache = args.cache if args.cache is not None else Path(settings.cache_dir)
+
     imported = not is_manifest_target(args.target)
     warnings: list[str] = []
     try:
         manifest, design = load_target(
             args.target,
             root=args.root,
-            cache=args.cache,
+            cache=cache,
             refresh=args.refresh,
             out=args.out,
             name=args.name,
@@ -174,7 +186,7 @@ def main(argv: list[str] | None = None, *, prog: str = "tren") -> int:
     _print_warnings(warnings)
     for line in design_summary(design):
         print(line)
-    run_tui(design, Path(args.root))
+    run_tui(design, Path(args.root), settings)
     return 0
 
 

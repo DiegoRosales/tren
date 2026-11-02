@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from textual.color import Color  # noqa: E402
 from textual.widgets import Input, Static  # noqa: E402
 
+from tren.config import Config  # noqa: E402
 from tren.elaborate import elaborate  # noqa: E402
 from tren.manifest import Manifest  # noqa: E402
 from tren.tui import (  # noqa: E402
@@ -1315,6 +1316,32 @@ async def drive_search_window() -> None:
         assert len(seen_wstarts) > 1, "the window must slide over a long match set"
 
 
+async def drive_config() -> None:
+    """The TUI starts with the settings the config layer resolved."""
+    settings = Config(
+        line_numbers=False,
+        yank_format="yosys",
+        editor_command="vi",
+        theme="nord",
+    )
+    app = TrenApp(load_design(), root=Path.cwd(), settings=settings)
+    async with app.run_test(size=(110, 32)) as pilot:
+        assert app.line_numbers is False, "line_numbers must come from the config"
+        assert app.yank_format.name == "yosys", app.yank_format.name
+        assert app.editor_command == "vi", app.editor_command
+        assert app.theme == "nord", app.theme
+
+        source: Static = app.query_one("#source")
+        assert not _numbered_rows(str(source.content), 1, "module top ("), (
+            "a config with line_numbers = false must paint no gutter"
+        )
+        await pilot.press("n")
+        assert app.line_numbers is True, "n still toggles the gutter"
+
+        await pilot.press("y")
+        assert app.yanked == ["top"], app.yanked
+
+
 async def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1331,6 +1358,7 @@ async def main(argv: list[str] | None = None) -> None:
         await drive_fixture()
         await drive_unreadable_src()
         await drive_search_window()
+        await drive_config()
     print("PASS")
 
 

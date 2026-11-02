@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 228 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 265 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -52,6 +52,10 @@ Pure Python plus `make -n` dry runs of the Makefile. 228 tests.
   include-file exclusion, format autodetection.
 - **Manifest** (`tests/test_ir.py` + `cache`): canonical bytes stable across
   dict ordering; cache key changes with source mtime/size.
+- **Configuration** (`tests/test_config.py`): the four layers in precedence
+  order, nearest-project discovery up to the repository root, XDG user paths,
+  errors on an unknown key or a bad type or value, the project layer's ban on
+  `editor.command`, and an export that reloads to the same settings.
 
 All are skipped-free by design (pure), so they are the project's fastest
 regression net - ~0.3s for the whole suite.
@@ -86,7 +90,8 @@ fixture (no tools) and real-IR mode. Two flavours:
 
 - `make drive` - `test_drive.py` (fixture): tree nav, pane routing, yank,
   l/h expand/collapse, ctrl+u, enter, `z` pane zoom, pageup/pagedown paging
-  per pane; fast, no tools.
+  per pane, and an app built with a `Config` that starts with its line-number,
+  yank, editor and theme settings; fast, no tools.
 - `make drive-real` - `test_drive.py --manifest tests/rtl/demo.manifest.json`:
   the *real* elaboration, source-pane focus/auto-follow, trace tree expansion
   with positional matching down to `$xor` (a branch keeps its siblings), cell
@@ -110,8 +115,11 @@ temporary directory, so a stale or concurrent run cannot share the server.
 Both start the session with `tmux -f /dev/null` and an explicit
 `bash --noprofile --norc`. The gate therefore does not depend on
 `~/.tmux.conf` or the user's interactive shell configuration, so a local zsh
-setup cannot turn the gate red. `HOME` is still inherited, but no current tren
-code reads it.
+setup cannot turn the gate red. `HOME` is inherited because configuration
+discovery reads it, so both scripts set `TREN_SYSTEM_CONFIG`,
+`TREN_USER_CONFIG` and `TREN_PROJECT_CONFIG` to a missing path inside the
+run's temporary directory. A project `.tren.toml` therefore cannot change the
+gate's yank format or theme.
 
 #### `make roundtrip` (`-S <tmp>/tmux.sock`)
 
