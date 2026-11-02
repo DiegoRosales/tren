@@ -20,6 +20,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from tren import __main__ as cli  # noqa: E402
 from tren.config import (  # noqa: E402
     Config,
     ConfigError,
@@ -30,6 +31,7 @@ from tren.config import (  # noqa: E402
     load_config,
     main,
     render_export,
+    render_origins,
     render_show,
 )
 
@@ -286,6 +288,38 @@ class ShowTests(unittest.TestCase):
             self.assertIn(str(project), shown)
 
 
+class OriginsTests(unittest.TestCase):
+    def test_defaults_have_no_file_origins(self) -> None:
+        self.assertEqual(
+            render_origins(load_config(_files())),
+            "no configuration values set by a TOML file\n",
+        )
+
+    def test_groups_the_effective_values_by_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            system = _write(root / "system.toml", "[cache]\ndir = 'system-cache'\n")
+            user = _write(
+                root / "user.toml",
+                "[tui]\ntheme = 'nord'\n[yank]\nformat = 'yosys'\n",
+            )
+            project = _write(
+                root / "project.toml",
+                "[tui]\nline_numbers = false\n[yank]\nformat = 'vcd'\n",
+            )
+            text = render_origins(
+                load_config(_files(system=system, user=user, project=project))
+            )
+        self.assertIn(f'{system}\n  cache.dir = "system-cache"', text)
+        self.assertIn(f'{user}\n  tui.theme = "nord"', text)
+        self.assertIn(f'{project}\n  tui.line_numbers = false', text)
+        self.assertIn('yank.format = "vcd"', text)
+        self.assertNotIn("yosys", text, "an overridden value must not appear")
+        self.assertNotIn("editor.command", text, "defaults must not appear")
+        self.assertLess(text.index(str(system)), text.index(str(user)))
+        self.assertLess(text.index(str(user)), text.index(str(project)))
+
+
 class CliTests(unittest.TestCase):
     def _loaded(self):
         return load_config(_files())
@@ -337,6 +371,44 @@ class CliTests(unittest.TestCase):
                 code = main(["show"])
         self.assertEqual(code, 2)
         self.assertIn("tren config: bad value", err.getvalue())
+
+    def test_debug_config_prints_toml(self) -> None:
+        out = io.StringIO()
+        with mock.patch("tren.config.load_config", return_value=self._loaded()):
+            with redirect_stdout(out):
+                code = cli.main(["--debug-config"])
+        self.assertEqual(code, 0)
+        self.assertEqual(tomllib.loads(out.getvalue())["yank"], {"format": "sv"})
+
+    def test_debug_config_origins_prints_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            user = _write(Path(tmp) / "user.toml", "[yank]\nformat = 'vcd'\n")
+            loaded = load_config(_files(user=user))
+        out = io.StringIO()
+        with mock.patch("tren.config.load_config", return_value=loaded):
+            with redirect_stdout(out):
+                code = cli.main(["--debug-config-origins"])
+        self.assertEqual(code, 0)
+        self.assertIn(str(user), out.getvalue())
+        self.assertIn('yank.format = "vcd"', out.getvalue())
+
+    def test_debug_flag_rejects_extra_arguments(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = cli.main(["--debug-config", "extra"])
+        self.assertEqual(code, 2)
+        self.assertIn("takes no arguments", err.getvalue())
+
+    def test_debug_flag_reports_a_config_error(self) -> None:
+        err = io.StringIO()
+        with mock.patch(
+            "tren.config.load_config",
+            side_effect=ConfigError("bad value"),
+        ):
+            with redirect_stderr(err):
+                code = cli.main(["--debug-config"])
+        self.assertEqual(code, 2)
+        self.assertIn("tren: bad value", err.getvalue())
 
 
 if __name__ == "__main__":

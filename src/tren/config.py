@@ -334,6 +334,30 @@ def render_export(loaded: LoadedConfig) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_origins(loaded: LoadedConfig) -> str:
+    """Only the effective values that a TOML file set, grouped by file."""
+    groups: dict[str, list[str]] = {}
+    for option in OPTIONS:
+        origin = loaded.origins[option.key]
+        if origin != DEFAULT_ORIGIN:
+            groups.setdefault(origin, []).append(option.key)
+    if not groups:
+        return "no configuration values set by a TOML file\n"
+
+    lines: list[str] = []
+    for path in (str(p) for p in loaded.files.layers()):
+        keys = groups.get(path)
+        if not keys:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(path)
+        for key in keys:
+            value = _toml_value(loaded.values[key])
+            lines.append(f"  {key} = {value}")
+    return "\n".join(lines) + "\n"
+
+
 def render_show(loaded: LoadedConfig) -> str:
     """Every effective value with its source file or ``default``."""
     lines = ["files:"]

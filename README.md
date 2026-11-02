@@ -177,6 +177,14 @@ tren config export --out .tren.toml      # the same, written to a file
 tren config export --out config-dir      # writes config-dir/config.toml
 ```
 
+Two top-level flags print configuration information and exit without opening
+the TUI:
+
+```sh
+tren --debug-config           # every effective value as TOML
+tren --debug-config-origins   # only values set by a file, grouped by path
+```
+
 `TREN_SYSTEM_CONFIG`, `TREN_USER_CONFIG` and `TREN_PROJECT_CONFIG` override
 the three layer paths. Tests and unusual installs use them; normal discovery
 does not.

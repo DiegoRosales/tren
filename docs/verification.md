@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 265 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 271 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -55,7 +55,8 @@ Pure Python plus `make -n` dry runs of the Makefile. 265 tests.
 - **Configuration** (`tests/test_config.py`): the four layers in precedence
   order, nearest-project discovery up to the repository root, XDG user paths,
   errors on an unknown key or a bad type or value, the project layer's ban on
-  `editor.command`, and an export that reloads to the same settings.
+  `editor.command`, an export that reloads to the same settings, and the two
+  `--debug-config*` flags.
 
 All are skipped-free by design (pure), so they are the project's fastest
 regression net - ~0.3s for the whole suite.
