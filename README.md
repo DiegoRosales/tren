@@ -702,8 +702,9 @@ src/tren/            package
   __main__.py        subcommand front door (import / elaborate / open / config / bare target)
 tests/               unit tests, the Pilot workdir, and the executable
                      fixtures: rtl/ (demo.sv for the drives and ranges.sv for
-                     declared ranges) + hls_examples/ (Vitis HLS flows and
-                     their committed rtl_output/ exports)
+                     declared ranges), fixtures/ (the demo-tree.json fixture
+                     IR) and hls_examples/ (Vitis HLS flows and their
+                     committed rtl_output/ exports)
 manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
 docs/                verification.md, release.md + notes/ mirrors;
                      tech-concepts.md and sw-bom.md

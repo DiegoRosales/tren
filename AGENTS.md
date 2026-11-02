@@ -18,17 +18,18 @@ src/tren/            the package: CLI parsing, IR model, elaboration, TUI
 tests/               unit tests + the executable fixtures they drive
   rtl/               demo.sv (the drives) + ranges.sv (declared ranges) and
                      their tracked manifests
-  hls_examples/      Vitis HLS example blocks + committed rtl_output/ exports
-tui/fixtures/        the vendored demo-tree.json fixture IR (tren-tui, the
+  fixtures/          the vendored demo-tree.json fixture IR (tren-tui, the
                      no-backends drive)
+  hls_examples/      Vitis HLS example blocks + committed rtl_output/ exports
 docs/                verification.md + notes/ mirrors; tech-concepts.md, sw-bom.md
 tools/               round-trip + capture scripts, profilers, BOM + guide generators
 out/                 gitignored drive screenshots (shot*.svg)
 ```
 
-The demo fixtures live under `tests/rtl/`. Manifest paths are relative to
-the repo root, so they spell `tests/rtl/demo.sv`. Tool output and test
-expectations carry that same prefix.
+The RTL fixtures live under `tests/rtl/` and the fixture IR under
+`tests/fixtures/`. Manifest paths are relative to the repo root, so they
+spell `tests/rtl/demo.sv`. Tool output and test expectations carry that same
+prefix.
 
 ## 2. Sources of truth
 

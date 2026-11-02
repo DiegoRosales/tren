@@ -24,7 +24,7 @@ from tren.search import (  # noqa: E402
     fuzzy_score,
 )
 
-FIXTURE = Path(__file__).resolve().parents[1] / "tui" / "fixtures" / "demo-tree.json"
+FIXTURE = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "demo-tree.json"
 
 
 def fixture_index():

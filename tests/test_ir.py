@@ -31,7 +31,7 @@ from tren.ir import (  # noqa: E402
 )
 from tren.manifest import Manifest  # noqa: E402
 
-REPO_FIXTURE = Path(__file__).resolve().parents[1] / "tui" / "fixtures" / "demo-tree.json"
+REPO_FIXTURE = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "demo-tree.json"
 
 
 class RoundTripTests(unittest.TestCase):

@@ -71,7 +71,7 @@ from .keys import SCREEN_KEYS, TRACE_KEYS, KeyDoc
 from .manifest import Manifest
 from .search import SearchEntry, build_search_index, filter_and_rank
 
-FIXTURE = Path(__file__).resolve().parents[2] / "tui" / "fixtures" / "demo-tree.json"
+FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "demo-tree.json"
 
 # active-pane cue: the pane 1/2/3 acts on is lifted out of the background
 PANE_BG_ACTIVE = "#262626"

@@ -15,9 +15,9 @@ Wraps the pinned CLIs (versions recorded in README.md):
 
 Scopes are keyed by their hierarchical instance path (``top.u_core.g[0]``)
 and carry their resolved params; generate blocks become their own scopes
-(``module is None``). The hand-written fixture (tui/fixtures/demo-tree.json)
-is the module-keyed stand-in for UI tests; this module produces the real,
-path-keyed IR.
+(``module is None``). The hand-written fixture
+(tests/fixtures/demo-tree.json) is the module-keyed stand-in for UI tests;
+this module produces the real, path-keyed IR.
 
 Usage (from the repo root, inside the nix dev shell):
 
