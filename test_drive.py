@@ -28,6 +28,7 @@ from tren.tui import (  # noqa: E402
     PANE_BG_ACTIVE,
     PANE_BG_IDLE,
     PANE_WIDTHS,
+    YANK_FLASH_SECONDS,
     SearchScreen,
     TrenApp,
     load_design,
@@ -61,7 +62,9 @@ def _numbered_rows(text: str, number: int, content: str) -> list[str]:
 
 async def drive_fixture() -> None:
     """Fixture path, IR-loaded tree + source spans, verified keys."""
-    app = TrenApp(load_design(), root=Path.cwd())
+    app = TrenApp(
+        load_design(), root=Path.cwd(), settings=Config(yank_provider="osc52")
+    )
     async with app.run_test(size=(110, 32)) as pilot:
         tree = app._tree()
         source: Static = app.query_one("#source")
@@ -212,13 +215,27 @@ async def drive_fixture() -> None:
         assert "core #(32) u_core(" in str(source.content), "pane unlinked from selection"
         assert status_path(app) == "top.u_core.a", f"port leaf status: {status_path(app)!r}"
 
-        # yank recorded the selection
+        # yank recorded the selection and marked the status line
         await pilot.press("y")
         assert app.yanked, "yank recorded nothing"
+        assert status_path(app).endswith("[yanked]"), (
+            f"yank marker missing: {status_path(app)!r}"
+        )
         print("yanked:", app.yanked[-1])
 
-        # ctrl+u from a port promotes to the current hierarchy's module node
+        # the marker clears on its own
+        await pilot.pause(YANK_FLASH_SECONDS + 0.1)
+        assert "[yanked]" not in status_path(app), (
+            f"yank marker did not clear: {status_path(app)!r}"
+        )
+
+        # a new yank marks the new selection, and moving clears it
+        await pilot.press("y")
+        assert status_path(app).endswith("[yanked]"), status_path(app)
         await pilot.press("ctrl+u")
+        assert "[yanked]" not in status_path(app), (
+            f"yank marker survived a selection move: {status_path(app)!r}"
+        )
         assert "core/" in app._current_node.label.plain, \
             f"fixture ctrl+u should select the module: {app._current_node}"
         assert status_path(app) == "core", f"status after ctrl+u: {status_path(app)!r}"
@@ -591,7 +608,7 @@ async def drive_unreadable_src() -> None:
 async def drive_real(root: Path, manifest_path: Path) -> None:
     """Real IR, source pane loads the actual RTL file, auto-follow."""
     design = elaborate(Manifest.read(root / manifest_path), root)
-    app = TrenApp(design, root=root)
+    app = TrenApp(design, root=root, settings=Config(yank_provider="osc52"))
     async with app.run_test(size=(110, 32)) as pilot:
         source: Static = app.query_one("#source")
         ports: Static = app.query_one("#ports")
@@ -1340,6 +1357,7 @@ async def drive_config() -> None:
     settings = Config(
         line_numbers=False,
         yank_format="yosys",
+        yank_provider="osc52",
         editor_command="vi",
         theme="nord",
         hierarchy_scope="#123456",
@@ -1350,6 +1368,7 @@ async def drive_config() -> None:
     async with app.run_test(size=(110, 32)) as pilot:
         assert app.line_numbers is False, "line_numbers must come from the config"
         assert app.yank_format.name == "yosys", app.yank_format.name
+        assert app.clipboard_provider == "osc52", app.clipboard_provider
         assert app.editor_command == "vi", app.editor_command
         assert app.theme == "nord", app.theme
         assert app._row_colors["scope"] == "#123456", app._row_colors

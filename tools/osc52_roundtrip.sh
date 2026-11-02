@@ -36,13 +36,20 @@ printf '%s\n' "$*" >>"$FAKE_EDITOR_LOG"
 EOF
 chmod +x "$TMP/fake_editor.sh"
 
+# This gate asserts the raw OSC 52 bytes. Force that provider even when the
+# test itself runs inside tmux (where auto would choose the tmux provider).
+cat >"$TMP/config.toml" <<'EOF'
+[yank]
+provider = "osc52"
+EOF
+
 # -f /dev/null ignores ~/.tmux.conf; the explicit shell ignores the user's
 # interactive rc files, so the gate cannot fail because of local zsh setup.
 tmux -S "$SOCK" -f /dev/null new-session -d -s "$SESS" -x 120 -y 34 \
   -- bash --noprofile --norc
 tmux -S "$SOCK" pipe-pane -t "$SESS" "cat > '$TMP/pane.raw'"
 tmux -S "$SOCK" send-keys -t "$SESS" \
-  "cd '$REPO' && export PYTHONPATH=src EDITOR=$TMP/fake_editor.sh FAKE_EDITOR_LOG=$TMP/editor.log TREN_SYSTEM_CONFIG=$TMP/no-config TREN_USER_CONFIG=$TMP/no-config TREN_PROJECT_CONFIG=$TMP/no-config && python -m tren.tui --manifest tests/rtl/demo.manifest.json" Enter
+  "cd '$REPO' && export PYTHONPATH=src EDITOR=$TMP/fake_editor.sh FAKE_EDITOR_LOG=$TMP/editor.log TREN_SYSTEM_CONFIG=$TMP/no-config TREN_USER_CONFIG=$TMP/config.toml TREN_PROJECT_CONFIG=$TMP/no-config && python -m tren.tui --manifest tests/rtl/demo.manifest.json" Enter
 
 sleep 6  # elaboration + textual startup
 tmux -S "$SOCK" send-keys -t "$SESS" j y   # the cursor starts on the top-module root row; j to u_core, y

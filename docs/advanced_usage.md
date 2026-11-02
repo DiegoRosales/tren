@@ -232,6 +232,23 @@ The committed `rtl_output/` exports need no Xilinx install. The
 [README HLS section](../README.md#reading-vitis-hls-rtl-output-no-xilinx-needed)
 lists the `make hls-*` shortcuts and the full Vitis rebuild flow.
 
+## Choose a clipboard provider
+
+`yank.provider` selects how `y` writes the path:
+
+- `auto` (default) uses tmux inside a tmux session, otherwise OSC 52;
+- `tmux` uses `tmux load-buffer -w -`;
+- `osc52` writes a raw OSC 52 sequence.
+
+The tmux provider works with `set-clipboard external`, where tmux ignores
+application OSC 52 writes. Use an explicit provider when the automatic
+choice is wrong for the terminal:
+
+```toml
+[yank]
+provider = "tmux"
+```
+
 ## Set the configuration
 
 TREN reads built-in defaults, a system file, a user file, and the nearest
@@ -244,6 +261,6 @@ tren config export --out .tren.toml
 ```
 
 A project file may set the cache directory, the theme, the line numbers, the
-hierarchy colours, and the yank format. It may not set a non-empty
-`editor.command`; keep that in the user or system file. The
+hierarchy colours, the yank format, and the clipboard provider. It may not
+set a non-empty `editor.command`; keep that in the user or system file. The
 [README settings section](../README.md#settings) lists every key.

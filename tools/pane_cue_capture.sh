@@ -23,6 +23,9 @@
 #
 # Assertion: pressing 1/2/3 paints exactly one pane at PANE_BG_ACTIVE and the
 # other two at PANE_BG_IDLE, on every row - including rows carrying tree nodes.
+# The status line also renders the selection path; a yank adds and clears the
+# `[yanked]` marker on a real terminal. The default `auto` provider must choose
+# tmux here, so the private server's paste buffer must hold the yanked path.
 #
 # Run:  nix develop . -c bash tools/pane_cue_capture.sh
 set -euo pipefail
@@ -52,6 +55,15 @@ for pane in 1 2 3; do
   sleep 1
   tmux -S "$SOCK" capture-pane -e -p -t "$SESS" >"$TMP/pane-$pane.ansi"
 done
+
+# The status line is rendered output, not only app state: capture the yank
+# marker while it is up and after the flash window.
+tmux -S "$SOCK" send-keys -t "$SESS" 1; sleep 1
+tmux -S "$SOCK" send-keys -t "$SESS" y; sleep 0.2
+tmux -S "$SOCK" capture-pane -p -t "$SESS" | head -n 1 >"$TMP/yank-on.txt"
+tmux -S "$SOCK" show-buffer >"$TMP/tmux-buffer.txt"
+sleep 1.7
+tmux -S "$SOCK" capture-pane -p -t "$SESS" | head -n 1 >"$TMP/yank-off.txt"
 
 python3 - "$TMP" "$REPO" <<'EOF'
 import pathlib
@@ -126,10 +138,29 @@ if "top.u_core" not in row0:
 else:
     print(f"  status line row 0: {row0.strip()!r}")
 
+yank_on = (tmp / "yank-on.txt").read_text().strip()
+yank_off = (tmp / "yank-off.txt").read_text().strip()
+if "[yanked]" not in yank_on:
+    failures.append(f"yank marker row 0: {yank_on!r} missing [yanked]")
+else:
+    print(f"  yank marker row 0: {yank_on!r}")
+if "[yanked]" in yank_off:
+    failures.append(f"yank marker did not clear: {yank_off!r}")
+
+tmux_buffer = (tmp / "tmux-buffer.txt").read_text().strip()
+if tmux_buffer != "top.u_core.u_alu0":
+    failures.append(f"tmux provider buffer: {tmux_buffer!r} != 'top.u_core.u_alu0'")
+else:
+    print(f"  tmux provider buffer: {tmux_buffer!r}")
+
 if failures:
     print("\nFAIL: the active-pane cue is not symmetric on a real terminal")
     for failure in failures:
         print(f"  {failure}")
     sys.exit(1)
-print(f"\nPASS: exactly one pane at {PANE_BG_ACTIVE}, the rest idle, on every sampled row")
+print(
+    f"\nPASS: exactly one pane at {PANE_BG_ACTIVE}, the rest idle, on every "
+    "sampled row; the status line yank marker renders and clears; auto used "
+    "the tmux provider"
+)
 EOF

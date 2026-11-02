@@ -10,7 +10,7 @@ Three panes: **scope tree** | **focused RTL source** | **module I/O**.
 `l`/`h` expand/collapse the
 highlighted scope, `enter` shows that module in the centre RTL pane, `ctrl+u`
 jumps up a hierarchy level, `y` yanks the selection through the current path
-format as a raw OSC 52 clipboard write, `Y` cycles the format (SV
+format and clipboard provider, `Y` cycles the format (SV
 hierarchical / Vivado `get_pins` / yosys `select` / VCD dot-path), `e` jumps
 to the selection's declaration in `$EDITOR` (`+line file` style, suspending
 the app), `E` to the module definition.
@@ -153,7 +153,9 @@ quits.
 Across the top, a yazi-style **status line** shows the full hierarchical path
 of the current selection - a scope row reads `top.u_core.g[0].u_alu_g`, a
 port/net leaf appends the item (`top.u_core.g[0].u_alu_g.result`). It updates
-live on `j`/`k`/`l`/`h`/`ctrl+u`/`enter`, the final segment highlighted.
+live on `j`/`k`/`l`/`h`/`ctrl+u`/`enter`, the final segment highlighted. A
+yank appends `[yanked]` for a moment; the marker clears on its own or when
+the selection moves.
 
 The pane `1`/`2`/`3` selected - the one `j`/`k`/`y` act on - is lifted out of
 the background; the other two stay dark. Exactly one pane is ever lit.
@@ -200,6 +202,7 @@ the command and names the file and the key.
 | `tui.hierarchy.inout` | `theme` | Inout port leaves. |
 | `tui.hierarchy.net` | `theme` | Net leaves. |
 | `yank.format` | `sv` | Initial format for `y` and `Y`: `sv`, `vivado`, `yosys` or `vcd`. |
+| `yank.provider` | `auto` | Clipboard provider for `y`: `auto`, `tmux` or `osc52`. `auto` uses tmux inside a tmux session, otherwise OSC 52. |
 
 Each `tui.hierarchy` colour key is `theme` (the default), `none` (leave
 that kind uncoloured), or a Textual colour name or hex value. `theme`
@@ -211,12 +214,13 @@ colour is lightened when needed to stay legible on the pane surfaces; an
 explicit colour is used as written. While hierarchy colouring is enabled,
 the I/O pane uses the same port colours.
 
-A project file that changes the yank format, the line numbers and the
-hierarchy colours:
+A project file that changes the yank format, the clipboard provider, the
+line numbers and the hierarchy colours:
 
 ```toml
 [yank]
 format = "yosys"
+provider = "tmux"
 
 [tui]
 line_numbers = false
@@ -385,7 +389,7 @@ pane.
 | `enter` | show the selection in the centre RTL pane with context - tree, the highlighted module; I/O, the selected port's declaration |
 | `ctrl+u` | tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent |
 | `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump) |
-| `y` | yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard) |
+| `y` | yank the selection through the current path format and clipboard provider |
 | `Y` | cycle the yank format: sv -> vivado -> yosys -> vcd |
 | `d` `L` | trace drivers / loads of the selected signal (opens the trace split; in the trace pane, switch direction) |
 | `X` | cut/restore the highlighted scope (treat it as a black box) |
@@ -455,10 +459,18 @@ the list stays responsive.
 
 ### Yanking paths
 
-`y` writes the path of the current selection to the clipboard as a raw OSC 52
-sequence (works in any terminal that relays it, e.g. tmux with
-`set-clipboard`, most terminals). The formats are declarative (see
-`tren/formats.py`), one per target tool:
+`y` writes the path of the current selection to the clipboard. The
+`yank.provider` setting selects the path:
+
+- `auto` (default) uses tmux when `$TMUX` is set and the `tmux` command is
+  available, otherwise OSC 52;
+- `tmux` runs `tmux load-buffer -w -`, so it works with
+  `set-clipboard external`;
+- `osc52` writes a raw OSC 52 sequence, for terminals that accept application
+  clipboard writes.
+
+The status line appends `[yanked]` after a successful write, then clears it.
+The formats are declarative (see `tren/formats.py`), one per target tool:
 
 | Format | Selection `top.u_core.g[0].u_alu_g.result` |
 |---|---|
@@ -549,7 +561,7 @@ make test                                    # unit suite
 make drive                                   # headless Pilot tests (CI target)
 make drive-real                              # Pilot drives on the demo manifest
 make roundtrip                               # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
-make pane-cue                                # real-terminal active-pane cue + top status line (tmux, private server)
+make pane-cue                                # real-terminal pane cue + yank marker + tmux provider (private server)
 make profile                                 # lazy-load + cache profile (1 100-scope synthetic IR)
 make bom                                     # regenerate docs/sw-bom.md
 make run                                     # start the TUI on the vendored demo
@@ -622,9 +634,10 @@ the concatenation collapses to pure net aliasing, so `o` shows no driver
 `make check` runs the unit suite plus both Pilot drives - the same gates the
 CI workflow runs. `make test` / `make drive` / `make drive-real` run them
 individually; `make roundtrip` verifies the OSC 52 + editor path and
-`make pane-cue` the rendered active-pane highlight, both against a real
-terminal on a private tmux server (Pilot asserts style *values*, not what the
-terminal paints - see `docs/verification.md`). `make bom` regenerates the
+`make pane-cue` the rendered active-pane highlight, status line, yank marker
+and tmux clipboard provider, both against a real terminal on a private tmux
+server (Pilot asserts style *values*, not what the terminal paints - see
+`docs/verification.md`). `make bom` regenerates the
 auto-generated software bill of materials (`docs/sw-bom.md`) from whatever the
 dev shell resolves.
 
@@ -766,7 +779,7 @@ flake.nix            dev shells (default / #tren / #tren-venv / #tren-yosys-src 
 - **UI**: textual 8.2 for the spike/MVP; ratatui 0.30 pinned as the rewrite
   target. The IR and navigation logic are kept framework-agnostic.
 - **Screen**: tree | source (focused on the module's instantiation in its
-  parent) | I/O; keys as above; OSC 52 yank.
+  parent) | I/O; keys as above; clipboard provider yank (tmux or OSC 52).
 - **Scale**: lazy scope population on expand; never materialize the whole
   graph; IR cache keyed by manifest + source mtimes **and the IR's own shape**
   (`ir.schema_id()`), so a tren whose IR has changed rebuilds instead of

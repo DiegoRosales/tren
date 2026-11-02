@@ -67,7 +67,7 @@ behaviour of the backends lives in `docs/verification.md` and the sibling
 | Pane cue and zoom | The active pane is lifted out of the background; `z` gives it the full width. | `tui` | `tui.py:_render_pane_cue`, `action_toggle_zoom` |
 | Declarative yank formats | Path formats are data, not code; one renderer applies separator, top, array and escape settings. | `formats` | `src/tren/formats.py`, `tui.py:action_yank` |
 | Tcl/shell escaping | Brackets and `$` are escaped so a pasted Vivado path is not command substitution. | `formats` | `formats.py:_ESCAPERS` |
-| OSC 52 clipboard | `y` writes the raw OSC 52 escape through the framework's low-level path. | `tui`, textual | `tui.py:_write_osc`, `textual.copy_to_clipboard` |
+| Clipboard provider | `y` writes through OSC 52 or `tmux load-buffer -w`; `auto` uses tmux inside tmux and OSC 52 elsewhere. | `clipboard`, `tui` | `src/tren/clipboard.py`, `tui.py:action_yank` |
 | Editor jump | `e`/`E` suspend the app and open `$EDITOR` at `+line file`. | `tui` | `tui.py:_open_editor` |
 
 ## 6. Verification and tooling

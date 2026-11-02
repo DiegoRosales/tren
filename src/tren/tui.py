@@ -54,6 +54,7 @@ from textual.widgets import (
 )
 
 from .cache import IrCache
+from .clipboard import ClipboardError, resolve_provider, write_tmux
 from .colors import port_kind, resolve_row_colors, row_style, trace_kind
 from .config import Config, ConfigError, load_config
 from .elaborate import elaborate
@@ -79,6 +80,11 @@ PANE_BG_ACTIVE = "#262626"
 PANE_BG_IDLE = "#121212"
 # status line background: distinctly a chrome bar, not a pane
 STATUS_BG = "#1e1e1e"
+# a yank marks the status line for a moment, so the user sees that the
+# clipboard write happened without a permanent change to the path display.
+YANKED_MARK = "  [yanked]"
+YANKED_STYLE = "bold #7adf77"
+YANK_FLASH_SECONDS = 1.5
 # trace pane background: the split's own surface, so the trace rows read as
 # a pane below the source, never as more RTL lines
 TRACE_PANE_BG = "#1e1e1e"
@@ -731,6 +737,10 @@ class TrenApp(App[None]):
         self._row_colors: dict[str, str] = {}
         self.yanked: list[str] = []
         self.yank_format: PathFormat = BY_NAME[settings.yank_format]
+        self.clipboard_provider = resolve_provider(settings.yank_provider)
+        self._yank_flash = False
+        self._yank_flash_key: tuple[str, int, int | None] | None = None
+        self._yank_timer = None
         self.osc_events: list[str] = []
         self.active = "tree"  # which pane j/k/l/h/y act on: tree | source | ports
         self._cue: str | None = None  # pane the background cue is painted for
@@ -1382,6 +1392,7 @@ class TrenApp(App[None]):
                 header.append("✂ USER CUT\n", style="bold red")
             ports = header + ports
         self._ports_widget.update(ports)
+        self._clear_yank_on_move()
         self._status_widget.update(self._selection_status())
         self._render_pane_cue()
 
@@ -2779,12 +2790,31 @@ class TrenApp(App[None]):
             n = n.parent
         return suffix
 
+    def _selection_key(self) -> tuple[str, int, int | None]:
+        """Identity of the current yank target: pane, node, and port index."""
+        if self.active == "ports" and self.pane_ports:
+            return ("ports", id(self._current_node), self.port_index)
+        return ("tree", id(self._current_node), None)
+
+    def _clear_yank_on_move(self) -> None:
+        """Drop a yank marker as soon as the selection leaves its target."""
+        if not self._yank_flash:
+            return
+        if self._yank_flash_key == self._selection_key():
+            return
+        self._yank_flash = False
+        self._yank_flash_key = None
+        if self._yank_timer is not None:
+            self._yank_timer.stop()
+            self._yank_timer = None
+
     def _selection_status(self) -> RichText:
         """The top status line: yazi-style full path of the selection (246).
 
         Scope/instance rows show their hierarchical path (top.u_core.g[0].
         u_alu_g); a port/net leaf appends the item name (…u_alu_g.result).
-        Without a selection the design top stands in.
+        Without a selection the design top stands in. A recent yank appends a
+        short marker while the selection stays on the yanked target.
         """
         node = getattr(self, "_current_node", None)
         element = None
@@ -2805,6 +2835,8 @@ class TrenApp(App[None]):
             text.append(seg, style="bold #ffffff" if last and element is None else "#c9c9c9")
         if element is not None:
             text.append(f".{element}", style="bold #ffa62b")
+        if self._yank_flash and self._yank_flash_key == self._selection_key():
+            text.append(YANKED_MARK, style=YANKED_STYLE)
         return text
 
     def _write_osc(self, payload: str) -> None:
@@ -2822,8 +2854,30 @@ class TrenApp(App[None]):
         self.notify(f"yank format: {self.yank_format.name}")
         self.bell()
 
+    def _show_yanked(self) -> None:
+        """Mark the status line for a moment after a yank."""
+        self._yank_flash = True
+        self._yank_flash_key = self._selection_key()
+        self._status_widget.update(self._selection_status())
+        if self._yank_timer is not None:
+            self._yank_timer.stop()
+        self._yank_timer = self.set_timer(YANK_FLASH_SECONDS, self._clear_yanked)
+
+    def _clear_yanked(self) -> None:
+        self._yank_flash = False
+        self._yank_flash_key = None
+        self._yank_timer = None
+        self._status_widget.update(self._selection_status())
+
+    def _write_clipboard(self, payload: str) -> None:
+        """Write the payload through the configured clipboard provider."""
+        if self.clipboard_provider == "tmux":
+            write_tmux(payload)
+        else:
+            self._write_osc(payload)
+
     def action_yank(self) -> None:
-        """Yank the selection through the current format via OSC 52."""
+        """Yank the selection through the current format and provider."""
         if self.active == "ports" and self.pane_ports:
             port = self.pane_ports[self.port_index]
             scope = self._scope_data(self._current_node)
@@ -2832,9 +2886,15 @@ class TrenApp(App[None]):
         else:
             chain, element = self._selection_parts()
             payload = render_format(self.yank_format, chain, element)
+        try:
+            self._write_clipboard(payload)
+        except ClipboardError as exc:
+            self.notify(f"clipboard: {exc}", severity="error")
+            self.bell()
+            return
         self.yanked.append(payload)
-        self._write_osc(payload)
         self.bell()
+        self._show_yanked()
 
     def _open_editor(self, focus: tuple[str, int, int] | None) -> None:
         """Suspend-and-return $EDITOR jump (+line file), shared by e and E."""

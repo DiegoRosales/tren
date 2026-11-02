@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from .clipboard import PROVIDERS
 from .colors import NONE, THEME
 from .formats import BY_NAME
 
@@ -149,6 +150,13 @@ OPTIONS: tuple[Option, ...] = (
         "sv",
         "Initial yank path format: sv, vivado, yosys or vcd.",
     ),
+    Option(
+        "yank.provider",
+        "yank_provider",
+        "auto",
+        "Clipboard provider for y: auto, tmux or osc52. Auto uses tmux "
+        "inside a tmux session, otherwise OSC 52.",
+    ),
 )
 
 OPTIONS_BY_KEY: dict[str, Option] = {option.key: option for option in OPTIONS}
@@ -174,6 +182,7 @@ class Config:
     hierarchy_inout: str = THEME
     hierarchy_net: str = THEME
     yank_format: str = "sv"
+    yank_provider: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -306,6 +315,11 @@ def _validate(key: str, value: object, origin: Path) -> None:
         names = ", ".join(sorted(BY_NAME))
         raise ConfigError(
             f"{origin}: yank.format must be one of {names}, got {value!r}"
+        )
+    if key == "yank.provider" and value not in PROVIDERS:
+        names = ", ".join(PROVIDERS)
+        raise ConfigError(
+            f"{origin}: yank.provider must be one of {names}, got {value!r}"
         )
     if key == "tui.theme" and value not in _known_themes():
         names = ", ".join(_known_themes())

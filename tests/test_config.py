@@ -74,6 +74,7 @@ class DefaultTests(unittest.TestCase):
         ):
             self.assertEqual(getattr(Config(), field), "theme")
         self.assertEqual(Config().yank_format, "sv")
+        self.assertEqual(Config().yank_provider, "auto")
         self.assertEqual(Config().editor_command, "")
 
 
@@ -106,6 +107,15 @@ class PrecedenceTests(unittest.TestCase):
             loaded = load_config(_files(user=user, project=project))
             self.assertEqual(loaded.config.yank_format, "vcd")
             self.assertEqual(loaded.origin("yank.format"), str(project))
+
+    def test_yank_provider_is_read_from_a_layer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _write(
+                Path(tmp) / ".tren.toml", "[yank]\nprovider = 'tmux'\n"
+            )
+            loaded = load_config(_files(project=project))
+            self.assertEqual(loaded.config.yank_provider, "tmux")
+            self.assertEqual(loaded.origin("yank.provider"), str(project))
 
     def test_nested_hierarchy_table_is_read_by_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -227,6 +237,12 @@ class ErrorTests(unittest.TestCase):
             self._error("[yank]\nformat = 'quests'\n"),
         )
 
+    def test_bad_yank_provider_is_an_error(self) -> None:
+        self.assertIn(
+            "yank.provider must be one of",
+            self._error("[yank]\nprovider = 'xclip'\n"),
+        )
+
     def test_unknown_textual_theme_is_an_error(self) -> None:
         self.assertIn(
             "tui.theme must be a Textual theme name",
@@ -298,7 +314,7 @@ class ExportTests(unittest.TestCase):
                             "net": "theme",
                         },
                     },
-                    "yank": {"format": "vcd"},
+                    "yank": {"format": "vcd", "provider": "auto"},
                 },
             )
             exported = _write(root / "exported.toml", text)
@@ -321,6 +337,7 @@ class ShowTests(unittest.TestCase):
         self.assertIn("user", text)
         self.assertIn("project", text)
         self.assertIn("yank.format", text)
+        self.assertIn("yank.provider", text)
         self.assertIn("[default]", text)
         self.assertIn("(no file)", text)
 
@@ -423,7 +440,10 @@ class CliTests(unittest.TestCase):
             with redirect_stdout(out):
                 code = cli.main(["--debug-config"])
         self.assertEqual(code, 0)
-        self.assertEqual(tomllib.loads(out.getvalue())["yank"], {"format": "sv"})
+        self.assertEqual(
+            tomllib.loads(out.getvalue())["yank"],
+            {"format": "sv", "provider": "auto"},
+        )
 
     def test_debug_config_origins_prints_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -20,7 +20,7 @@ The two rules that shape everything here (AGENTS.md section 4):
 | 1. Unit tests | pure logic: parsers, IR model, yank formats, importer grammar, bit-key handling | `tests/*.py`, `make test` | yes |
 | 2. Elaboration acceptance | yosys + slang-hier + slang against the real pinned tools | `tests/test_elaborate.py` | yes (skips w/o tools) |
 | 3. Headless UI drives | the real TUI driven by textual Pilot | `test_drive.py`, `make drive` / `drive-real` | yes |
-| 4. Real-terminal round trip | OSC 52 bytes + `$EDITOR` invocation, and the rendered active-pane cue, on a real terminal | `tools/osc52_roundtrip.sh`, `make roundtrip`, `tools/pane_cue_capture.sh`, `make pane-cue` | no (needs tmux/pty) |
+| 4. Real-terminal round trip | OSC 52 bytes + `$EDITOR` invocation, and the rendered active-pane cue, yank marker and tmux provider, on a real terminal | `tools/osc52_roundtrip.sh`, `make roundtrip`, `tools/pane_cue_capture.sh`, `make pane-cue` | no (needs tmux/pty) |
 | 5. Scale / cache profile | lazy-load materialisation + elaboration cache | `tools/profile_1k_scopes.py`, `make profile` | no |
 | 6. Importers on real artefacts | manifests read real Vivado/HLS RTL workspaces | `make import` / `make hls-*` (manual) | no (reference workspaces live outside CI) |
 
@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 321 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 332 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -62,6 +62,9 @@ Pure Python plus `make -n` dry runs of the Makefile. 321 tests.
   command also reports the Python version and, in a source checkout, the
   short Git SHA as `dev-<sha>`. `--version-debug` adds interpreter, platform,
   package, dependency and configuration paths.
+- **Clipboard** (`tests/test_clipboard.py`): provider selection for `auto`,
+  `tmux` and `osc52`, the explicit-provider override, the missing-tmux
+  fallback, and the tmux writer's argv, stdin and error paths.
 - **Documentation** (`tests/test_docs.py`): the README links the three user
   guides, the guides do not name a package manager, the example directories
   exist, the text is ASCII, and each example imports and elaborates to the
@@ -163,7 +166,10 @@ nodes** - the two bugs it pins both hid on precisely those rows while
 
 It also asserts the top status line renders the selection's full
 path on row 0 of a real terminal - the drives assert the *value*, this asserts
-the terminal actually paints it.
+the terminal actually paints it. A `y` press must paint `[yanked]` there, and
+the marker must disappear after the flash window. The default `auto` provider
+must choose tmux inside the private tmux server, so the server's paste buffer
+must hold the yanked path.
 
 This layer is what caught the render-only bugs (tree root never expanded;
 tree auto-focus swallowing Enter; the stale/tinted pane cue above) that layers

@@ -35,7 +35,7 @@ SCREEN_KEYS: tuple[KeyDoc, ...] = (
     KeyDoc("enter", "show the selection in the centre RTL pane with context - tree, the highlighted module; I/O, the selected port's declaration"),
     KeyDoc("ctrl+u", "tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent"),
     KeyDoc("/", "open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump)"),
-    KeyDoc("y", "yank the selection through the current path format (raw OSC 52 -> the terminal's clipboard)"),
+    KeyDoc("y", "yank the selection through the current path format and clipboard provider"),
     KeyDoc("Y", "cycle the yank format: sv -> vivado -> yosys -> vcd"),
     KeyDoc("d L", "trace drivers / loads of the selected signal (opens the trace split; in the trace pane, switch direction)"),
     KeyDoc("X", "cut/restore the highlighted scope (treat it as a black box)"),
