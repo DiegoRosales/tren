@@ -21,6 +21,18 @@ connectivity, `slang-hier` / `slang --ast-json` for the scope tree and
 resolved parameters. Rust + ratatui is the earmarked rewrite target,
 revisited when a real 100k-instance IR shows the ceiling matters.
 
+## Documentation
+
+- [Quick start](docs/quick_start.md) - open the example designs and learn
+  the screen.
+- [Command reference](docs/command_reference.md) - every command, option,
+  exit state, and manifest field.
+- [Advanced usage](docs/advanced_usage.md) - the cache, filelists, sources
+  in several directories, hand-written manifests, and the Vivado and HLS
+  imports.
+- [User guide](#user-guide) below - the screen, keys, search, tracing, and
+  black boxes.
+
 ## Quick start with Nix
 
 Run TREN directly from a checkout:
@@ -737,8 +749,9 @@ tests/               unit tests, the Pilot workdir, and the executable
                      IR) and hls_examples/ (Vitis HLS flows and their
                      committed rtl_output/ exports)
 manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
-docs/                verification.md, release.md + notes/ mirrors;
-                     tech-concepts.md and sw-bom.md
+docs/                verification.md, release.md, quick_start.md,
+                     command_reference.md, advanced_usage.md, examples/
+                     + notes/ mirrors; tech-concepts.md and sw-bom.md
 tools/               osc52_roundtrip.sh, pane_cue_capture.sh, profile_1k_scopes.py,
                      bom.py (SW BOM generator)
 pyproject.toml       PEP 621 metadata + deps - read by both nix and pip

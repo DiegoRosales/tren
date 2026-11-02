@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 282 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 321 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -62,9 +62,14 @@ Pure Python plus `make -n` dry runs of the Makefile. 282 tests.
   command also reports the Python version and, in a source checkout, the
   short Git SHA as `dev-<sha>`. `--version-debug` adds interpreter, platform,
   package, dependency and configuration paths.
+- **Documentation** (`tests/test_docs.py`): the README links the three user
+  guides, the guides do not name a package manager, the example directories
+  exist, the text is ASCII, and each example imports and elaborates to the
+  expected top and instance. The link and text checks are pure; the
+  elaboration checks skip without the backends, like layer 2.
 
-All are skipped-free by design (pure), so they are the project's fastest
-regression net - ~0.3s for the whole suite.
+The pure tests are skipped-free by design, so they are the project's fastest
+regression net - about 1s for the whole suite in the dev shell.
 
 ### Layer 2 - elaboration acceptance (`tests/test_elaborate.py`)
 
