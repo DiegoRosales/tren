@@ -180,9 +180,27 @@ the command and names the file and the key.
 | `editor.command` | empty | Editor command for `e` and `E`. `TREN_EDITOR` wins; otherwise this value, then `EDITOR`, then `VISUAL`. System and user layers only; a project file may set it empty. |
 | `tui.theme` | `textual-dark` | Textual theme name for the TUI chrome. |
 | `tui.line_numbers` | `true` | Show the line-number gutter at startup. `n` still toggles it. |
+| `tui.hierarchy.enabled` | `true` | Colour hierarchy rows by kind. `false` gives a monochrome tree. |
+| `tui.hierarchy.scope` | `theme` | Module-instance rows. |
+| `tui.hierarchy.module` | `theme` | Module definitions and generate blocks. |
+| `tui.hierarchy.blackbox` | `theme` | Black boxes and user cuts. |
+| `tui.hierarchy.port` | `theme` | Input and output port leaves. The theme role follows the direction. |
+| `tui.hierarchy.inout` | `theme` | Inout port leaves. |
+| `tui.hierarchy.net` | `theme` | Net leaves. |
 | `yank.format` | `sv` | Initial format for `y` and `Y`: `sv`, `vivado`, `yosys` or `vcd`. |
 
-A project file that changes only the yank format and the line numbers:
+Each `tui.hierarchy` colour key is `theme` (the default), `none` (leave
+that kind uncoloured), or a Textual colour name or hex value. `theme`
+takes the role from the active Textual theme: `text-primary` for instances,
+`foreground-lighten-1` for module definitions, `text-warning` for black
+boxes, `text-secondary` for input ports, `text-error` for inout ports,
+`text-success` for output ports and `foreground-darken-2` for nets. A theme
+colour is lightened when needed to stay legible on the pane surfaces; an
+explicit colour is used as written. While hierarchy colouring is enabled,
+the I/O pane uses the same port colours.
+
+A project file that changes the yank format, the line numbers and the
+hierarchy colours:
 
 ```toml
 [yank]
@@ -190,6 +208,11 @@ format = "yosys"
 
 [tui]
 line_numbers = false
+
+[tui.hierarchy]
+net = "none"
+port = "#a6c9ff"
+inout = "#d17e92"
 ```
 
 `tren config` shows every effective value and the file that set it. `tren
@@ -269,6 +292,14 @@ count.
 Otherwise the range is the one the source declares: `[7:1]` and `[0:7]` read
 as they are written, and a parametrised bound shows the value this instance
 resolves.
+
+The tree paints one colour per row kind: module instances, module definitions
+and generate blocks, black boxes and user cuts, input ports, inout ports,
+output ports and nets. By default every colour follows the active
+`tui.theme`. The `!` marker, the cut marker, the direction word and the type
+text stay, so colour is never the only cue. Set
+`tui.hierarchy.enabled = false` for a monochrome tree, or override one kind
+with a colour name or hex value. The settings table above lists the keys.
 
 ### The I/O pane
 

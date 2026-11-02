@@ -63,6 +63,16 @@ class DefaultTests(unittest.TestCase):
         self.assertEqual(Config().cache_dir, ".cache/tren")
         self.assertEqual(Config().theme, "textual-dark")
         self.assertTrue(Config().line_numbers)
+        self.assertTrue(Config().hierarchy_enabled)
+        for field in (
+            "hierarchy_scope",
+            "hierarchy_module",
+            "hierarchy_blackbox",
+            "hierarchy_port",
+            "hierarchy_inout",
+            "hierarchy_net",
+        ):
+            self.assertEqual(getattr(Config(), field), "theme")
         self.assertEqual(Config().yank_format, "sv")
         self.assertEqual(Config().editor_command, "")
 
@@ -96,6 +106,23 @@ class PrecedenceTests(unittest.TestCase):
             loaded = load_config(_files(user=user, project=project))
             self.assertEqual(loaded.config.yank_format, "vcd")
             self.assertEqual(loaded.origin("yank.format"), str(project))
+
+    def test_nested_hierarchy_table_is_read_by_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _write(
+                Path(tmp) / ".tren.toml",
+                "[tui.hierarchy]\n"
+                "enabled = false\n"
+                "scope = '#a6c9ff'\n"
+                "port = 'none'\n"
+                "inout = '#d17e92'\n",
+            )
+            loaded = load_config(_files(project=project))
+            self.assertFalse(loaded.config.hierarchy_enabled)
+            self.assertEqual(loaded.config.hierarchy_scope, "#a6c9ff")
+            self.assertEqual(loaded.config.hierarchy_port, "none")
+            self.assertEqual(loaded.config.hierarchy_inout, "#d17e92")
+            self.assertEqual(loaded.config.hierarchy_net, "theme")
 
     def test_loaded_files_are_the_layers_in_order(self) -> None:
         files = _files(Path("s"), Path("u"), Path("p"))
@@ -206,6 +233,12 @@ class ErrorTests(unittest.TestCase):
             self._error("[tui]\ntheme = 'neon'\n"),
         )
 
+    def test_bad_hierarchy_colour_is_an_error(self) -> None:
+        self.assertIn(
+            "must be 'theme', 'none', or a Textual colour",
+            self._error("[tui.hierarchy]\nscope = 'not-a-colour'\n"),
+        )
+
     def test_invalid_toml_is_an_error(self) -> None:
         self.assertIn("invalid TOML", self._error("[cache\n"))
 
@@ -252,7 +285,19 @@ class ExportTests(unittest.TestCase):
                 {
                     "cache": {"dir": "/tmp/cache"},
                     "editor": {"command": "nvim"},
-                    "tui": {"theme": "nord", "line_numbers": False},
+                    "tui": {
+                        "theme": "nord",
+                        "line_numbers": False,
+                        "hierarchy": {
+                            "enabled": True,
+                            "scope": "theme",
+                            "module": "theme",
+                            "blackbox": "theme",
+                            "port": "theme",
+                            "inout": "theme",
+                            "net": "theme",
+                        },
+                    },
                     "yank": {"format": "vcd"},
                 },
             )

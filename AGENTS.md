@@ -209,6 +209,11 @@ to commit messages.
   driver. `App.console` is a rich Console bound to `_NullFile()` - never use
   it as an output sink. (Correction: the tui_textual finding "textual has no
   clipboard API" predates this method.)
+- textual 8.2 theme `text-primary`, `text-secondary` and the other `text-*`
+  roles are generated for the theme's own surface. TREN paints its panes on
+  fixed dark surfaces even under a light theme, so `tren/colors.py` lightens
+  a theme role until it clears 4.5:1 on `PANE_BG_ACTIVE` and `PANE_BG_IDLE`.
+  Never use a `text-*` role directly in a Rich style here.
 - textual 8.2 normalizes `?` to the key name `question_mark` (the `Binding`
   still reads `"?"`). A modal screen cannot beat an App `priority=True`
   binding: `App.on_event` runs `_check_bindings` app-first, so the `?`

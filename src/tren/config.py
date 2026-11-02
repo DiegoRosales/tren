@@ -34,11 +34,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from .colors import NONE, THEME
 from .formats import BY_NAME
 
 PROJECT_FILE = ".tren.toml"
 SYSTEM_PATH = Path("/etc/tren/config.toml")
 DEFAULT_ORIGIN = "default"
+
+HIERARCHY_COLOR_KEYS = frozenset(
+    {
+        "tui.hierarchy.scope",
+        "tui.hierarchy.module",
+        "tui.hierarchy.blackbox",
+        "tui.hierarchy.port",
+        "tui.hierarchy.inout",
+        "tui.hierarchy.net",
+    }
+)
 
 # Environment overrides for the three layer paths. Tests and unusual installs
 # need them; normal discovery never reads them.
@@ -86,6 +98,52 @@ OPTIONS: tuple[Option, ...] = (
         "Show the line-number gutter in the source pane at startup.",
     ),
     Option(
+        "tui.hierarchy.enabled",
+        "hierarchy_enabled",
+        True,
+        "Colour hierarchy rows by kind. False gives a monochrome tree.",
+    ),
+    Option(
+        "tui.hierarchy.scope",
+        "hierarchy_scope",
+        THEME,
+        "Colour for module instances: theme, none, or a colour name or hex.",
+    ),
+    Option(
+        "tui.hierarchy.module",
+        "hierarchy_module",
+        THEME,
+        "Colour for module definitions and generate blocks: theme, none, "
+        "or a colour name or hex.",
+    ),
+    Option(
+        "tui.hierarchy.blackbox",
+        "hierarchy_blackbox",
+        THEME,
+        "Colour for black boxes and user cuts: theme, none, or a colour "
+        "name or hex.",
+    ),
+    Option(
+        "tui.hierarchy.port",
+        "hierarchy_port",
+        THEME,
+        "Colour for input and output port leaves: theme, none, or a colour "
+        "name or hex. The theme role follows the port direction.",
+    ),
+    Option(
+        "tui.hierarchy.inout",
+        "hierarchy_inout",
+        THEME,
+        "Colour for inout port leaves: theme, none, or a colour name or "
+        "hex.",
+    ),
+    Option(
+        "tui.hierarchy.net",
+        "hierarchy_net",
+        THEME,
+        "Colour for net leaves: theme, none, or a colour name or hex.",
+    ),
+    Option(
         "yank.format",
         "yank_format",
         "sv",
@@ -108,6 +166,13 @@ class Config:
     editor_command: str = ""
     theme: str = "textual-dark"
     line_numbers: bool = True
+    hierarchy_enabled: bool = True
+    hierarchy_scope: str = THEME
+    hierarchy_module: str = THEME
+    hierarchy_blackbox: str = THEME
+    hierarchy_port: str = THEME
+    hierarchy_inout: str = THEME
+    hierarchy_net: str = THEME
     yank_format: str = "sv"
 
 
@@ -218,6 +283,16 @@ def _known_themes() -> tuple[str, ...]:
     return tuple(sorted(BUILTIN_THEMES))
 
 
+def _valid_color(value: str) -> bool:
+    from textual.color import Color, ColorParseError
+
+    try:
+        Color.parse(value)
+    except ColorParseError:
+        return False
+    return True
+
+
 def _validate(key: str, value: object, origin: Path) -> None:
     option = OPTIONS_BY_KEY[key]
     if type(value) is not type(option.default):
@@ -238,6 +313,15 @@ def _validate(key: str, value: object, origin: Path) -> None:
             f"{origin}: tui.theme must be a Textual theme name "
             f"({names}), got {value!r}"
         )
+    if (
+        key in HIERARCHY_COLOR_KEYS
+        and value not in (THEME, NONE)
+        and not _valid_color(str(value))
+    ):
+        raise ConfigError(
+            f"{origin}: {key} must be 'theme', 'none', or a Textual "
+            f"colour, got {value!r}"
+        )
 
 
 def _read_layer(path: Path) -> dict[str, object]:
@@ -251,13 +335,13 @@ def _read_layer(path: Path) -> dict[str, object]:
         raise ConfigError(f"{path}: invalid TOML: {exc}") from exc
 
     values: dict[str, object] = {}
-    for section, body in data.items():
-        if not isinstance(body, dict):
-            raise ConfigError(
-                f"{path}: {section!r} must be a table, not a top-level value"
-            )
+
+    def read_table(prefix: str, body: Mapping[str, object]) -> None:
         for name, value in body.items():
-            key = f"{section}.{name}"
+            key = f"{prefix}.{name}" if prefix else name
+            if isinstance(value, dict):
+                read_table(key, value)
+                continue
             if key not in OPTIONS_BY_KEY:
                 known = ", ".join(OPTIONS_BY_KEY)
                 raise ConfigError(
@@ -265,6 +349,13 @@ def _read_layer(path: Path) -> dict[str, object]:
                 )
             _validate(key, value, path)
             values[key] = value
+
+    for section, body in data.items():
+        if not isinstance(body, dict):
+            raise ConfigError(
+                f"{path}: {section!r} must be a table, not a top-level value"
+            )
+        read_table(section, body)
     return values
 
 
@@ -320,9 +411,9 @@ def render_export(loaded: LoadedConfig) -> str:
     ]
     section: str | None = None
     for option in OPTIONS:
-        name = option.key.split(".", 1)[1]
-        if option.key.split(".", 1)[0] != section:
-            section = option.key.split(".", 1)[0]
+        section_name, _, name = option.key.rpartition(".")
+        if section_name != section:
+            section = section_name
             lines.extend(["", f"[{section}]"])
         lines.extend(
             [
@@ -375,7 +466,7 @@ def render_show(loaded: LoadedConfig) -> str:
     for option in OPTIONS:
         value = _toml_value(loaded.values[option.key])
         origin = loaded.origins[option.key]
-        lines.append(f"  {option.key:<18} = {value:<20} [{origin}]")
+        lines.append(f"  {option.key:<24} = {value:<20} [{origin}]")
     return "\n".join(lines) + "\n"
 
 

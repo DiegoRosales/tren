@@ -54,6 +54,7 @@ from textual.widgets import (
 )
 
 from .cache import IrCache
+from .colors import port_kind, resolve_row_colors, row_style, trace_kind
 from .config import Config, ConfigError, load_config
 from .elaborate import elaborate
 from .formats import BY_NAME, PathFormat, render as render_format
@@ -726,6 +727,8 @@ class TrenApp(App[None]):
         settings = Config() if settings is None else settings
         self.design = design
         self.root = Path.cwd() if root is None else Path(root)
+        self._settings = settings
+        self._row_colors: dict[str, str] = {}
         self.yanked: list[str] = []
         self.yank_format: PathFormat = BY_NAME[settings.yank_format]
         self.osc_events: list[str] = []
@@ -790,6 +793,17 @@ class TrenApp(App[None]):
 
     def on_mount(self) -> None:
         self._tree_widget = self.query_one("#tree")
+        if self._settings.hierarchy_enabled:
+            self._row_colors = resolve_row_colors(
+                self.current_theme.to_color_system().generate(),
+                scope=self._settings.hierarchy_scope,
+                module=self._settings.hierarchy_module,
+                blackbox=self._settings.hierarchy_blackbox,
+                port=self._settings.hierarchy_port,
+                inout=self._settings.hierarchy_inout,
+                net=self._settings.hierarchy_net,
+                backgrounds=(PANE_BG_ACTIVE, PANE_BG_IDLE),
+            )
         # The tree is not focusable: textual auto-focuses the first focusable
         # widget on mount, which would shadow the app-level (non-priority)
         # Enter binding with the Tree's own. TREN drives all tree input via
@@ -842,7 +856,7 @@ class TrenApp(App[None]):
         if top is not None:
             # the top module IS the tree root: no bare "design" line above it
             label = f"{top.name}/"
-            root_node.label = label
+            root_node.label = self._styled_label(label, "module", bold=True)
             root_node.data = {"kind": "scope", "scope": top, "label": label}
             root_node.expand()
             # no expand event fires for the root, and the _visible() walk only
@@ -855,11 +869,13 @@ class TrenApp(App[None]):
             others = [s for s in roots if s is not top]
             if others:
                 group = root_node.add(
-                    "other roots/", data=None, allow_expand=True
+                    self._styled_label("other roots/", "module"),
+                    data=None,
+                    allow_expand=True,
                 )
                 group.expand()
                 for scope in others:
-                    self._add_scope_node(group, scope)
+                    self._add_scope_node(group, scope, kind="module")
             # the cursor starts on the top-module row, so the source pane
             # opens on the design top instead of an empty pane. Without a
             # selection the first j "selects" row 0 - a move the eye cannot
@@ -868,7 +884,7 @@ class TrenApp(App[None]):
         else:
             # no scope for the declared top: the neutral "design" line stays
             for scope in roots:
-                self._add_scope_node(root_node, scope)
+                self._add_scope_node(root_node, scope, kind="module")
             root_node.expand()
         self._render_panes()
 
@@ -877,12 +893,67 @@ class TrenApp(App[None]):
         # until _ensure_children runs (on select/expand/visible-walk). Only the
         # handful of roots exist at mount — the graph is never materialized.
 
+    def _styled_label(
+        self, text: str, kind: str, *, bold: bool = False
+    ) -> RichText:
+        """A tree label painted for one row kind."""
+        label = RichText(text)
+        style = row_style(kind, self._row_colors, bold=bold)
+        if style:
+            label.stylize(style)
+        return label
+
+    def _node_kind(self, node: Tree.Node) -> str:
+        """The row kind a tree node paints as.
+
+        A child scope is an instance. The top module, another root module
+        and a generate block are module definitions. A black box or a user
+        cut keeps its marker and takes the warning kind.
+        """
+        data = node.data or {}
+        kind = data.get("kind")
+        if kind in ("scope", "instance"):
+            inst = data.get("instance")
+            if inst is not None and inst.blackbox:
+                return "blackbox"
+            scope = self._scope_data(node)
+            if scope is not None and (
+                scope.blackbox or scope.name in self._user_cut
+            ):
+                return "blackbox"
+            if kind == "instance":
+                return "scope"
+            if scope is not None and scope.module is None:
+                return "module"
+            parent = node.parent
+            if (
+                parent is None
+                or node is self._tree().root
+                or parent.data is None
+            ):
+                return "module"
+            return "scope"
+        if kind == "port":
+            port = data.get("port")
+            return port_kind(port.direction) if port is not None else "port_in"
+        return "net"
+
     def _add_scope_node(
-        self, parent: Tree.Node, scope: Scope, label: str | None = None
+        self,
+        parent: Tree.Node,
+        scope: Scope,
+        label: str | None = None,
+        *,
+        kind: str | None = None,
     ) -> Tree.Node:
         base_label = label or f"{scope.name}/"
+        row_kind = kind
+        if scope.blackbox:
+            row_kind = "blackbox"
+        elif row_kind is None:
+            row_kind = "module" if scope.module is None else "scope"
         return parent.add(
-            base_label,
+            self._styled_label(base_label, row_kind, bold=True),
             data={"kind": "scope", "scope": scope, "label": base_label},
             allow_expand=True,
         )
@@ -903,15 +974,27 @@ class TrenApp(App[None]):
                 if child is not None:
                     # the instance is a real sub-scope (elaborated IR): nest it
                     marker = "!" if inst.blackbox else ""
-                    self._add_scope_node(node, child, f"{inst.name}/{marker}")
+                    self._add_scope_node(
+                        node,
+                        child,
+                        f"{inst.name}/{marker}",
+                        kind="blackbox" if inst.blackbox else None,
+                    )
                 else:
                     # fixture shape: the instance's module scope supplies ports
+                    inst_scope = (
+                        self._scopes.get(inst.module) if inst.module else None
+                    )
+                    row_kind = "blackbox" if inst.blackbox else "scope"
+                    if inst_scope is not None and inst_scope.blackbox:
+                        row_kind = "blackbox"
                     inst_node = node.add(
-                        f"{inst.name}/",
+                        self._styled_label(
+                            f"{inst.name}/", row_kind, bold=True
+                        ),
                         data={"kind": "instance", "instance": inst},
                         allow_expand=True,
                     )
-                    inst_scope = self._scopes.get(inst.module) if inst.module else None
                     if inst_scope is not None:
                         self._add_ports_nets(inst_node, inst_scope)
             self._add_ports_nets(node, scope)
@@ -937,7 +1020,7 @@ class TrenApp(App[None]):
         nets = {net.name: net for net in scope.nets}
         for port in scope.ports:
             node.add_leaf(
-                port_leaf_label(port),
+                self._styled_label(port_leaf_label(port), port_kind(port.direction)),
                 data={"kind": "port", "port": port, "net": nets.get(port.name)},
             )
 
@@ -948,7 +1031,7 @@ class TrenApp(App[None]):
             if net.name in port_names:
                 continue
             node.add_leaf(
-                net_leaf_label(net),
+                self._styled_label(net_leaf_label(net), "net"),
                 data={"kind": "net", "net": net},
             )
 
@@ -1199,7 +1282,7 @@ class TrenApp(App[None]):
             sel = "▸ " if selected else "  "
             indent = "  " * line["depth"]
             if line["empty"]:
-                style = "bold #ffa62b" if selected else "dim italic"
+                style = "bold dim italic" if selected else "dim italic"
                 trace.append(f"{sel}{indent}{line['label']}\n", style=style)
                 continue
             if line["expanded"]:
@@ -1208,11 +1291,27 @@ class TrenApp(App[None]):
                 branch = "+ "
             else:
                 branch = "  "
-            style = "bold #ffa62b" if selected else "#a6c9ff"
+            style = row_style(
+                trace_kind(line.get("row")),
+                self._row_colors,
+                bold=selected,
+            )
             trace.append(f"{sel}{indent}{branch}{line['label']}\n", style=style)
         if hi < len(lines):
             trace.append(f"…… (↓ {len(lines) - hi} more rows)\n", style="dim italic")
         return trace
+
+    def _port_color(self, direction: str) -> str:
+        """I/O pane colour of a port, matching its hierarchy row.
+
+        A disabled or unset hierarchy palette keeps the pane's own colours;
+        an explicit ``none`` for ports leaves both panes uncoloured.
+        """
+        fallback = {
+            "out": "#7adf77",
+            "inout": "#d17e92",
+        }.get(direction, "#a6c9ff")
+        return self._row_colors.get(port_kind(direction), fallback)
 
     def _render_panes(self) -> None:
         scope = self._scope_data(self._current_node)
@@ -1268,7 +1367,7 @@ class TrenApp(App[None]):
                 ports.append("\n", style="")
             for n, p in enumerate(self.pane_ports):
                 direction = p.direction
-                base = "#7adf77" if direction == "out" else "#a6c9ff"
+                base = self._port_color(direction)
                 sel = "▸ " if n == self.port_index else "  "
                 color = f"bold {base}" if n == self.port_index else base
                 ports.append(f"{sel}{p.name}", style=color)
@@ -2318,7 +2417,10 @@ class TrenApp(App[None]):
         node = self._find_scope_node(scope.name)
         if node is not None:
             base = node.data["label"] if node.data is not None else f"{scope.name}/"
-            node.label = base + ("✂" if scope.name in self._user_cut else "")
+            label = base + ("✂" if scope.name in self._user_cut else "")
+            node.label = self._styled_label(
+                label, self._node_kind(node), bold=True
+            )
         self._invalidate_trace_rows()
         self._render_panes()
 

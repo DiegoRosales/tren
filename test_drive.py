@@ -103,6 +103,11 @@ async def drive_fixture() -> None:
         ], [c.label.plain for c in group[0].children]
         assert group[0] not in app._visible(), "the group row is not selectable"
 
+        # every row kind the theme palette knows is on screen at mount: the
+        # top module, an instance scope, both port directions and a net
+        kinds = {app._node_kind(n) for n in app._visible()}
+        assert {"module", "scope", "port_in", "port_out", "net"} <= kinds, kinds
+
         # the design top lists its child scopes first, then its ports
         await pilot.press("j")  # -> u_core instance under top
         assert "u_core" in app._current_node.label.plain, f"cursor: {app._current_node}"
@@ -117,6 +122,14 @@ async def drive_fixture() -> None:
         ports_text = str(ports.content)
         for expected in ("a", "alu_result"):
             assert expected in ports_text, f"ports pane missing {expected}: {ports_text!r}"
+
+        # a user cut takes the warning kind and keeps its marker; a second
+        # cut returns the row to the instance kind
+        await pilot.press("X")
+        assert app._node_kind(app._current_node) == "blackbox"
+        assert "USER CUT" in str(ports.content)
+        await pilot.press("X")
+        assert app._node_kind(app._current_node) == "scope"
 
         # l/h: expand then collapse u_core (u_core is not expanded yet)
         assert not app._current_node.is_expanded, "u_core should start collapsed"
@@ -590,6 +603,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app._focus[0] == "tests/rtl/demo.sv", f"focus file: {app._focus}"
         assert "module top" in str(source.content), "top module not shown from real file"
         assert status_path(app) == "top", f"status: {status_path(app)!r}"
+        assert app._node_kind(app._current_node) == "module", "the top is a module row"
 
         # the top module is the tree root and starts expanded (its children
         # show at mount); child scopes come first, then ports, then nets
@@ -737,6 +751,7 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # generate scopes carry a slang src too — same spelling, same trap
         generate = app._find_scope_node("top.u_core.g[0]")
         assert generate is not None, "no generate scope node"
+        assert app._node_kind(generate) == "module", "a generate block is a module row"
         app._expand_to(generate)
         app._select(app._visible().index(generate))
         assert app._focus == ("tests/rtl/demo.sv", 58, 58), f"g[0] focus: {app._focus}"
@@ -1086,6 +1101,8 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         # ---- black boxes + user cuts ----------------------------
         # sram_stub renders as an opaque scope: marker + its ports
         app._select_path("top.u_core.u_sram")
+        sram = app._find_scope_node("top.u_core.u_sram")
+        assert app._node_kind(sram) == "blackbox", app._node_kind(sram)
         ports_text = str(ports.content)
         assert "BLACK BOX" in ports_text, f"no black box marker: {ports_text!r}"
         assert "rdata" in ports_text, "black box ports missing"
@@ -1125,8 +1142,10 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         await pilot.press("X")
         assert "top.u_core" in app._user_cut, "X should cut core"
         assert "USER CUT" in str(ports.content), "cut marker missing"
+        assert app._node_kind(app._current_node) == "blackbox", "cut takes the warning kind"
         await pilot.press("X")
         assert "top.u_core" not in app._user_cut, "X should un-cut core"
+        assert app._node_kind(app._current_node) == "scope", "un-cut returns to the scope kind"
 
         # trace stops at a black box with a reason: loads of core.x -/>
         # u_sram.addr is a box, enter must not descend
@@ -1323,6 +1342,9 @@ async def drive_config() -> None:
         yank_format="yosys",
         editor_command="vi",
         theme="nord",
+        hierarchy_scope="#123456",
+        hierarchy_inout="#d17e92",
+        hierarchy_net="none",
     )
     app = TrenApp(load_design(), root=Path.cwd(), settings=settings)
     async with app.run_test(size=(110, 32)) as pilot:
@@ -1330,6 +1352,9 @@ async def drive_config() -> None:
         assert app.yank_format.name == "yosys", app.yank_format.name
         assert app.editor_command == "vi", app.editor_command
         assert app.theme == "nord", app.theme
+        assert app._row_colors["scope"] == "#123456", app._row_colors
+        assert app._row_colors["port_inout"] == "#d17e92", app._row_colors
+        assert app._row_colors["net"] == "", "net must be uncoloured"
 
         source: Static = app.query_one("#source")
         assert not _numbered_rows(str(source.content), 1, "module top ("), (
@@ -1340,6 +1365,14 @@ async def drive_config() -> None:
 
         await pilot.press("y")
         assert app.yanked == ["top"], app.yanked
+
+    plain = TrenApp(
+        load_design(),
+        root=Path.cwd(),
+        settings=Config(hierarchy_enabled=False),
+    )
+    async with plain.run_test(size=(110, 32)):
+        assert plain._row_colors == {}, "the monochrome fallback paints no colour"
 
 
 async def main(argv: list[str] | None = None) -> None:
