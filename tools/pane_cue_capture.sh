@@ -23,9 +23,10 @@
 #
 # Assertion: pressing 1/2/3 paints exactly one pane at PANE_BG_ACTIVE and the
 # other two at PANE_BG_IDLE, on every row - including rows carrying tree nodes.
-# The status line also renders the selection path; a yank adds and clears the
-# `[yanked]` marker on a real terminal. The default `auto` provider must choose
-# tmux here, so the private server's paste buffer must hold the yanked path.
+# The status line also renders the selection path and repaints it in each Y
+# format; a yank adds and clears the `[yanked]` marker on a real terminal. The
+# default `auto` provider must choose tmux here, so the private server's paste
+# buffer must hold the yanked path.
 #
 # Run:  nix develop . -c bash tools/pane_cue_capture.sh
 set -euo pipefail
@@ -64,6 +65,13 @@ tmux -S "$SOCK" capture-pane -p -t "$SESS" | head -n 1 >"$TMP/yank-on.txt"
 tmux -S "$SOCK" show-buffer >"$TMP/tmux-buffer.txt"
 sleep 1.7
 tmux -S "$SOCK" capture-pane -p -t "$SESS" | head -n 1 >"$TMP/yank-off.txt"
+
+# The status path must repaint when Y cycles formats: default sv, then vivado
+# (top dropped, slash), yosys (slash, top kept), vcd (dot), and back to sv.
+for fmt in vivado yosys vcd sv; do
+  tmux -S "$SOCK" send-keys -l -t "$SESS" Y; sleep 0.2
+  tmux -S "$SOCK" capture-pane -p -t "$SESS" | head -n 1 >"$TMP/format-$fmt.txt"
+done
 
 python3 - "$TMP" "$REPO" <<'EOF'
 import pathlib
@@ -153,6 +161,18 @@ if tmux_buffer != "top.u_core.u_alu0":
 else:
     print(f"  tmux provider buffer: {tmux_buffer!r}")
 
+for name, expected in (
+    ("vivado", "u_core/u_alu0"),
+    ("yosys", "top/u_core/u_alu0"),
+    ("vcd", "top.u_core.u_alu0"),
+    ("sv", "top.u_core.u_alu0"),
+):
+    text = (tmp / f"format-{name}.txt").read_text().strip()
+    if text != expected:
+        failures.append(f"status after Y -> {name}: {text!r} != {expected!r}")
+    else:
+        print(f"  status after Y -> {name}: {text!r}")
+
 if failures:
     print("\nFAIL: the active-pane cue is not symmetric on a real terminal")
     for failure in failures:
@@ -160,7 +180,7 @@ if failures:
     sys.exit(1)
 print(
     f"\nPASS: exactly one pane at {PANE_BG_ACTIVE}, the rest idle, on every "
-    "sampled row; the status line yank marker renders and clears; auto used "
-    "the tmux provider"
+    "sampled row; the status path follows each yank format and the yank "
+    "marker renders and clears; auto used the tmux provider"
 )
 EOF

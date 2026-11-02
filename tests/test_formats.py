@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tren.formats import BY_NAME, DEFAULT, PathFormat, render
+from tren.formats import BY_NAME, DEFAULT, PathFormat, render, render_parts
 
 
 DEMO = ["top", "u_core", "g[0]", "u_alu_g"]
@@ -100,6 +100,23 @@ class PresetTests(unittest.TestCase):
     def test_shell_escape_wraps_single_quotes(self) -> None:
         fmt = PathFormat(name="x", escape="shell")
         self.assertEqual(render(fmt, ["a b"], "c"), "'a b.c'")
+
+
+class RenderPartsTests(unittest.TestCase):
+    def test_vivado_parts_drop_top_and_escape_each_segment(self) -> None:
+        self.assertEqual(
+            render_parts(BY_NAME["vivado"], DEMO, "result"),
+            ["u_core", r"g\[0\]", "u_alu_g", "result"],
+        )
+
+    def test_yosys_parts_keep_the_top(self) -> None:
+        self.assertEqual(
+            render_parts(BY_NAME["yosys"], DEMO, "result"),
+            ["top", "u_core", "g[0]", "u_alu_g", "result"],
+        )
+
+    def test_top_only_vivado_has_no_parts(self) -> None:
+        self.assertEqual(render_parts(BY_NAME["vivado"], ["top"]), [])
 
 
 if __name__ == "__main__":

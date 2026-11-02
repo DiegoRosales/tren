@@ -584,6 +584,11 @@ def status_path(app: TrenApp) -> str:
     return str(app.query_one("#status").content)
 
 
+def status_without_yank(app: TrenApp) -> str:
+    """Top status line text without a live yank marker."""
+    return status_path(app).replace("  [yanked]", "")
+
+
 async def drive_unreadable_src() -> None:
     """A leaf src naming a file that is not on disk.
 
@@ -1191,22 +1196,35 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         assert app.yanked[-1] == "top.u_core.x", app.yanked[-1]
         assert app.osc_events[-1] == "top.u_core.x", app.osc_events[-1]
 
-        # Y cycles the format registry (sv -> vivado); top excluded, Tcl-safe
+        # Y cycles the format registry (sv -> vivado); top excluded, Tcl-safe.
+        # The status path follows the format immediately, without a move.
         await pilot.press("Y")
         assert app.yank_format.name == "vivado", app.yank_format.name
+        assert status_without_yank(app) == "u_core/x", (
+            f"vivado status: {status_path(app)!r}"
+        )
         await pilot.press("y")
         assert app.yanked[-1] == "u_core/x", app.yanked[-1]
 
         # array segments re-render through the format (g[0] -> Tcl-escaped)
         app._select_path("top.u_core.g[0].u_alu_g", "result")
-        assert status_path(app) == "top.u_core.g[0].u_alu_g.result", f"deep net status: {status_path(app)!r}"
+        assert status_without_yank(app) == r"u_core/g\[0\]/u_alu_g/result", (
+            f"deep net status: {status_path(app)!r}"
+        )
         await pilot.press("y")
         assert app.yanked[-1] == r"u_core/g\[0\]/u_alu_g/result", app.yanked[-1]
 
-        # cycle back (vivado -> yosys -> vcd -> sv) and yank a port from the
-        # ports pane: chain + port name
-        for _ in range(3):
+        # cycle back (vivado -> yosys -> vcd -> sv): each format repaints
+        # the status path before the next selection move
+        for expected in (
+            "top/u_core/g[0]/u_alu_g/result",
+            "top.u_core.g[0].u_alu_g.result",
+            "top.u_core.g[0].u_alu_g.result",
+        ):
             await pilot.press("Y")
+            assert status_without_yank(app) == expected, (
+                f"{app.yank_format.name} status: {status_path(app)!r}"
+            )
         assert app.yank_format.name == "sv"
         await pilot.press("3")
         await pilot.press("y")

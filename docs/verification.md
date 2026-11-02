@@ -20,7 +20,7 @@ The two rules that shape everything here (AGENTS.md section 4):
 | 1. Unit tests | pure logic: parsers, IR model, yank formats, importer grammar, bit-key handling | `tests/*.py`, `make test` | yes |
 | 2. Elaboration acceptance | yosys + slang-hier + slang against the real pinned tools | `tests/test_elaborate.py` | yes (skips w/o tools) |
 | 3. Headless UI drives | the real TUI driven by textual Pilot | `test_drive.py`, `make drive` / `drive-real` | yes |
-| 4. Real-terminal round trip | OSC 52 bytes + `$EDITOR` invocation, and the rendered active-pane cue, yank marker and tmux provider, on a real terminal | `tools/osc52_roundtrip.sh`, `make roundtrip`, `tools/pane_cue_capture.sh`, `make pane-cue` | no (needs tmux/pty) |
+| 4. Real-terminal round trip | OSC 52 bytes + `$EDITOR` invocation, and the rendered active-pane cue, status path formats, yank marker and tmux provider, on a real terminal | `tools/osc52_roundtrip.sh`, `make roundtrip`, `tools/pane_cue_capture.sh`, `make pane-cue` | no (needs tmux/pty) |
 | 5. Scale / cache profile | lazy-load materialisation + elaboration cache | `tools/profile_1k_scopes.py`, `make profile` | no |
 | 6. Importers on real artefacts | manifests read real Vivado/HLS RTL workspaces | `make import` / `make hls-*` (manual) | no (reference workspaces live outside CI) |
 
@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 332 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 335 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -46,7 +46,8 @@ Pure Python plus `make -n` dry runs of the Makefile. 332 tests.
   directions (explicit map, child-module ports, an unresolved IP falling to
   `unknown` instead of a guessed direction).
 - **Yank formats** (`tests/test_formats.py`): every preset + a custom format
-  diverging in every dimension.
+  diverging in every dimension, and the per-segment display parts that the
+  status line uses.
 - **Importers** (`tests/test_importer.py` / `test_vivado.py`): filelist
   grammar, dir scans, Vivado `.xpr` FileSets/TopModule/`$PSRCDIR` vars, `.vh`
   include-file exclusion, format autodetection.
@@ -104,8 +105,9 @@ fixture (no tools) and real-IR mode. Two flavours:
 
 - `make drive` - `test_drive.py` (fixture): tree nav, pane routing, yank,
   l/h expand/collapse, ctrl+u, enter, `z` pane zoom, pageup/pagedown paging
-  per pane, and an app built with a `Config` that starts with its line-number,
-  yank, editor and theme settings; fast, no tools.
+  per pane, the status path following each `Y` format, and an app built with a
+  `Config` that starts with its line-number, yank, editor and theme settings;
+  fast, no tools.
 - `make drive-real` - `test_drive.py --manifest tests/rtl/demo.manifest.json`:
   the *real* elaboration, source-pane focus/auto-follow, trace tree expansion
   with positional matching down to `$xor` (a branch keeps its siblings), cell
@@ -165,11 +167,12 @@ nodes** - the two bugs it pins both hid on precisely those rows while
   highlighted even when idle.
 
 It also asserts the top status line renders the selection's full
-path on row 0 of a real terminal - the drives assert the *value*, this asserts
-the terminal actually paints it. A `y` press must paint `[yanked]` there, and
-the marker must disappear after the flash window. The default `auto` provider
-must choose tmux inside the private tmux server, so the server's paste buffer
-must hold the yanked path.
+path in the current yank format on row 0 of a real terminal - the drives
+assert the *value*, this asserts the terminal actually paints it. `Y` must
+repaint that row in the vivado, yosys and vcd forms. A `y` press must paint
+`[yanked]` there, and the marker must disappear after the flash window. The
+default `auto` provider must choose tmux inside the private tmux server, so
+the server's paste buffer must hold the yanked path.
 
 This layer is what caught the render-only bugs (tree root never expanded;
 tree auto-focus swallowing Enter; the stale/tinted pane cue above) that layers

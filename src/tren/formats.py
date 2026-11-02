@@ -91,19 +91,13 @@ BY_NAME = {p.name: p for p in PRESETS}
 DEFAULT = PRESETS[0]
 
 
-def render(
+def _parts(
     fmt: PathFormat,
     segments: list[str],
     element: str | None = None,
     bit: int | None = None,
-) -> str:
-    """Render a hierarchical path through ``fmt``.
-
-    ``segments`` are the scope chain, root first (array segments may already
-    carry brackets, e.g. ``g[0]`` — they are split and re-rendered through
-    ``array_notation``). ``element`` is the net/port name appended last;
-    ``bit`` adds a bit select to the element.
-    """
+) -> list[str]:
+    """Format each path segment, without separators or escaping."""
     parts: list[str] = []
     chain = list(segments)
     if not fmt.include_top and chain:
@@ -120,7 +114,38 @@ def render(
         tail = element + fmt.bit_select.format(i=bit)
     if tail is not None:
         parts.append(tail)
-    out = fmt.separator.join(parts)
+    return parts
+
+
+def render(
+    fmt: PathFormat,
+    segments: list[str],
+    element: str | None = None,
+    bit: int | None = None,
+) -> str:
+    """Render a hierarchical path through ``fmt``.
+
+    ``segments`` are the scope chain, root first (array segments may already
+    carry brackets, e.g. ``g[0]`` — they are split and re-rendered through
+    ``array_notation``). ``element`` is the net/port name appended last;
+    ``bit`` adds a bit select to the element.
+    """
+    out = fmt.separator.join(_parts(fmt, segments, element, bit))
     if fmt.leading_sep and out:
         out = fmt.separator + out
     return _ESCAPERS[fmt.escape](out)
+
+
+def render_parts(
+    fmt: PathFormat,
+    segments: list[str],
+    element: str | None = None,
+    bit: int | None = None,
+) -> list[str]:
+    """Format each path segment for a styled display such as the status line.
+
+    The result has the same top and array rules as ``render``, split at the
+    separators, with the format's escape applied to each part. ``leading_sep``
+    is omitted: it belongs to the pasted path, not to the path bar.
+    """
+    return [_ESCAPERS[fmt.escape](part) for part in _parts(fmt, segments, element, bit)]

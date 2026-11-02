@@ -63,9 +63,9 @@ behaviour of the backends lives in `docs/verification.md` and the sibling
 | Focus band and auto-follow | The source pane keeps the focused range visible and re-centres only on a new focus. | `tui` | `tui.py:_follow`, `_render_source` |
 | Trace split | `d`/`L` open a pane below the source with the drivers/loads as a tree. `enter` expands a row (a boundary into the child net, a cell into its pins), `backspace` collapses one level, `d`/`L` switch direction. | `tui` | `tui.py:_open_trace`, `TraceNode`, `_trace_expand`, `_walk_trace` |
 | Black boxes and user cuts | Body-less modules render opaque with their ports; `X` cuts/restores any scope at runtime. | `tui` | `tui.py:action_toggle_cut`, `_trace_rows` |
-| Status line | A yazi-style path bar shows the selection's full hierarchical path. | `tui` | `tui.py:_selection_status` |
+| Status line | A yazi-style path bar shows the selection's full hierarchical path in the current yank format. | `tui`, `formats` | `tui.py:_selection_status`, `formats.py:render_parts` |
 | Pane cue and zoom | The active pane is lifted out of the background; `z` gives it the full width. | `tui` | `tui.py:_render_pane_cue`, `action_toggle_zoom` |
-| Declarative yank formats | Path formats are data, not code; one renderer applies separator, top, array and escape settings. | `formats` | `src/tren/formats.py`, `tui.py:action_yank` |
+| Declarative yank formats | Path formats are data, not code; one renderer applies separator, top, array and escape settings to the yank and the status path. | `formats` | `src/tren/formats.py`, `tui.py:_selection_status`, `tui.py:action_yank` |
 | Tcl/shell escaping | Brackets and `$` are escaped so a pasted Vivado path is not command substitution. | `formats` | `formats.py:_ESCAPERS` |
 | Clipboard provider | `y` writes through OSC 52 or `tmux load-buffer -w`; `auto` uses tmux inside tmux and OSC 52 elsewhere. | `clipboard`, `tui` | `src/tren/clipboard.py`, `tui.py:action_yank` |
 | Editor jump | `e`/`E` suspend the app and open `$EDITOR` at `+line file`. | `tui` | `tui.py:_open_editor` |

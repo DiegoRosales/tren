@@ -58,7 +58,7 @@ from .clipboard import ClipboardError, resolve_provider, write_tmux
 from .colors import port_kind, resolve_row_colors, row_style, trace_kind
 from .config import Config, ConfigError, load_config
 from .elaborate import elaborate
-from .formats import BY_NAME, PathFormat, render as render_format
+from .formats import BY_NAME, PathFormat, render as render_format, render_parts
 from .ir import (
     Cell,
     CellPin,
@@ -2809,12 +2809,14 @@ class TrenApp(App[None]):
             self._yank_timer = None
 
     def _selection_status(self) -> RichText:
-        """The top status line: yazi-style full path of the selection (246).
+        """The top status line: yazi-style full path of the selection.
 
         Scope/instance rows show their hierarchical path (top.u_core.g[0].
         u_alu_g); a port/net leaf appends the item name (…u_alu_g.result).
-        Without a selection the design top stands in. A recent yank appends a
-        short marker while the selection stays on the yanked target.
+        The path uses the current yank format, so `Y` previews the separator,
+        top rule, array spelling and escaping that `y` will copy. Without a
+        selection the design top stands in. A recent yank appends a short
+        marker while the selection stays on the yanked target.
         """
         node = getattr(self, "_current_node", None)
         element = None
@@ -2825,16 +2827,23 @@ class TrenApp(App[None]):
         chain = self._status_chain(node)
         if not chain:
             chain = [self.design.top]
+        parts = render_parts(self.yank_format, chain, element)
+        if not parts:
+            parts = [self.design.top]
         text = RichText()
-        for i, seg in enumerate(chain):
+        element_index = len(parts) - 1 if element is not None else None
+        for i, part in enumerate(parts):
             if i:
-                text.append(".", style="dim")
-            last = i == len(chain) - 1
-            # the terminal segment is the thing being *looked at*; brighten it
-            # only when it is the whole selection (no item appended below)
-            text.append(seg, style="bold #ffffff" if last and element is None else "#c9c9c9")
-        if element is not None:
-            text.append(f".{element}", style="bold #ffa62b")
+                text.append(self.yank_format.separator, style="dim")
+            if i == element_index:
+                style = "bold #ffa62b"
+            elif i == len(parts) - 1:
+                # the terminal segment is the thing being *looked at*;
+                # brighten it only when it is the whole selection
+                style = "bold #ffffff"
+            else:
+                style = "#c9c9c9"
+            text.append(part, style=style)
         if self._yank_flash and self._yank_flash_key == self._selection_key():
             text.append(YANKED_MARK, style=YANKED_STYLE)
         return text
@@ -2851,6 +2860,7 @@ class TrenApp(App[None]):
         names = list(BY_NAME)
         idx = (names.index(self.yank_format.name) + 1) % len(names)
         self.yank_format = BY_NAME[names[idx]]
+        self._status_widget.update(self._selection_status())
         self.notify(f"yank format: {self.yank_format.name}")
         self.bell()
 

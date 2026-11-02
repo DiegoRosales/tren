@@ -151,11 +151,13 @@ The screen is three panes - **tree** (the scope hierarchy, like a filesystem)
 quits.
 
 Across the top, a yazi-style **status line** shows the full hierarchical path
-of the current selection - a scope row reads `top.u_core.g[0].u_alu_g`, a
-port/net leaf appends the item (`top.u_core.g[0].u_alu_g.result`). It updates
-live on `j`/`k`/`l`/`h`/`ctrl+u`/`enter`, the final segment highlighted. A
-yank appends `[yanked]` for a moment; the marker clears on its own or when
-the selection moves.
+of the current selection in the current yank format. In `sv` and `vcd` a scope
+row reads `top.u_core.g[0].u_alu_g`; `yosys` reads
+`top/u_core/g[0]/u_alu_g`; `vivado` drops the top and escapes brackets
+(`u_core/g\[0\]/u_alu_g`). A port/net leaf appends the item. The line updates
+live on `j`/`k`/`l`/`h`/`ctrl+u`/`enter` and on `Y`, the final segment
+highlighted. A yank appends `[yanked]` for a moment; the marker clears on its
+own or when the selection moves.
 
 The pane `1`/`2`/`3` selected - the one `j`/`k`/`y` act on - is lifted out of
 the background; the other two stay dark. Exactly one pane is ever lit.
@@ -201,7 +203,7 @@ the command and names the file and the key.
 | `tui.hierarchy.port` | `theme` | Input and output port leaves. The theme role follows the direction. |
 | `tui.hierarchy.inout` | `theme` | Inout port leaves. |
 | `tui.hierarchy.net` | `theme` | Net leaves. |
-| `yank.format` | `sv` | Initial format for `y` and `Y`: `sv`, `vivado`, `yosys` or `vcd`. |
+| `yank.format` | `sv` | Initial format for `y`, `Y` and the status path: `sv`, `vivado`, `yosys` or `vcd`. |
 | `yank.provider` | `auto` | Clipboard provider for `y`: `auto`, `tmux` or `osc52`. `auto` uses tmux inside a tmux session, otherwise OSC 52. |
 
 Each `tui.hierarchy` colour key is `theme` (the default), `none` (leave
@@ -390,7 +392,7 @@ pane.
 | `ctrl+u` | tree: step up one level, current scope first - a port/net leaf jumps to its own module, a module row to its parent |
 | `/` | open the global search: fuzzy find over modules, instances, ports, nets and files (type to filter, enter to commit, n/N next/prev match, tab switches results/matched-lines pane, ctrl+enter to jump) |
 | `y` | yank the selection through the current path format and clipboard provider |
-| `Y` | cycle the yank format: sv -> vivado -> yosys -> vcd |
+| `Y` | cycle the yank format (sv -> vivado -> yosys -> vcd) and the status path preview |
 | `d` `L` | trace drivers / loads of the selected signal (opens the trace split; in the trace pane, switch direction) |
 | `X` | cut/restore the highlighted scope (treat it as a black box) |
 | `;` | dump the current trace path as text |
@@ -469,8 +471,10 @@ the list stays responsive.
 - `osc52` writes a raw OSC 52 sequence, for terminals that accept application
   clipboard writes.
 
-The status line appends `[yanked]` after a successful write, then clears it.
-The formats are declarative (see `tren/formats.py`), one per target tool:
+The status line uses the same format, so `Y` previews the path before `y`
+writes it. It appends `[yanked]` after a successful write, then clears the
+marker. The formats are declarative (see `tren/formats.py`), one per target
+tool:
 
 | Format | Selection `top.u_core.g[0].u_alu_g.result` |
 |---|---|
@@ -561,7 +565,7 @@ make test                                    # unit suite
 make drive                                   # headless Pilot tests (CI target)
 make drive-real                              # Pilot drives on the demo manifest
 make roundtrip                               # real-terminal OSC 52 + $EDITOR round trip (tmux, private server)
-make pane-cue                                # real-terminal pane cue + yank marker + tmux provider (private server)
+make pane-cue                                # real-terminal pane cue + status formats + yank marker + tmux provider
 make profile                                 # lazy-load + cache profile (1 100-scope synthetic IR)
 make bom                                     # regenerate docs/sw-bom.md
 make run                                     # start the TUI on the vendored demo
@@ -634,9 +638,9 @@ the concatenation collapses to pure net aliasing, so `o` shows no driver
 `make check` runs the unit suite plus both Pilot drives - the same gates the
 CI workflow runs. `make test` / `make drive` / `make drive-real` run them
 individually; `make roundtrip` verifies the OSC 52 + editor path and
-`make pane-cue` the rendered active-pane highlight, status line, yank marker
-and tmux clipboard provider, both against a real terminal on a private tmux
-server (Pilot asserts style *values*, not what the terminal paints - see
+`make pane-cue` the rendered active-pane highlight, status line formats, yank
+marker and tmux clipboard provider, both against a real terminal on a private
+tmux server (Pilot asserts style *values*, not what the terminal paints - see
 `docs/verification.md`). `make bom` regenerates the
 auto-generated software bill of materials (`docs/sw-bom.md`) from whatever the
 dev shell resolves.

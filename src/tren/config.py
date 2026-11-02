@@ -148,7 +148,7 @@ OPTIONS: tuple[Option, ...] = (
         "yank.format",
         "yank_format",
         "sv",
-        "Initial yank path format: sv, vivado, yosys or vcd.",
+        "Initial format for y, Y and the status path: sv, vivado, yosys or vcd.",
     ),
     Option(
         "yank.provider",
