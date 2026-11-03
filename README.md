@@ -4,16 +4,37 @@
 
 ## Introduction
 
-A terminal RTL browser that treats a design hierarchy like a filesystem.
-Three panes: **scope tree** | **focused RTL source** | **module I/O**.
-`1`/`2`/`3` select the pane and `z` zooms it to the full width; `j`/`k` move,
-`l`/`h` expand/collapse the
-highlighted scope, `enter` shows that module in the centre RTL pane, `ctrl+u`
-jumps up a hierarchy level, `y` yanks the selection through the current path
-format and clipboard provider, `Y` cycles the format (SV
-hierarchical / Vivado `get_pins` / yosys `select` / VCD dot-path), `e` jumps
-to the selection's declaration in `$EDITOR` (`+line file` style, suspending
-the app), `E` to the module definition.
+TREN is a TUI to explore RTL designs in an easy way. It allows you to explore
+the RTL like you do in simulator frontends like DVE/Verdi, GTKWave, etc.
+As you navigate the RTL hierarchy, the RTL view follows you. There you can
+do useful things such as tracing drivers/loads, copying the current hierarchy
+path in a few different formats (sv, Vivado, yosys) and fuzzy find RTL elements
+
+Now there's just one thing which is quite annoying. 
+Most projects have their code spread across different directories or even different repositories.
+Many projects employ a collection of scripts to generate filelists to use for synthesis and simulation.
+Why not leverage that?
+The goal of this project is ease of use. The idea is that you simply point it
+at a codebase and with little to no interaction it pulls the filelist, determines
+the RTL-top and elaborates the design. It also doesn't throw a fuzz if it cannot resolve a module
+Right now the project supports only a few of ways to automatically gather a filelist,
+but the idea is to expand it to support as many presets as possible.
+
+How can you open a desgin?
+
+ - You can point it at a single file (if multiple modules are declared in the file, then provide the RTL top)
+ - You can point it at a directory and give it an RTL top
+ - You can provide a filelist with the RTL top
+ - You can point it to a Vivado .xpr file and it will auto-derive the filelist and RTL top
+
+To be implemented
+
+ - Lazy loading (interactively find and add the files)
+ - Custom pre-processor script that generates a filelist
+ - Support to gather filelists from prebuilt workspaces from other EDA tools: vcs, questa, quartus, etc.
+
+Now, how does it actually elaborate the design? This project uses Yosys and slang as backend
+to elaborate the design and to correlate the elaboration with the RTL code
 
 Status: **spike phase, built on textual 8.2**. The backend pair is verified
 and pinned (see *Sources of truth*): yosys `write_json` for bit-level
@@ -35,30 +56,30 @@ revisited when a real 100k-instance IR shows the ceiling matters.
 
 ## Quick start with Nix
 
-Run TREN directly from a checkout:
-
 ```sh
-nix run . -- tests/rtl                         # import + elaborate + open the TUI (one command)
-nix run . -- open tests/rtl                    # the same, with the explicit verb
-nix run . -- tests/rtl/demo.manifest.json      # the same, from an existing manifest
-nix run . -- import tests/rtl                  # -> tests/rtl/manifest.json (first importer: .f filelist / dir scan)
-nix run . -- import tests/rtl/some.xpr         # Vivado project.xpr (auto-detected)
-nix run . -- elaborate tests/rtl/manifest.json # elaborate a manifest (yosys + slang-hier + slang -> IR)
-nix run . -- config                            # show the effective settings and their origins
+## Using nix run
+nix run github:DiegoRosales/tren -- <args>
+
+## For example:
+nix run github:DiegoRosales/tren -- --version
+
+####
+## Using nix shell
+nix shell github:DiegoRosales/tren
+tren --version
 ```
 
-Or put the packaged `tren` and `tren-tui` commands on `PATH` for the session:
+General usage
 
 ```sh
-nix shell .
-tren tests/rtl
+tren tests/rtl                         # import + elaborate + open the TUI (one command)
+tren open tests/rtl                    # the same, with the explicit verb
+tren tests/rtl/demo.manifest.json      # the same, from an existing manifest
+tren import tests/rtl                  # -> tests/rtl/manifest.json (first importer: .f filelist / dir scan)
+tren import tests/rtl/some.xpr         # Vivado project.xpr (auto-detected)
+tren elaborate tests/rtl/manifest.json # elaborate a manifest (yosys + slang-hier + slang -> IR)
+tren config                            # show the effective settings and their origins
 ```
-
-`nix shell .` adds only the packaged `tren` and `tren-tui` commands. The
-`tren` wrapper adds `yosys` and `slang` to its own `PATH`, so those tools are
-not available to other commands in that shell. `nix run . -- <args>` passes
-`<args>` to the same wrapped `tren` command. The keys are in the
-[User guide](#user-guide) below.
 
 ## Installation using pip
 
@@ -99,7 +120,7 @@ git checkout v0.0.1
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-tren tests/rtl
+tren --version
 ```
 
 The checkout is detached at the release tag. The editable install reads
