@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/DiegoRosales/tren/actions/workflows/ci.yml/badge.svg)](https://github.com/DiegoRosales/tren/actions/workflows/ci.yml)
 
+![Alt text](./docs/screenshots/example1.png "Example")
+
 ## Introduction
 
 TREN is a TUI for exploring RTL designs. It lets you browse the hierarchy in
