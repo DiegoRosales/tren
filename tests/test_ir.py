@@ -151,10 +151,10 @@ class ManifestTests(unittest.TestCase):
         m = Manifest(name="d", sources=("a.v",), defines=(("W", "32"),), top="top")
         self.assertEqual(Manifest.from_json(m.to_json()), m)
 
-    def test_canonical_bytes_order_independent(self) -> None:
+    def test_canonical_bytes_keeps_source_order(self) -> None:
         a = Manifest(sources=("b.v", "a.v"))
         b = Manifest(sources=("a.v", "b.v"))
-        self.assertEqual(a.canonical_bytes(), b.canonical_bytes())
+        self.assertNotEqual(a.canonical_bytes(), b.canonical_bytes())
 
 
 class CacheTests(unittest.TestCase):
@@ -187,6 +187,13 @@ class CacheTests(unittest.TestCase):
             Manifest(name="demo", sources=("rtl/demo.sv",), top="other"), self.tmp
         )
         self.assertNotEqual(before, after)
+
+    def test_source_order_changes_key(self) -> None:
+        (self.tmp / "rtl" / "a.sv").write_text("")
+        (self.tmp / "rtl" / "b.sv").write_text("")
+        a = Manifest(name="demo", sources=("rtl/b.sv", "rtl/a.sv"))
+        b = Manifest(name="demo", sources=("rtl/a.sv", "rtl/b.sv"))
+        self.assertNotEqual(cache_key(a, self.tmp), cache_key(b, self.tmp))
 
     def test_missing_source_key_stable(self) -> None:
         m = Manifest(name="missing", sources=("rtl/nope.sv",))

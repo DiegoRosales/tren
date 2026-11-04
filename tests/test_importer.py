@@ -5,9 +5,11 @@ Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s te
 
 from __future__ import annotations
 
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -15,8 +17,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from tren.importer import (  # noqa: E402
     IMPORT_SLANG_FLAGS,
     import_manifest,
+    import_sources,
+    main as importer_main,
     parse_filelist,
 )
+from tren.manifest import Manifest  # noqa: E402
 
 
 class ParseFilelistTests(unittest.TestCase):
@@ -55,6 +60,135 @@ class ParseFilelistTests(unittest.TestCase):
     def test_define_values(self) -> None:
         _, _, defines, _ = parse_filelist("-D A\n-D B=2\n+define+C=x\n")
         self.assertEqual(sorted(defines), [("A", "1"), ("B", "2"), ("C", "x")])
+
+
+class ImportSourcesTests(unittest.TestCase):
+    def test_explicit_sources_keep_order_and_derive_incdirs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "rtl" / "sub").mkdir(parents=True)
+            first = root / "rtl" / "b.sv"
+            second = root / "rtl" / "a.sv"
+            third = root / "rtl" / "sub" / "c.sv"
+            for path in (first, second, third):
+                path.write_text("")
+            m = import_sources([str(first), str(second), str(third)], root=root)
+            self.assertEqual(
+                m.sources, ("rtl/b.sv", "rtl/a.sv", "rtl/sub/c.sv")
+            )
+            self.assertEqual(m.incdirs, ("rtl", "rtl/sub"))
+            self.assertEqual(m.name, root.name)
+            self.assertEqual(m.top, "top")
+            self.assertEqual(m.slang_flags, IMPORT_SLANG_FLAGS)
+
+    def test_explicit_sources_name_and_top(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "a.sv"
+            source.write_text("")
+            m = import_sources(
+                [str(source)], root=root, name="custom", top="dut"
+            )
+            self.assertEqual(m.name, "custom")
+            self.assertEqual(m.top, "dut")
+
+    def test_missing_source_is_skipped_with_a_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            present = root / "present.sv"
+            present.write_text("")
+            missing = root / "missing.sv"
+            warnings: list[str] = []
+            m = import_sources(
+                [str(missing), str(present)],
+                root=root,
+                warnings_out=warnings,
+            )
+            self.assertEqual(m.sources, ("present.sv",))
+            self.assertTrue(
+                any("skipping missing source file" in w for w in warnings),
+                warnings,
+            )
+
+    def test_all_missing_sources_raise(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaisesRegex(ValueError, "no source files remain"):
+                import_sources([str(Path(td) / "missing.sv")], root=td)
+
+    def test_empty_list_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least one source"):
+            import_sources([], root=".")
+
+
+class ImportCliFileListTests(unittest.TestCase):
+    def test_cli_writes_manifest_from_file_option(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            a, b = root / "a.sv", root / "b.sv"
+            a.write_text("")
+            b.write_text("")
+            out = root / "design.json"
+            stdout = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                code = importer_main(
+                    ["-f", str(a), "-f", str(b), "--out", str(out), "--top", "dut"]
+                )
+            self.assertEqual(code, 0)
+            written = Manifest.read(out)
+            self.assertEqual(len(written.sources), 2)
+            self.assertTrue(written.sources[0].endswith("a.sv"))
+            self.assertTrue(written.sources[1].endswith("b.sv"))
+            self.assertEqual(written.top, "dut")
+            self.assertIn("format=files", stdout.getvalue())
+
+    def test_cli_warns_about_a_missing_file_and_keeps_the_rest(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            present = root / "present.sv"
+            present.write_text("")
+            out = root / "design.json"
+            stderr = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                code = importer_main(
+                    ["-f", str(root / "missing.sv"), "-f", str(present),
+                     "--out", str(out)]
+                )
+            self.assertEqual(code, 0)
+            written = Manifest.read(out)
+            self.assertEqual(len(written.sources), 1)
+            self.assertTrue(written.sources[0].endswith("present.sv"))
+            self.assertIn("skipping missing source file", stderr.getvalue())
+
+    def test_cli_reports_all_missing_sources_without_a_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stderr = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                code = importer_main(
+                    ["-f", str(root / "missing.sv"),
+                     "--out", str(root / "design.json")]
+                )
+            self.assertEqual(code, 2)
+            self.assertIn("no source files remain", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_cli_rejects_a_target_with_files(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "rtl"
+            target.mkdir()
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+                importer_main([str(target), "-f", "a.sv"])
+            self.assertEqual(exc.exception.code, 2)
+
+    def test_cli_rejects_format_with_files(self) -> None:
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+            importer_main(["-f", "a.sv", "--format", "f"])
+        self.assertEqual(exc.exception.code, 2)
+
+    def test_cli_requires_a_target_or_file(self) -> None:
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+            importer_main([])
+        self.assertEqual(exc.exception.code, 2)
 
 
 class ImportManifestTests(unittest.TestCase):

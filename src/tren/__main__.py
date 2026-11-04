@@ -2,14 +2,15 @@
 
 Commands:
 
-    import <target> [--out PATH] [--name NAME] [--top TOP]
-                emit a design manifest for a .f filelist, a .sv file, or a
-                directory of sources (tren.importer)
+    import [<target>] [-f PATH]... [--out PATH] [--name NAME] [--top TOP]
+                emit a design manifest for a .f filelist, a .sv file, a
+                directory of sources, or an explicit -f list (tren.importer)
     elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
                 elaborate a manifest into the TREN IR (tren.elaborate)
-    open <target> [--root DIR] [--cache DIR] [--refresh] [--out PATH]
-                import the target unless it is a manifest, elaborate it and
-                open the TUI (tren.bringup)
+    open [<target>] [-f PATH]... [--root DIR] [--cache DIR] [--refresh]
+                [--out PATH]
+                import the target (or the -f list) unless it is a manifest,
+                elaborate it and open the TUI (tren.bringup)
     config [show|export] [--out PATH]
                 show the effective settings with their origins, or export a
                 complete TOML template (tren.config)
@@ -154,14 +155,15 @@ options:
                 dependency and configuration paths
 
 commands:
-  import <target> [--out PATH] [--name NAME] [--top TOP]
-                emit a design manifest for a .f filelist, a .sv file, or a
-                directory of sources
+  import [<target>] [-f PATH]... [--out PATH] [--name NAME] [--top TOP]
+                emit a design manifest for a .f filelist, a .sv file, a
+                directory of sources, or an explicit -f list
   elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
                 elaborate a manifest into the TREN IR
-  open <target> [--root DIR] [--cache DIR] [--refresh] [--out PATH]
-                import the target unless it is a manifest, elaborate it and
-                open the TUI
+  open [<target>] [-f PATH]... [--root DIR] [--cache DIR] [--refresh]
+                [--out PATH]
+                import the target (or the -f list) unless it is a manifest,
+                elaborate it and open the TUI
   config [show|export] [--out PATH]
                 show the effective settings with their origins, or export a
                 complete TOML template

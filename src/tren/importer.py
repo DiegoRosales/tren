@@ -1,13 +1,13 @@
 """Manifest importer: turn a source layout into a design manifest.
 
-The first importer is the plain SystemVerilog filelist (``.f``) — the
+The first importer is the plain SystemVerilog filelist (``.f``) -- the
 least-work option. slang consumes these natively as *command files* (``-f``
 cwd-relative, ``-F`` file-relative). Verified on sv-lang 12.0 that ``//``
 line comments, ``-D``/``-I``, ``+incdir+`` and source paths all parse inside
 one, and that an unknown option is a hard error. This importer mirrors that
 grammar, reads paths *file-relative* (the ``-F`` reading, so the manifest
 survives moving the repo), and writes every path relative to the invocation
-root — the same convention the elaborator and the hand-written demo manifest
+root -- the same convention the elaborator and the hand-written demo manifest
 use.
 
 Without a filelist, a bare directory is scanned for ``*.sv``/``*.v`` sources,
@@ -19,7 +19,7 @@ removes them in the manifest, so the tolerance stays visible with the design.
 
 Importers are bootstrap, not a dependency: they produce the same manifest a
 human would hand-write. Nested ``-f`` command files are not followed, and
-unknown ``-``/``+`` options warn rather than fail — slang itself would hard-
+unknown ``-``/``+`` options warn rather than fail -- slang itself would hard-
 error on them at elaboration time, so a warning is the honest minimum.
 
 CLI (from the repo root, inside the nix dev shell):
@@ -27,6 +27,7 @@ CLI (from the repo root, inside the nix dev shell):
     nix develop . -c tren import tests/rtl              # -> tests/rtl/manifest.json
     nix develop . -c tren import tests/rtl/sources.f --name demo
     nix develop . -c tren import tests/rtl/demo.sv
+    nix develop . -c tren import -f a.sv -f b.sv        # explicit source list
     nix develop . -c tren import <vivado-project.xpr>   # Vivado (auto-detected)
 """
 
@@ -112,7 +113,7 @@ def parse_filelist(
     """Parse command-file/filelist text -> (sources, incdirs, defines, warnings).
 
     ``//`` line comments are stripped; values may be double-quoted. Paths are
-    returned as written (relative to the filelist) — the caller anchors them.
+    returned as written (relative to the filelist) -- the caller anchors them.
     """
     sources: list[str] = []
     incdirs: list[str] = []
@@ -193,6 +194,45 @@ def _default_incdirs(sources: list[str], anchor: Path | None, root: Path) -> lis
     return sorted(dirs)
 
 
+def import_sources(
+    sources: list[str] | tuple[str, ...],
+    *,
+    root: str | Path | None = None,
+    name: str | None = None,
+    top: str | None = None,
+    warnings_out: list[str] | None = None,
+) -> Manifest:
+    """Emit a Manifest for an explicit list of source files.
+
+    ``root`` (default: the invocation cwd) is the anchor every stored path is
+    relative to. The order of ``sources`` is kept because a filelist order is
+    meaningful to the parser. A missing source produces a warning and is left
+    out of the manifest, so one bad path does not stop the others. Source
+    directories become incdirs, the same rule ``import_manifest`` uses for a
+    directory scan.
+    """
+    if not sources:
+        raise ValueError("at least one source file is required")
+    warnings = [] if warnings_out is None else warnings_out
+    root = Path.cwd() if root is None else Path(root)
+    found: list[str] = []
+    for source in sources:
+        if Path(source).is_file():
+            found.append(str(source))
+        else:
+            warnings.append(f"skipping missing source file: {source}")
+    if not found:
+        raise ValueError("no source files remain; all listed files are missing")
+    stored = tuple(_store(source, None, root) for source in found)
+    return Manifest(
+        name=name or root.name or "design",
+        sources=stored,
+        incdirs=tuple(_default_incdirs(found, None, root)),
+        top=top or "top",
+        slang_flags=IMPORT_SLANG_FLAGS,
+    )
+
+
 def import_manifest(
     target: str | Path,
     *,
@@ -205,7 +245,7 @@ def import_manifest(
     """Emit a Manifest for a filelist, a single source, or a directory.
 
     ``root`` (default: the invocation cwd) is the anchor every stored path is
-    relative to — the same anchor the elaborator resolves against. ``fmt``
+    relative to -- the same anchor the elaborator resolves against. ``fmt``
     selects the importer: ``auto`` detects a Vivado ``project.xpr``,
     otherwise the plain filelist/dir importer is used.
     """
@@ -234,7 +274,7 @@ def import_manifest(
                 raise ValueError(
                     "multiple filelists found: "
                     + ", ".join(str(p) for p in filelists)
-                    + " — pass one explicitly"
+                    + " -- pass one explicitly"
                 )
             sources, incdirs, defines, warn = parse_filelist(filelists[0].read_text())
             warnings.extend(warn)
@@ -298,14 +338,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "target",
         type=Path,
+        nargs="?",
         help=".f filelist, .sv file, source directory, or Vivado project",
     )
     parser.add_argument(
-        "--out", type=Path, default=None,
-        help="manifest path (default: <target dir>/manifest.json)",
+        "-f", "--file", action="append", dest="files", metavar="PATH",
+        help="add a source file; repeat the option to list several files",
     )
     parser.add_argument(
-        "--name", default=None, help="design name (default: target name)"
+        "--out", type=Path, default=None,
+        help="manifest path (default: <target dir>/manifest.json, "
+        "or <cwd>/manifest.json with -f)",
+    )
+    parser.add_argument(
+        "--name", default=None,
+        help="design name (default: target name, or the cwd name with -f)",
     )
     parser.add_argument(
         "--top", default=None,
@@ -317,21 +364,45 @@ def main(argv: list[str] | None = None) -> int:
         "(default: auto)",
     )
     args = parser.parse_args(argv)
+    if args.files and args.target is not None:
+        parser.error("give a target or -f/--file sources, not both")
+    if not args.files and args.target is None:
+        parser.error("a target or at least one -f/--file is required")
+    if args.files and args.format != "auto":
+        parser.error("--format does not apply with -f/--file")
 
-    effective = args.format if args.format != "auto" else detect_format(args.target)
     warnings: list[str] = []
-    manifest = import_manifest(
-        args.target,
-        name=args.name,
-        top=args.top,
-        fmt=effective,
-        warnings_out=warnings,
-    )
-    base = args.target.parent if args.target.is_file() else args.target
-    out = args.out if args.out is not None else base / "manifest.json"
-    out = out.resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write(out)
+    try:
+        if args.files:
+            manifest = import_sources(
+                args.files,
+                name=args.name,
+                top=args.top,
+                warnings_out=warnings,
+            )
+            base = Path.cwd()
+            effective = "files"
+        else:
+            effective = (
+                args.format if args.format != "auto" else detect_format(args.target)
+            )
+            manifest = import_manifest(
+                args.target,
+                name=args.name,
+                top=args.top,
+                fmt=effective,
+                warnings_out=warnings,
+            )
+            base = args.target.parent if args.target.is_file() else args.target
+        out = args.out if args.out is not None else base / "manifest.json"
+        out = out.resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write(out)
+    except (OSError, ValueError) as exc:
+        for warning in warnings:
+            print(f"  warning: {warning}", file=sys.stderr)
+        print(f"tren import: {exc}", file=sys.stderr)
+        return 2
 
     print(
         f"wrote manifest for {len(manifest.sources)} source(s) to {out}\n"

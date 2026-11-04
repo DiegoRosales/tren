@@ -8,8 +8,8 @@ program disagree, the program is correct.
 
 | Command | Purpose |
 |---|---|
-| `tren open <target>` | Import the target unless it is a manifest, elaborate it, and open the TUI. |
-| `tren import <target>` | Write a design manifest. Do not open the TUI. |
+| `tren open [<target>] [-f PATH]...` | Import the target (or the `-f` file list) unless it is a manifest, elaborate it, and open the TUI. |
+| `tren import [<target>] [-f PATH]...` | Write a design manifest. Do not open the TUI. |
 | `tren elaborate <manifest>` | Build the IR from a manifest and print a summary. Do not open the TUI. |
 | `tren config` | Show the effective configuration. |
 | `tren config export` | Write a complete TOML template. |
@@ -37,26 +37,32 @@ keys.
 ## `tren open`
 
 ```text
-tren open <target> [--root DIR] [--cache DIR] [--refresh]
-                   [--out PATH] [--name NAME] [--top TOP]
+tren open [<target>] [-f PATH]... [--root DIR] [--cache DIR]
+                   [--refresh] [--out PATH] [--name NAME] [--top TOP]
                    [--format auto|f|vivado]
 ```
 
 `<target>` is a manifest JSON, a `.f` filelist, a single `.sv` or `.v` file,
-a source directory, or a Vivado `.xpr`.
+a source directory, or a Vivado `.xpr`. Give a target or at least one
+`-f`/`--file`; the command stops when it gets neither or both. A `-f` path
+resolves from the current directory, the same as `<target>`. `--root` anchors
+the paths stored in the manifest, not the input paths. A missing file warns
+and is skipped; the command stops when every listed file is missing.
 
 | Option | Default | Effect |
 |---|---|---|
+| `-f`, `--file PATH` | none | Add a source file. Repeat the option to list several files. The list replaces the target. A missing file warns and is skipped. |
 | `--root DIR` | current directory | Anchor for stored relative paths and for the backend tools. |
 | `--cache DIR` | `cache.dir` | IR cache directory. A relative path resolves from the current directory. |
 | `--refresh` | off | Rebuild the IR even when the cache has an entry. |
 | `--out PATH` | none | Write the imported manifest. An existing directory receives `PATH/manifest.json`. |
 | `--name NAME` | target name, or the Vivado project name | Design name in the manifest. |
 | `--top TOP` | `top`, or the Vivado `TopModule` | Top module. |
-| `--format FORMAT` | `auto` | Importer: `auto`, `f`, or `vivado`. |
+| `--format FORMAT` | `auto` | Importer: `auto`, `f`, or `vivado`. It does not apply with `-f`. |
 
 `--out`, `--name`, `--top`, and `--format` apply only to a source target. The
-command stops with an error when the target is a manifest.
+command stops with an error when the target is a manifest. With `-f`, the
+design name defaults to the root directory name.
 
 A source target is imported in memory. The manifest is written only when
 `--out` is given. A manifest target is read as it is; use `tren elaborate`
@@ -69,21 +75,26 @@ option; the importer uses that value when `--top` is absent.
 ## `tren import`
 
 ```text
-tren import <target> [--out PATH] [--name NAME] [--top TOP]
-                     [--format auto|f|vivado]
+tren import [<target>] [-f PATH]... [--out PATH] [--name NAME]
+                     [--top TOP] [--format auto|f|vivado]
 ```
 
 `tren import` writes a manifest and exits. It does not elaborate the design
-or open the TUI.
+or open the TUI. Give a target or at least one `-f`/`--file`; the command
+stops when it gets neither or both.
 
 | Option | Default | Effect |
 |---|---|---|
-| `--out PATH` | target directory | Manifest file path. A directory target writes `<target>/manifest.json`; a file target writes `<target parent>/manifest.json`. |
-| `--name NAME` | target name, or the Vivado project name | Design name in the manifest. |
+| `-f`, `--file PATH` | none | Add a source file. Repeat the option to list several files. The list replaces the target. A missing file warns and is skipped. |
+| `--out PATH` | target directory | Manifest file path. A directory target writes `<target>/manifest.json`; a file target writes `<target parent>/manifest.json`. With `-f`, it writes `<current directory>/manifest.json`. |
+| `--name NAME` | target name, or the Vivado project name | Design name in the manifest. With `-f`, it defaults to the root directory name. |
 | `--top TOP` | `top`, or the Vivado `TopModule` | Top module. |
-| `--format FORMAT` | `auto` | Importer: `auto`, `f`, or `vivado`. |
+| `--format FORMAT` | `auto` | Importer: `auto`, `f`, or `vivado`. It does not apply with `-f`. |
 
-The importer stores source paths relative to the current directory. Run the
+The importer stores source paths relative to the current directory.
+With `-f`, the source order is kept and the source directories become
+incdirs, the same rule a directory scan uses. A missing file warns and is
+skipped; the command stops when every listed file is missing. Run the
 command from the project root, or move the manifest and sources together.
 The command prints the source count, the top module, the incdirs, the defines,
 and the slang flags. Importer warnings go to standard error.

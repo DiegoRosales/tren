@@ -60,11 +60,15 @@ class Manifest:
     # ---- stable bytes for cache keys -----------------------------------
 
     def canonical_bytes(self) -> bytes:
-        """Deterministic, order-independent representation for hashing."""
+        """Deterministic representation for hashing.
+
+        Sources keep their order: a later source can use a macro that an
+        earlier one defines, so a reorder is a different elaboration input.
+        """
         return json.dumps(
             {
                 "name": self.name,
-                "sources": sorted(self.sources),
+                "sources": list(self.sources),
                 "incdirs": sorted(self.incdirs),
                 "defines": sorted(self.defines),
                 "params": sorted(self.params),

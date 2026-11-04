@@ -53,6 +53,18 @@ A directory target is scanned for `*.sv` and `*.v` files. This example holds
 `alu_top.sv` and `alu.sv`. The top module is `alu_top`, so the command passes
 `--top alu_top`. The tree shows `alu_top/` with `u_alu/` below it.
 
+You can also list the files directly with a repeated `-f`/`--file` option:
+
+```sh
+tren open -f docs/examples/multi-file/alu_top.sv \
+          -f docs/examples/multi-file/alu.sv --top alu_top
+```
+
+`-f` replaces the directory target. The order is kept, so put a file that
+defines a macro before the file that uses it. The importer stores each path
+relative to the current directory and adds the source directories to the
+include path.
+
 ## Open a Vivado project
 
 ```sh
@@ -81,6 +93,7 @@ The target can be any of these forms:
 ```sh
 tren open path/to/rtl --top my_top
 tren open path/to/design.sv --top my_top
+tren open -f path/to/a.sv -f path/to/b.sv --top my_top
 tren open path/to/design.f --top my_top
 tren open path/to/project.xpr
 tren open path/to/manifest.json

@@ -86,6 +86,74 @@ class TargetDispatchTests(unittest.TestCase):
                 load_target(root, root=root, out=out)
             self.assertEqual(Manifest.read(out / "manifest.json").sources, ("a.sv",))
 
+    def test_file_list_is_imported_without_a_target(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "b.sv").write_text("module top; endmodule\n")
+            (root / "a.sv").write_text("module leaf; endmodule\n")
+            design = Design(top="top")
+            with mock.patch("tren.bringup.elaborate", return_value=design):
+                manifest, got = load_target(
+                    files=[str(root / "b.sv"), str(root / "a.sv")],
+                    root=root,
+                    top="top",
+                )
+            self.assertEqual(
+                manifest.sources, ("b.sv", "a.sv")
+            )
+            self.assertEqual(manifest.name, root.name)
+            self.assertIs(got, design)
+
+    def test_file_list_writes_the_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "a.sv").write_text("module top; endmodule\n")
+            out = root / "build" / "design.json"
+            with mock.patch("tren.bringup.elaborate", return_value=Design(top="top")):
+                load_target(files=[str(root / "a.sv")], root=root, out=out)
+            self.assertEqual(Manifest.read(out).sources, ("a.sv",))
+
+    def test_missing_file_warns_and_keeps_the_rest(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "a.sv").write_text("module top; endmodule\n")
+            warnings: list[str] = []
+            design = Design(top="top")
+            with mock.patch("tren.bringup.elaborate", return_value=design):
+                manifest, got = load_target(
+                    files=[str(root / "missing.sv"), str(root / "a.sv")],
+                    root=root,
+                    warnings_out=warnings,
+                )
+            self.assertEqual(manifest.sources, ("a.sv",))
+            self.assertIs(got, design)
+            self.assertTrue(
+                any("skipping missing source file" in w for w in warnings),
+                warnings,
+            )
+
+    def test_all_files_missing_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.assertRaisesRegex(ValueError, "no source files remain"):
+                load_target(files=[str(root / "missing.sv")], root=root)
+
+    def test_target_with_files_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "a.sv").write_text("module top; endmodule\n")
+            with self.assertRaisesRegex(ValueError, "not both"):
+                load_target(
+                    root / "a.sv", files=[str(root / "a.sv")], root=root
+                )
+
+    def test_format_with_files_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "a.sv").write_text("module top; endmodule\n")
+            with self.assertRaisesRegex(ValueError, "does not apply"):
+                load_target(files=[str(root / "a.sv")], root=root, fmt="f")
+
     def test_manifest_rejects_import_only_flags(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "manifest.json"
@@ -183,6 +251,42 @@ class LaunchTests(unittest.TestCase):
         launch.assert_called_once()
         self.assertIs(launch.call_args.args[0], design)
         self.assertIs(launch.call_args.args[2], settings)
+
+    def test_main_passes_the_file_list_to_load_target(self) -> None:
+        design = Design(top="top")
+        manifest = Manifest(sources=("a.sv", "b.sv"))
+        with mock.patch(
+            "tren.bringup.load_config", return_value=_loaded(Config())
+        ), mock.patch(
+            "tren.bringup.load_target", return_value=(manifest, design)
+        ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
+            io.StringIO()
+        ):
+            code = main(["-f", "a.sv", "-f", "b.sv", "--top", "top"])
+        self.assertEqual(code, 0)
+        self.assertEqual(load.call_args.args[0], None)
+        self.assertEqual(load.call_args.kwargs["files"], ["a.sv", "b.sv"])
+
+    def test_main_rejects_a_target_with_files(self) -> None:
+        with mock.patch(
+            "tren.bringup.load_config", return_value=_loaded(Config())
+        ), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+            main(["rtl", "-f", "a.sv"])
+        self.assertEqual(exc.exception.code, 2)
+
+    def test_main_requires_a_target_or_files(self) -> None:
+        with mock.patch(
+            "tren.bringup.load_config", return_value=_loaded(Config())
+        ), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+            main([])
+        self.assertEqual(exc.exception.code, 2)
+
+    def test_main_rejects_format_with_files(self) -> None:
+        with mock.patch(
+            "tren.bringup.load_config", return_value=_loaded(Config())
+        ), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+            main(["-f", "a.sv", "--format", "f"])
+        self.assertEqual(exc.exception.code, 2)
 
     def test_cache_dir_defaults_from_the_config(self) -> None:
         design = Design(top="top")
