@@ -169,6 +169,54 @@ The `params` field then reads `[["WIDTH", "16"]]`. The elaborator passes the
 override to both backends: slang receives `-G WIDTH=16`, and yosys receives
 `chparam -set WIDTH 16 param_top`.
 
+## Define a macro
+
+A macro can set a width or select RTL. `docs/examples/define/define_top.sv`
+uses `TOPW` in its port ranges:
+
+```sh
+tren open docs/examples/define/define_top.sv --top define_top -D TOPW=16
+```
+
+The I/O pane shows 16-bit ports. No value means `1`: `-D SYNTHESIS` is the
+same as `-D SYNTHESIS=1`. Repeat `-D` for more macros. A value must be one
+token. If a name appears more than once, the last value wins and TREN prints
+a warning.
+
+A filelist can carry the same line. `docs/examples/define/design.f`:
+
+```text
+// The macro sets the port width.
+-D TOPW=16
+define_top.sv
+```
+
+`+define+TOPW=16` and `--define-macro TOPW=16` are equivalent in a `.f` file.
+Open the filelist:
+
+```sh
+tren open docs/examples/define/design.f --top define_top
+```
+
+A CLI value wins when the filelist sets the same name; TREN warns that the
+name is repeated. This command opens the same filelist with 32-bit ports:
+
+```sh
+tren open docs/examples/define/design.f --top define_top -D TOPW=32
+```
+
+The importer stores the result in the manifest. Keep the manifest to inspect
+the entry:
+
+```sh
+tren import docs/examples/define/design.f --top define_top \
+    --out .cache/define/manifest.json
+```
+
+The `defines` field then reads `[["TOPW", "16"]]`. The elaborator passes the
+define to both backends: slang receives `-D TOPW=16`, and yosys receives
+`-DTOPW=16`.
+
 ## Use several source directories
 
 A filelist can name sources in any number of directories. This example uses

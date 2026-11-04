@@ -138,7 +138,7 @@ def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
         args.append(flag)
     for inc in _effective_incdirs(manifest):
         args += ["-I", str(inc)]
-    for name, value in manifest.defines:
+    for name, value in manifest.defines_map().items():
         args += ["-D", f"{name}={value}" if value else name]
     for name, value in manifest.params_map().items():
         args += ["-G", f"{name}={value}"]
@@ -156,7 +156,7 @@ def run_yosys(manifest: Manifest, root: Path, out_json: str) -> None:
     read_args: list[str] = list(_YOSYS_DEFAULT_FLAGS)
     for flag in manifest.yosys_flags:
         read_args.append(flag)
-    for name, value in manifest.defines:
+    for name, value in manifest.defines_map().items():
         read_args.append(f"-D{name}={value}" if value else f"-D{name}")
     for inc in _effective_incdirs(manifest):
         read_args.append(f"-I{inc}")
@@ -188,7 +188,7 @@ def run_slang_ast(manifest: Manifest, root: Path, out_json: str) -> dict:
         args.append(flag)
     for inc in _effective_incdirs(manifest):
         args += ["-I", str(inc)]
-    for name, value in manifest.defines:
+    for name, value in manifest.defines_map().items():
         args += ["-D", f"{name}={value}" if value else name]
     for name, value in manifest.params_map().items():
         args += ["-G", f"{name}={value}"]
@@ -844,15 +844,24 @@ def main(argv: list[str] | None = None) -> int:
     cache = args.cache if args.cache is not None else Path(settings.cache_dir)
 
     manifest = Manifest.read(args.manifest)
-    duplicates = manifest.duplicate_params()
-    for name, value in duplicates.items():
+    duplicate_params = manifest.duplicate_params()
+    duplicate_defines = manifest.duplicate_defines()
+    for name, value in duplicate_defines.items():
+        print(
+            f"  warning: macro {name} is defined more than once; "
+            f"using the last value {value}",
+            file=sys.stderr,
+        )
+    for name, value in duplicate_params.items():
         print(
             f"  warning: parameter {name} is defined more than once; "
             f"using the last value {value}",
             file=sys.stderr,
         )
-    if duplicates:
+    if duplicate_params:
         manifest = replace(manifest, params=tuple(manifest.params_map().items()))
+    if duplicate_defines:
+        manifest = replace(manifest, defines=tuple(manifest.defines_map().items()))
     try:
         design = elaborate(
             manifest,

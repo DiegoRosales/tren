@@ -38,13 +38,17 @@ class DocumentationLinkTests(unittest.TestCase):
                 self.assertIn(f"docs/{name}", text)
 
     def test_the_example_directories_exist(self) -> None:
-        for name in ("one-file", "multi-file", "multi-dir", "parameter", "vivado"):
+        for name in (
+            "one-file", "multi-file", "multi-dir", "define", "parameter", "vivado"
+        ):
             with self.subTest(name=name):
                 self.assertTrue((EXAMPLES / name).is_dir())
 
     def test_the_example_index_names_every_example(self) -> None:
         text = (EXAMPLES / "README.md").read_text(encoding="utf-8")
-        for name in ("one-file", "multi-file", "multi-dir", "parameter", "vivado"):
+        for name in (
+            "one-file", "multi-file", "multi-dir", "define", "parameter", "vivado"
+        ):
             with self.subTest(name=name):
                 self.assertIn(f"`{name}/`", text)
 
@@ -153,6 +157,21 @@ class ExampleElaborationTests(unittest.TestCase):
         self.assertEqual(
             {port.name: port.width for port in top.ports},
             {"a": 16, "b": 16, "y": 16},
+        )
+
+    def test_define_example(self) -> None:
+        manifest, design = self._design(
+            EXAMPLES / "define" / "design.f", "define_top"
+        )
+        self.assertEqual(
+            manifest.sources, ("docs/examples/define/define_top.sv",)
+        )
+        self.assertEqual(manifest.defines, (("TOPW", "16"),))
+        top = design.scope("define_top")
+        assert top is not None
+        self.assertEqual(
+            {port.name: (port.width, port.range) for port in top.ports},
+            {"a": (16, "[15:0]"), "y": (16, "[15:0]")},
         )
 
     def test_vivado_example(self) -> None:

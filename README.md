@@ -151,13 +151,14 @@ project, or manifest, or by listing the RTL files directly:
 ```sh
 tren open path/to/rtl --top my_top
 tren open -f rtl/top.sv -f rtl/alu.sv --top my_top
-tren open -f rtl/top.sv -f rtl/alu.sv -G WIDTH=16 --top my_top
+tren open -f rtl/top.sv -f rtl/alu.sv -D SYNTHESIS -G WIDTH=16 --top my_top
 ```
 
-`-G NAME=VALUE` overrides a top-level parameter; repeat it for more. A
-repeated name warns and the last value wins. A `.f` filelist can carry the
-same `-G NAME=VALUE` line. See the [command
-reference](docs/command_reference.md) for all target types and options.
+`-D NAME[=VALUE]` defines a macro; no value means `1`. `-G NAME=VALUE`
+overrides a top-level parameter. Repeat either for more. A repeated name
+warns and the last value wins. A `.f` filelist can carry the same `-D` and
+`-G` lines. See the [command reference](docs/command_reference.md) for all
+target types and options.
 
 The screen is three panes - **tree** (the scope hierarchy, like a filesystem)
 | **source** (the focused module's RTL) | **I/O** (parameters + ports). `q`

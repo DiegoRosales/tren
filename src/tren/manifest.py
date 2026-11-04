@@ -38,6 +38,14 @@ class Manifest:
         values = self.params_map()
         return {name: values[name] for name, count in counts.items() if count > 1}
 
+    def duplicate_defines(self) -> dict[str, str]:
+        """Macro names that occur more than once, with the last value."""
+        counts: dict[str, int] = {}
+        for name, _ in self.defines:
+            counts[name] = counts.get(name, 0) + 1
+        values = self.defines_map()
+        return {name: values[name] for name, count in counts.items() if count > 1}
+
     # ---- JSON ----------------------------------------------------------
 
     def to_json(self, indent: int = 2) -> str:

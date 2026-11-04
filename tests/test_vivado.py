@@ -222,6 +222,21 @@ class ParseVivadoTests(unittest.TestCase):
             warnings,
         )
 
+    def test_defines_keep_last_and_warn(self) -> None:
+        write_xpr(self.root, files=["$PPRDIR/rtl/core.v"])
+        warnings: list[str] = []
+        manifest = import_manifest(
+            self.root,
+            root=self.root,
+            defines=[("W", "8"), ("W", "16")],
+            warnings_out=warnings,
+        )
+        self.assertEqual(manifest.defines, (("W", "16"),))
+        self.assertTrue(
+            any("macro W is defined more than once" in w for w in warnings),
+            warnings,
+        )
+
     def test_no_xpr_falls_back_to_plain_import(self) -> None:
         plain = self.root / "plain"
         plain.mkdir()

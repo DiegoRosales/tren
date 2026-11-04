@@ -19,6 +19,7 @@ from tren.importer import (  # noqa: E402
     import_manifest,
     import_sources,
     main as importer_main,
+    parse_define,
     parse_filelist,
     parse_param,
 )
@@ -83,6 +84,23 @@ class ParseFilelistTests(unittest.TestCase):
     def test_parameter_value_must_be_one_token(self) -> None:
         with self.assertRaisesRegex(ValueError, "whitespace"):
             parse_param("WIDTH=8 + 2")
+
+
+class ParseDefineTests(unittest.TestCase):
+    def test_no_value_means_one(self) -> None:
+        self.assertEqual(parse_define("SYNTHESIS"), ("SYNTHESIS", "1"))
+
+    def test_value_and_empty_value(self) -> None:
+        self.assertEqual(parse_define("WIDTH=16"), ("WIDTH", "16"))
+        self.assertEqual(parse_define("EMPTY="), ("EMPTY", "1"))
+
+    def test_malformed_define_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "define"):
+            parse_define("=1")
+        with self.assertRaisesRegex(ValueError, "whitespace"):
+            parse_define("FOO=a b")
+        with self.assertRaisesRegex(ValueError, "';'"):
+            parse_define("FOO=a;b")
 
 
 class ImportSourcesTests(unittest.TestCase):
@@ -233,6 +251,47 @@ class ImportCliFileListTests(unittest.TestCase):
             self.assertEqual(Manifest.read(out).params, (("WIDTH", "16"),))
             self.assertIn("param WIDTH=16", stdout.getvalue())
 
+    def test_cli_writes_defines(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "a.sv"
+            source.write_text("")
+            out = root / "design.json"
+            stdout = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                code = importer_main(
+                    ["-f", str(source), "-D", "SYNTHESIS", "-D", "WIDTH=16",
+                     "--out", str(out)]
+                )
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                Manifest.read(out).defines,
+                (("SYNTHESIS", "1"), ("WIDTH", "16")),
+            )
+            self.assertIn("define SYNTHESIS=1", stdout.getvalue())
+            self.assertIn("define WIDTH=16", stdout.getvalue())
+
+    def test_cli_duplicate_define_keeps_last_and_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "a.sv"
+            source.write_text("")
+            out = root / "design.json"
+            stderr = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                code = importer_main(
+                    ["-f", str(source), "-D", "FOO=1", "-D", "FOO=2",
+                     "--out", str(out)]
+                )
+            self.assertEqual(code, 0)
+            self.assertEqual(Manifest.read(out).defines, (("FOO", "2"),))
+            self.assertIn("macro FOO is defined more than once", stderr.getvalue())
+
+    def test_cli_rejects_a_malformed_define(self) -> None:
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+            importer_main(["-f", "a.sv", "-D", "=1"])
+        self.assertEqual(exc.exception.code, 2)
+
     def test_cli_duplicate_parameter_keeps_last_and_warns(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -347,6 +406,24 @@ class ImportManifestTests(unittest.TestCase):
         self.assertEqual(m.params, (("WIDTH", "16"),))
         self.assertTrue(
             any("parameter WIDTH is defined more than once" in w for w in warnings),
+            warnings,
+        )
+
+    def test_filelist_defines_merge_with_the_cli(self) -> None:
+        _, root = self._tree()
+        (root / "rtl" / "list.f").write_text(
+            "-D FILE=1\n+define+PLUS=2\ntop.sv\n"
+        )
+        warnings: list[str] = []
+        m = import_manifest(
+            root / "rtl",
+            root=root,
+            defines=[("FILE", "3"), ("CLI", "4")],
+            warnings_out=warnings,
+        )
+        self.assertEqual(m.defines, (("FILE", "3"), ("PLUS", "2"), ("CLI", "4")))
+        self.assertTrue(
+            any("macro FILE is defined more than once" in w for w in warnings),
             warnings,
         )
 

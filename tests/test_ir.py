@@ -161,6 +161,11 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(m.params_map(), {"W": "16"})
         self.assertEqual(m.duplicate_params(), {"W": "16"})
 
+    def test_duplicate_defines_keep_the_last_value(self) -> None:
+        m = Manifest(defines=(("W", "8"), ("W", "16")))
+        self.assertEqual(m.defines_map(), {"W": "16"})
+        self.assertEqual(m.duplicate_defines(), {"W": "16"})
+
 
 class CacheTests(unittest.TestCase):
     def setUp(self) -> None:

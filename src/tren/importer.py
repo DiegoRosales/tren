@@ -28,7 +28,7 @@ CLI (from the repo root, inside the nix dev shell):
     nix develop . -c tren import tests/rtl/sources.f --name demo
     nix develop . -c tren import tests/rtl/demo.sv
     nix develop . -c tren import -f a.sv -f b.sv        # explicit source list
-    nix develop . -c tren import -f top.sv -G WIDTH=16  # top-level override
+    nix develop . -c tren import -f top.sv -D SYNTHESIS -G WIDTH=16  # macro + override
     nix develop . -c tren import <vivado-project.xpr>   # Vivado (auto-detected)
 """
 
@@ -46,6 +46,7 @@ from .vivado import parse_vivado, to_manifest_layout
 _SOURCE_SUFFIXES = (".sv", ".v")
 _FORMATS = ("auto", "f", "vivado")
 _PARAM_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*\Z")
+_DEFINE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*\Z")
 
 # Slang tolerances every imported manifest carries. Vivado and yosys accept
 # the constructs behind each flag, so a design that builds in its own
@@ -132,11 +133,33 @@ def parse_param(text: str) -> tuple[str, str]:
     return name, value
 
 
+def parse_define(text: str) -> tuple[str, str]:
+    """Parse ``NAME[=VALUE]`` for a preprocessor define.
+
+    No value means ``1``, the same rule the filelist parser uses. The value
+    must be one token and must not contain ``;`` for the same yosys-script
+    reason as a parameter override.
+    """
+    name, sep, value = text.partition("=")
+    name = name.strip()
+    value = value.strip() if sep else "1"
+    if not name:
+        raise ValueError(f"malformed define: {text!r} (expected NAME[=VALUE])")
+    if _DEFINE_NAME.fullmatch(name) is None:
+        raise ValueError(f"invalid define name: {name!r}")
+    if any(ch.isspace() for ch in value) or ";" in value:
+        raise ValueError(
+            f"invalid define value: {value!r} (no whitespace or ';')"
+        )
+    return name, value or "1"
+
+
 def merge_pairs(
     base: list[tuple[str, str]] | tuple[tuple[str, str], ...],
     override: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None,
     *,
     warnings_out: list[str] | None = None,
+    label: str = "parameter",
 ) -> tuple[tuple[str, str], ...]:
     """Merge ``override`` over ``base``; the last value wins on a name match.
 
@@ -154,7 +177,7 @@ def merge_pairs(
     if warnings_out is not None:
         for name in duplicates:
             warnings_out.append(
-                f"parameter {name} is defined more than once; "
+                f"{label} {name} is defined more than once; "
                 f"using the last value {merged[name]}"
             )
     return tuple(merged.items())
@@ -271,6 +294,7 @@ def import_sources(
     root: str | Path | None = None,
     name: str | None = None,
     top: str | None = None,
+    defines: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     params: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     warnings_out: list[str] | None = None,
 ) -> Manifest:
@@ -281,7 +305,8 @@ def import_sources(
     meaningful to the parser. A missing source produces a warning and is left
     out of the manifest, so one bad path does not stop the others. Source
     directories become incdirs, the same rule ``import_manifest`` uses for a
-    directory scan. ``params`` are top-level parameter overrides.
+    directory scan. ``defines`` and ``params`` are preprocessor defines and
+    top-level parameter overrides.
     """
     if not sources:
         raise ValueError("at least one source file is required")
@@ -300,6 +325,7 @@ def import_sources(
         name=name or root.name or "design",
         sources=stored,
         incdirs=tuple(_default_incdirs(found, None, root)),
+        defines=merge_pairs((), defines, warnings_out=warnings, label="macro"),
         params=merge_pairs((), params, warnings_out=warnings),
         top=top or "top",
         slang_flags=IMPORT_SLANG_FLAGS,
@@ -312,6 +338,7 @@ def import_manifest(
     root: str | Path | None = None,
     name: str | None = None,
     top: str | None = None,
+    defines: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     params: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     fmt: str = "auto",
     warnings_out: list[str] | None = None,
@@ -321,8 +348,9 @@ def import_manifest(
     ``root`` (default: the invocation cwd) is the anchor every stored path is
     relative to -- the same anchor the elaborator resolves against. ``fmt``
     selects the importer: ``auto`` detects a Vivado ``project.xpr``,
-    otherwise the plain filelist/dir importer is used. ``params`` are
-    top-level parameter overrides; a CLI value wins over a filelist value.
+    otherwise the plain filelist/dir importer is used. ``defines`` and
+    ``params`` are preprocessor defines and top-level parameter overrides;
+    a CLI value wins over a filelist value.
     """
     target = Path(target)
     root = Path.cwd() if root is None else Path(root)
@@ -331,20 +359,27 @@ def import_manifest(
     fmt = fmt if fmt and fmt != "auto" else detect_format(target)
     if fmt == "vivado":
         return _import_vivado(
-            target, root, name=name, top=top, params=params, warnings_out=warnings
+            target,
+            root,
+            name=name,
+            top=top,
+            defines=defines,
+            params=params,
+            warnings_out=warnings,
         )
     if fmt != "f":
         raise ValueError(f"unknown importer format: {fmt!r} (choose from {_FORMATS})")
 
     if target.is_file():
         if target.suffix == ".f":
-            sources, incdirs, defines, file_params, warn = parse_filelist(
+            sources, incdirs, file_defines, file_params, warn = parse_filelist(
                 target.read_text()
             )
             warnings.extend(warn)
             anchor: Path | None = target.parent
         else:
-            sources, incdirs, defines = [str(target)], [], []
+            sources, incdirs = [str(target)], []
+            file_defines = []
             file_params = []
             anchor = None
     elif target.is_dir():
@@ -356,7 +391,7 @@ def import_manifest(
                     + ", ".join(str(p) for p in filelists)
                     + " -- pass one explicitly"
                 )
-            sources, incdirs, defines, file_params, warn = parse_filelist(
+            sources, incdirs, file_defines, file_params, warn = parse_filelist(
                 filelists[0].read_text()
             )
             warnings.extend(warn)
@@ -365,7 +400,8 @@ def import_manifest(
             sources = sorted(
                 str(p) for p in target.rglob("*") if p.suffix in _SOURCE_SUFFIXES
             )
-            incdirs, defines = [], []
+            incdirs = []
+            file_defines = []
             file_params = []
             anchor = None
     else:
@@ -387,7 +423,9 @@ def import_manifest(
         name=name,
         sources=stored_sources,
         incdirs=incdirs_all,
-        defines=tuple(defines),
+        defines=merge_pairs(
+            file_defines, defines, warnings_out=warnings, label="macro"
+        ),
         params=merge_pairs(file_params, params, warnings_out=warnings),
         top=top or "top",
         slang_flags=IMPORT_SLANG_FLAGS,
@@ -400,6 +438,7 @@ def _import_vivado(
     *,
     name: str | None = None,
     top: str | None = None,
+    defines: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     params: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     warnings_out: list[str] | None = None,
 ) -> Manifest:
@@ -411,6 +450,7 @@ def _import_vivado(
         name=proj.name,
         sources=sources,
         incdirs=incdirs,
+        defines=merge_pairs((), defines, warnings_out=warnings, label="macro"),
         params=merge_pairs((), params, warnings_out=warnings),
         top=parsed_top or "top",
         slang_flags=IMPORT_SLANG_FLAGS,
@@ -445,6 +485,11 @@ def main(argv: list[str] | None = None) -> int:
         help="top module (default: 'top', or the Vivado TopModule / recorded top)",
     )
     parser.add_argument(
+        "-D", "--define", action="append", dest="defines",
+        metavar="NAME[=VALUE]",
+        help="define a macro; repeat the option for more (no value means 1)",
+    )
+    parser.add_argument(
         "-G", "--param", action="append", dest="params", metavar="NAME=VALUE",
         help="override a top-level parameter; repeat the option for more",
     )
@@ -461,6 +506,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.files and args.format != "auto":
         parser.error("--format does not apply with -f/--file")
     try:
+        defines = [parse_define(text) for text in (args.defines or [])]
         params = [parse_param(text) for text in (args.params or [])]
     except ValueError as exc:
         parser.error(str(exc))
@@ -472,6 +518,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.files,
                 name=args.name,
                 top=args.top,
+                defines=defines,
                 params=params,
                 warnings_out=warnings,
             )
@@ -485,6 +532,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.target,
                 name=args.name,
                 top=args.top,
+                defines=defines,
                 params=params,
                 fmt=effective,
                 warnings_out=warnings,

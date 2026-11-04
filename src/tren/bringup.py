@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .config import Config, ConfigError, load_config
 from .elaborate import IrCache, design_summary, elaborate, tool_failure_message
-from .importer import import_manifest, import_sources, parse_param
+from .importer import import_manifest, import_sources, parse_define, parse_param
 from .ir import Design
 from .manifest import Manifest
 
@@ -48,6 +48,7 @@ def load_target(
     out: str | Path | None = None,
     name: str | None = None,
     top: str | None = None,
+    defines: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     params: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     fmt: str = "auto",
     warnings_out: list[str] | None = None,
@@ -58,9 +59,9 @@ def load_target(
     replaces ``target``; give one or the other. ``root`` is the anchor for
     stored paths and tool invocation (default: current directory). ``out``
     writes the imported manifest; without it the manifest stays in memory.
-    ``params`` are top-level parameter overrides. Importer warnings go to
-    ``warnings_out`` when given, so the caller can show them before the TUI
-    takes the screen.
+    ``defines`` and ``params`` are preprocessor defines and top-level
+    parameter overrides. Importer warnings go to ``warnings_out`` when
+    given, so the caller can show them before the TUI takes the screen.
     """
     root = Path.cwd() if root is None else Path(root)
     if files is not None:
@@ -73,6 +74,7 @@ def load_target(
             root=root,
             name=name,
             top=top,
+            defines=defines,
             params=params,
             warnings_out=warnings_out,
         )
@@ -89,24 +91,35 @@ def load_target(
                 out is not None
                 or name is not None
                 or top is not None
+                or defines
                 or params
                 or fmt != "auto"
             ):
                 raise ValueError(
-                    "--out/--name/--top/--param/--format only apply when "
-                    "importing a source target"
+                    "--out/--name/--top/--define/--param/--format only apply "
+                    "when importing a source target"
                 )
             manifest = Manifest.read(target)
-            duplicates = manifest.duplicate_params()
+            duplicate_params = manifest.duplicate_params()
+            duplicate_defines = manifest.duplicate_defines()
             if warnings_out is not None:
-                for name, value in duplicates.items():
+                for name, value in duplicate_defines.items():
+                    warnings_out.append(
+                        f"macro {name} is defined more than once; "
+                        f"using the last value {value}"
+                    )
+                for name, value in duplicate_params.items():
                     warnings_out.append(
                         f"parameter {name} is defined more than once; "
                         f"using the last value {value}"
                     )
-            if duplicates:
+            if duplicate_params:
                 manifest = replace(
                     manifest, params=tuple(manifest.params_map().items())
+                )
+            if duplicate_defines:
+                manifest = replace(
+                    manifest, defines=tuple(manifest.defines_map().items())
                 )
         else:
             manifest = import_manifest(
@@ -114,6 +127,7 @@ def load_target(
                 root=root,
                 name=name,
                 top=top,
+                defines=defines,
                 params=params,
                 fmt=fmt,
                 warnings_out=warnings_out,
@@ -192,6 +206,11 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
         help="top module (default: 'top', or the Vivado TopModule)",
     )
     parser.add_argument(
+        "-D", "--define", action="append", dest="defines",
+        metavar="NAME[=VALUE]",
+        help="define a macro; repeat the option for more (no value means 1)",
+    )
+    parser.add_argument(
         "-G", "--param", action="append", dest="params", metavar="NAME=VALUE",
         help="override a top-level parameter; repeat the option for more",
     )
@@ -207,6 +226,7 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
     if args.files and args.format != "auto":
         parser.error("--format does not apply with -f/--file")
     try:
+        defines = [parse_define(text) for text in (args.defines or [])]
         params = [parse_param(text) for text in (args.params or [])]
     except ValueError as exc:
         parser.error(str(exc))
@@ -230,6 +250,7 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
             out=args.out,
             name=args.name,
             top=args.top,
+            defines=defines,
             params=params,
             fmt=args.format,
             warnings_out=warnings,

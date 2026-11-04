@@ -8,16 +8,20 @@ Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s te
 
 from __future__ import annotations
 
+import io
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tren.cache import IrCache  # noqa: E402
+from tren.config import Config  # noqa: E402
 from tren.importer import import_manifest  # noqa: E402
 from tren.elaborate import (  # noqa: E402
     _bit_key,
@@ -33,6 +37,7 @@ from tren.elaborate import (  # noqa: E402
     _type_string,
     build_design,
     elaborate,
+    main as elaborate_main,
     parse_hier_line,
     run_slang_ast,
     run_slang_hier,
@@ -87,6 +92,7 @@ class BackendFlagTests(unittest.TestCase):
 
     MANIFEST = Manifest(
         sources=("tests/rtl/demo.sv",),
+        defines=(("SYNTHESIS", "1"),),
         params=(("WIDTH", "16"),),
         slang_flags=("--timescale=1ns/1ps", "--allow-use-before-declare", "-Wno-redefinition"),
         yosys_flags=("-DEXTRA=1",),
@@ -120,6 +126,8 @@ class BackendFlagTests(unittest.TestCase):
         self.assertIn("--timescale=1ns/1ps", cmd)
         self.assertIn("--allow-use-before-declare", cmd)
         self.assertIn("-Wno-redefinition", cmd)
+        self.assertIn("-D", cmd)
+        self.assertIn("SYNTHESIS=1", cmd)
         self.assertIn("-G", cmd)
         self.assertIn("WIDTH=16", cmd)
         self.assertIn("tests/rtl/demo.sv", cmd)
@@ -131,6 +139,8 @@ class BackendFlagTests(unittest.TestCase):
         self.assertIn("--ignore-unknown-modules", cmd)
         self.assertIn("--timescale=1ns/1ps", cmd)
         self.assertIn("--ast-json-source-info", cmd)
+        self.assertIn("-D", cmd)
+        self.assertIn("SYNTHESIS=1", cmd)
         self.assertIn("-G", cmd)
         self.assertIn("WIDTH=16", cmd)
 
@@ -139,7 +149,9 @@ class BackendFlagTests(unittest.TestCase):
             lambda: run_yosys(self.MANIFEST, REPO, "/tmp/netlist.json")
         )[0][3]
         self.assertIn(
-            "read_verilog -sv -nolatches -DEXTRA=1 -Itests/rtl tests/rtl/demo.sv", script
+            "read_verilog -sv -nolatches -DEXTRA=1 -DSYNTHESIS=1 "
+            "-Itests/rtl tests/rtl/demo.sv",
+            script,
         )
         self.assertIn("chparam -set WIDTH 16 top; hierarchy -top top", script)
         self.assertIn("proc;", script)
@@ -170,6 +182,26 @@ class BackendFlagTests(unittest.TestCase):
         self.assertIn("chparam -set WIDTH 16 top", script)
         self.assertNotIn("chparam -set WIDTH 8", script)
 
+    def test_duplicate_defines_use_the_last_value(self) -> None:
+        manifest = Manifest(
+            sources=("tests/rtl/demo.sv",),
+            defines=(("W", "8"), ("W", "16")),
+        )
+        hier = self._capture(lambda: run_slang_hier(manifest, REPO))[0]
+        self.assertIn("-D", hier)
+        self.assertIn("W=16", hier)
+        self.assertNotIn("W=8", hier)
+        ast = self._capture(
+            lambda: run_slang_ast(manifest, REPO, "/tmp/ast.json")
+        )[0]
+        self.assertIn("W=16", ast)
+        self.assertNotIn("W=8", ast)
+        script = self._capture(
+            lambda: run_yosys(manifest, REPO, "/tmp/netlist.json")
+        )[0][3]
+        self.assertIn("-DW=16", script)
+        self.assertNotIn("-DW=8", script)
+
     def test_effective_incdirs_adds_source_dirs(self) -> None:
         """A hand-written manifest listing only sources gets the
         source directories, including '.' for a root source."""
@@ -181,6 +213,33 @@ class BackendFlagTests(unittest.TestCase):
         cmd = self._capture(lambda: run_slang_hier(bare, REPO))[0]
         self.assertIn("--ignore-unknown-modules", cmd)
         self.assertNotIn("--timescale", cmd)
+
+
+class ElaborateMainWarningTests(unittest.TestCase):
+    def test_duplicate_defines_and_params_warn(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "manifest.json"
+            Manifest(
+                name="d",
+                sources=("a.sv",),
+                defines=(("W", "8"), ("W", "16")),
+                params=(("P", "8"), ("P", "16")),
+                top="top",
+            ).write(path)
+            err = io.StringIO()
+            with mock.patch(
+                "tren.elaborate.load_config",
+                return_value=mock.Mock(config=Config()),
+            ), mock.patch(
+                "tren.elaborate.elaborate", return_value=Design(top="top")
+            ) as build, redirect_stderr(err), redirect_stdout(io.StringIO()):
+                code = elaborate_main([str(path)])
+        self.assertEqual(code, 0)
+        self.assertIn("macro W is defined more than once", err.getvalue())
+        self.assertIn("parameter P is defined more than once", err.getvalue())
+        built = build.call_args.args[0]
+        self.assertEqual(built.defines, (("W", "16"),))
+        self.assertEqual(built.params, (("P", "16"),))
 
 
 class DiagnosticTests(unittest.TestCase):
@@ -356,6 +415,37 @@ class ParameterOverrideAcceptanceTests(unittest.TestCase):
         self.assertEqual(ports["a"].range, "[15:0]")
         self.assertEqual(ports["y"].range, "[15:0]")
         self.assertIn("16", {p.name: p.value for p in scope.params}["WIDTH"])
+
+
+@unittest.skipUnless(
+    shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
+    "requires the nix dev shell (yosys/slang on PATH)",
+)
+class DefineAcceptanceTests(unittest.TestCase):
+    """A macro define reaches both backends and the IR."""
+
+    def test_define_changes_the_port_width(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "define_top.sv").write_text(
+                "module top\n"
+                "  (input logic [`TOPW-1:0] a, output logic [`TOPW-1:0] y);\n"
+                "  assign y = a;\n"
+                "endmodule\n"
+            )
+            manifest = Manifest(
+                name="define_top",
+                sources=("define_top.sv",),
+                defines=(("TOPW", "16"),),
+                top="top",
+            )
+            design = elaborate(manifest, root, cache=None)
+        scope = design.scope("top")
+        assert scope is not None
+        ports = {port.name: port for port in scope.ports}
+        self.assertEqual((ports["a"].width, ports["y"].width), (16, 16))
+        self.assertEqual(ports["a"].range, "[15:0]")
+        self.assertEqual(ports["y"].range, "[15:0]")
 
 
 class SlangOverlayUnitTests(unittest.TestCase):
