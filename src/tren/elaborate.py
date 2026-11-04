@@ -2,17 +2,19 @@
 
 Wraps the pinned CLIs (versions recorded in README.md):
 
-- ``slang-hier --params`` - the scope tree (every instance path, generate
-  scopes included) plus per-instance resolved parameters (``W=32'd32``).
-  A manifest top-level override reaches slang as ``-G NAME=VALUE``.
+- ``slang-hier --params`` - the leaf instance tree (generate paths included)
+  plus per-instance resolved parameters (``W=32'd32``). It does not list the
+  generate block nodes themselves. A manifest top-level override reaches
+  slang as ``-G NAME=VALUE``.
 - ``yosys ... ; hierarchy -top <top>; proc; write_json`` - connectivity
   (per net bit, drivers/loads within the module), boundary links (submodule
   cell ports), black-box detection and ports, and net widths/src. The yosys
   rules from AGENTS.md apply: ``proc`` required, never ``opt``, never
   ``flatten``; bit IDs are positional-only across scopes.
 - ``slang --ast-json --ast-json-source-info --ast-json-detailed-types`` -
-  declarations: parameter kinds (parameter vs localparam) and source
-  locations for ports.
+  declarations (parameter kinds, source locations for ports) and the
+  ``GenerateBlock`` / ``GenerateBlockArray`` nodes that become generate
+  scopes.
 
 Scopes are keyed by their hierarchical instance path (``top.u_core.g[0]``)
 and carry their resolved params; generate blocks become their own scopes
@@ -357,7 +359,14 @@ def _parse_ast_decls(
     module_decls[module] = {"params": {name: {value, default, isLocal, src}},
                             "ports": {name: {direction, width, type, range, src}},
                             "nets": {name: {type, range, src}}}
-    generate_info[module][name] = {"count": N, "src": ...}
+    generate_info[instance][path] = {"kind": "array" | "block", "count": N,
+                                     "src": ...}
+
+    An array records its loop path plus one "block" entry per active index.
+    A named or anonymous generate-if/case block records its own path. The
+    zero-width array records only the "array" entry, so no scope appears.
+    The key is the instance path, not the module: two instances of one
+    module can activate different generate branches.
 
     A net of a generate block carries the block path yosys gives it
     ("g[0].gr"), so the two layers join on one name.
@@ -388,7 +397,9 @@ def _parse_ast_decls(
             module, {"params": {}, "ports": {}, "nets": {}}
         )
 
-    def visit_members(members: list[dict], module: str, prefix: str = "") -> None:
+    def visit_members(
+        members: list[dict], module: str, instance: str, prefix: str = ""
+    ) -> None:
         for m in members or []:
             kind = m.get("kind")
             if kind in ("Parameter", "LocalParameter"):
@@ -424,10 +435,13 @@ def _parse_ast_decls(
                 sub = _body_module(m)
                 body = m.get("body")
                 if sub is not None and isinstance(body, dict):
-                    visit_members(body.get("members"), sub)
+                    child_path = f"{instance}.{prefix}{m['name']}"
+                    visit_members(body.get("members"), sub, child_path)
             elif kind == "GenerateBlockArray":
                 blocks = [b for b in (m.get("members") or []) if b.get("kind") == "GenerateBlock"]
-                generates.setdefault(module, {})[m["name"]] = {
+                array_path = f"{prefix}{m['name']}"
+                generates.setdefault(instance, {})[array_path] = {
+                    "kind": "array",
                     "count": len(blocks),
                     "src": _ast_src(m),
                 }
@@ -435,9 +449,29 @@ def _parse_ast_decls(
                 # 'g[0]' - index the blocks in order, as the generate scopes
                 # above do.
                 for i, block in enumerate(blocks):
-                    visit_members(block.get("members"), module, f"{prefix}{m['name']}[{i}].")
+                    block_path = f"{array_path}[{i}]"
+                    generates[instance][block_path] = {
+                        "kind": "block",
+                        "count": 1,
+                        "src": _ast_src(block) or _ast_src(m),
+                    }
+                    visit_members(
+                        block.get("members"), module, instance, f"{block_path}."
+                    )
             elif kind == "GenerateBlock":
-                visit_members(m.get("members"), module, prefix)
+                name = m.get("name") or ""
+                if not name:
+                    visit_members(m.get("members"), module, instance, prefix)
+                    continue
+                block_path = f"{prefix}{name}"
+                generates.setdefault(instance, {})[block_path] = {
+                    "kind": "block",
+                    "count": 1,
+                    "src": _ast_src(m),
+                }
+                visit_members(
+                    m.get("members"), module, instance, f"{block_path}."
+                )
 
     # The design lists one Instance per top-level module, not one per design:
     # a source set whose modules are not all reachable from a single top gets
@@ -449,9 +483,9 @@ def _parse_ast_decls(
         body = root_instance.get("body")
         if not isinstance(body, dict):
             continue
-        visit_members(
-            body.get("members"), _body_module(root_instance) or root_instance.get("name")
-        )
+        module = _body_module(root_instance) or root_instance.get("name") or ""
+        instance = root_instance.get("name") or module
+        visit_members(body.get("members"), module, instance)
     return decls, generates
 
 
@@ -712,36 +746,49 @@ def build_design(
             src=((mod.get("attributes") or {}).get("src") or node.get("file")),
         )
 
-    # --- generate scopes: array-index path segments (g[0], genblk1, ...) ----
-    for path in list(scopes):
-        parts = path.split(".")
-        for i in range(1, len(parts)):
-            if "[" not in parts[i]:
+    # --- generate scopes: active blocks from the AST, per module instance ---
+    # slang-hier lists only the leaf instances, not the generate blocks on
+    # the path. Walk the AST block paths once per module instance, so an
+    # if/case/nested block becomes a scope even when it holds no instance
+    # and has no array index. The zero-width array has no block entry.
+    for path in sorted(module_of):
+        for rel, gen in (generates.get(path) or {}).items():
+            if gen.get("kind") != "block":
                 continue
-            gpath = ".".join(parts[: i + 1])
-            if gpath not in scopes:
-                parent_base = module_of.get(".".join(parts[:i]))
-                gen = ((generates.get(parent_base) or {}).get(re.sub(r"\[\d+\]", "", parts[i])) if parent_base else None) or {}
-                scopes[gpath] = Scope(
-                    name=gpath,
-                    module=None,
-                    src=gen.get("src"),
-                )
+            gpath = f"{path}.{rel}"
+            if gpath in scopes:
+                continue
+            scopes[gpath] = Scope(
+                name=gpath,
+                module=None,
+                src=gen.get("src"),
+            )
 
     # --- instances: direct child scopes; src = instantiation site ----------
     # The instance's src is the *instantiation in the parent* (the yosys cell
     # src, e.g. tests/rtl/demo.sv:77.14-77.65), not the child module's declaration -
     # that is what the source pane focuses. Fall back to the child scope's own
-    # src when the cell src is unknown (generate-block children). Children are
+    # src for a generate-block row (it has no yosys cell). Children are
     # ordered by src line (source order), name as tiebreak.
     for path, scope in scopes.items():
         children = [q for q in scopes if _parent(q) == path]
-        key = base_to_key.get(scope.module) if scope.module else None
+        # A generate block is transparent to yosys: the cell for a child
+        # instance lives in the nearest enclosing module, under the whole
+        # dotted path ('g_if.u_if'), not in the generate scope itself.
+        container = path
+        while container not in module_of:
+            parent = _parent(container)
+            if parent is None:
+                container = ""
+                break
+            container = parent
+        key = base_to_key.get(module_of.get(container, "")) if container else None
         mod = netlist["modules"].get(key) or {} if key else {}
         insts: list[Instance] = []
         for q in children:
             name = q.rsplit(".", 1)[1]
-            cell = (mod.get("cells") or {}).get(name) or {}
+            cell_path = q[len(container) + 1:] if container else name
+            cell = (mod.get("cells") or {}).get(cell_path) or {}
             cell_src = (cell.get("attributes") or {}).get("src")
             insts.append(
                 Instance(

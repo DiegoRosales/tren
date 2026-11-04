@@ -826,6 +826,194 @@ class DemoAcceptanceTests(unittest.TestCase):
     shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
     "requires the nix dev shell (yosys/slang on PATH)",
 )
+class GenerateAcceptanceTests(unittest.TestCase):
+    """The active generate branches become scopes; inactive and zero-width
+    branches do not. Leaf instances keep the yosys dotted cell path and the
+    instantiation source span, even when a generate block is between them."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.manifest = Manifest.read(REPO / "tests" / "rtl" / "generate.manifest.json")
+        cls.design = elaborate(cls.manifest, REPO, cache=None)
+
+    def test_active_generate_blocks_are_scopes(self) -> None:
+        names = {scope.name for scope in self.design.scopes}
+        self.assertTrue(
+            {
+                "gen_top.garr[0]",
+                "gen_top.garr[1]",
+                "gen_top.g_if",
+                "gen_top.genblk3",
+                "gen_top.g_case0",
+                "gen_top.g_outer[0]",
+                "gen_top.g_outer[0].g_inner",
+                "gen_top.g_decl",
+            }
+            <= names,
+            names,
+        )
+        top = self.design.scope("gen_top")
+        assert top is not None
+        self.assertEqual(
+            [inst.name for inst in top.instances],
+            [
+                "garr[0]",
+                "garr[1]",
+                "g_if",
+                "genblk3",
+                "g_case0",
+                "g_outer[0]",
+                "g_decl",
+            ],
+        )
+        self.assertTrue(all(inst.module is None for inst in top.instances))
+
+        nested = self.design.scope("gen_top.g_outer[0]")
+        inner = self.design.scope("gen_top.g_outer[0].g_inner")
+        decl = self.design.scope("gen_top.g_decl")
+        assert nested is not None and inner is not None and decl is not None
+        self.assertEqual([inst.name for inst in nested.instances], ["g_inner"])
+        self.assertEqual([inst.name for inst in inner.instances], ["u_nested"])
+        self.assertEqual(decl.instances, ())
+
+    def test_inactive_and_zero_width_generates_are_absent(self) -> None:
+        names = {scope.name for scope in self.design.scopes}
+        for absent in (
+            "gen_top.g_else",
+            "gen_top.g_case_def",
+            "gen_top.g_zero",
+        ):
+            with self.subTest(scope=absent):
+                self.assertNotIn(absent, names)
+
+    def test_generate_source_spans(self) -> None:
+        expected = {
+            "gen_top.garr[0]": 21,
+            "gen_top.garr[1]": 21,
+            "gen_top.g_if": 26,
+            "gen_top.genblk3": 33,
+            "gen_top.g_case0": 39,
+            "gen_top.g_outer[0]": 48,
+            "gen_top.g_outer[0].g_inner": 49,
+            "gen_top.g_decl": 59,
+        }
+        for name, line in expected.items():
+            with self.subTest(scope=name):
+                scope = self.design.scope(name)
+                assert scope is not None
+                self.assertEqual(
+                    parse_src(scope.src), ("tests/rtl/generate.sv", line, line)
+                )
+
+    def test_leaf_instances_keep_the_cell_path_and_instantiation_span(self) -> None:
+        expected = {
+            "gen_top.garr[0].u_leaf": 23,
+            "gen_top.garr[1].u_leaf": 23,
+            "gen_top.g_if.u_if": 28,
+            "gen_top.genblk3.u_anon": 35,
+            "gen_top.g_case0.u_case0": 41,
+            "gen_top.g_outer[0].g_inner.u_nested": 51,
+        }
+        for name, line in expected.items():
+            with self.subTest(scope=name):
+                scope = self.design.scope(name)
+                assert scope is not None
+                parent = self.design.scope(name.rsplit(".", 1)[0])
+                assert parent is not None
+                inst = {i.name: i for i in parent.instances}[name.rsplit(".", 1)[1]]
+                self.assertEqual(
+                    parse_src(inst.src), ("tests/rtl/generate.sv", line, line)
+                )
+        boundary_instances = {link.instance for link in self.design.boundaries}
+        self.assertTrue(
+            {
+                "garr[0].u_leaf",
+                "garr[1].u_leaf",
+                "g_if.u_if",
+                "genblk3.u_anon",
+                "g_case0.u_case0",
+                "g_outer[0].g_inner.u_nested",
+            }
+            <= boundary_instances,
+            boundary_instances,
+        )
+
+    def test_parameter_dependent_branches_follow_each_instance(self) -> None:
+        source = """\
+module leaf(input logic a, output logic y);
+  assign y = a;
+endmodule
+
+module cond #(parameter int USE = 1)
+  (input  logic a,
+   output logic y);
+
+  if (USE) begin : g_on
+    leaf u_on(.a(a), .y(y));
+  end else begin : g_off
+    leaf u_off(.a(a), .y(y));
+  end
+endmodule
+
+module cond_top
+  (input  logic a,
+   output logic y1,
+   output logic y0);
+
+  cond #(.USE(1)) u_on0(.a(a), .y(y1));
+  cond #(.USE(0)) u_off0(.a(a), .y(y0));
+endmodule
+"""
+        with tempfile.TemporaryDirectory(prefix="tren-generate-param-") as td:
+            root = Path(td)
+            (root / "cond.sv").write_text(source)
+            design = elaborate(
+                Manifest(name="cond", sources=("cond.sv",), top="cond_top"),
+                root,
+                cache=None,
+            )
+        names = {scope.name for scope in design.scopes}
+        self.assertTrue(
+            {"cond_top.u_on0.g_on", "cond_top.u_off0.g_off"} <= names, names
+        )
+        self.assertNotIn("cond_top.u_on0.g_off", names)
+        self.assertNotIn("cond_top.u_off0.g_on", names)
+
+    def test_local_nets_and_parameter_overrides_reach_the_ir(self) -> None:
+        top = self.design.scope("gen_top")
+        assert top is not None
+        nets = {net.name: net for net in top.nets}
+        for name in (
+            "garr[0].t",
+            "garr[1].t",
+            "g_if.t",
+            "genblk3.t",
+            "g_case0.t",
+            "g_outer[0].g_inner.t",
+            "g_decl.only",
+        ):
+            with self.subTest(net=name):
+                self.assertEqual(nets[name].range, "[7:0]")
+        for name in (
+            "gen_top.garr[0].u_leaf",
+            "gen_top.g_if.u_if",
+            "gen_top.genblk3.u_anon",
+            "gen_top.g_case0.u_case0",
+            "gen_top.g_outer[0].g_inner.u_nested",
+        ):
+            with self.subTest(scope=name):
+                scope = self.design.scope(name)
+                assert scope is not None
+                param = {p.name: p for p in scope.params}["W"]
+                self.assertEqual(param.value, "8")
+                self.assertEqual(param.default, "4")
+                self.assertTrue(param.overridden)
+
+
+@unittest.skipUnless(
+    shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
+    "requires the nix dev shell (yosys/slang on PATH)",
+)
 class IncludeElaborationAcceptanceTests(unittest.TestCase):
     """A manifest from a source tree whose `` `include `` lives in a
     sibling source directory elaborates through both backends.

@@ -169,6 +169,50 @@ The `params` field then reads `[["WIDTH", "16"]]`. The elaborator passes the
 override to both backends: slang receives `-G WIDTH=16`, and yosys receives
 `chparam -set WIDTH 16 param_top`.
 
+## Generate from a top-level parameter
+
+A top-level parameter can select how many generate blocks exist.
+`docs/examples/generate/generate_top.sv` declares
+`generate_top #(parameter int LANES = 2)` and a for-generate named `g`. Open
+the default:
+
+```sh
+tren open docs/examples/generate/generate_top.sv --top generate_top
+```
+
+The tree shows `g[0]` and `g[1]`. Override the parameter:
+
+```sh
+tren open docs/examples/generate/generate_top.sv --top generate_top -G LANES=4
+```
+
+The tree shows `g[0]` through `g[3]`. The source also has an `if (LANES > 2)`
+generate block named `g_wide`; it appears only with the override. Inactive
+branches and zero-width loops have no scope.
+
+The lanes are chained. `stage[7:0]` starts at `a`, each lane drives the next
+8-bit slice, and the last slice drives `y`. Select the output port of
+`g[0].u_lane` and press `L`: the load is the next lane input on
+`stage[15:8]`, not every lane input on the bus.
+
+A filelist can carry the same override. `docs/examples/generate/design.f`:
+
+```text
+// LANES=4 generates four lanes and the wide branch.
+-G LANES=4
+generate_top.sv
+```
+
+Open the filelist:
+
+```sh
+tren open docs/examples/generate/design.f --top generate_top
+```
+
+The importer stores the parameter in the manifest. The `params` field reads
+`[["LANES", "4"]]`. The elaborator resolves the generate condition before
+TREN builds the scope tree, so the tree matches the selected parameter.
+
 ## Define a macro
 
 A macro can set a width or select RTL. `docs/examples/define/define_top.sv`

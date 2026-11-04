@@ -8,7 +8,8 @@ Default: drives the fixture-loaded IR tree + source spans and the
 verified keys. With --manifest: elaborates the real IR, the source
 pane shows *real file lines* from the scope's src, the focus band moves with
 selection and follows on descend, and `e` records the editor target at the
-line. Both modes regenerate out/shot.svg.
+line. That mode also drives tests/rtl/generate.sv for generate-if/case/nested
+scopes and their source focus. Both modes regenerate out/shot.svg.
 """
 
 import argparse
@@ -1336,6 +1337,144 @@ async def drive_real(root: Path, manifest_path: Path) -> None:
         (out / "shot-real.svg").write_text(app.export_screenshot())
 
 
+async def drive_generate(root: Path) -> None:
+    """Generate-if/case/nested scopes and their source focus in the real TUI.
+
+    The fixture at tests/rtl/generate.sv has a named for array, a named and
+    an anonymous if, a selected case branch, a nested if and a zero-width
+    for. The tree must show the active blocks only, and every scope and leaf
+    must focus its own source span: the block condition for a generate row,
+    the instantiation for a leaf under it.
+    """
+    design = elaborate(
+        Manifest.read(root / "tests" / "rtl" / "generate.manifest.json"), root
+    )
+    app = TrenApp(design, root=root, settings=Config(yank_provider="osc52"))
+    async with app.run_test(size=(110, 32)) as pilot:
+        source: Static = app.query_one("#source")
+        top = app._current_node
+        assert top.label.plain == "gen_top/", f"cursor: {top}"
+        assert app._focus is not None and app._focus[0] == "tests/rtl/generate.sv"
+        assert app._focus[1] == 15, f"top focus: {app._focus}"
+        assert "module gen_top" in str(source.content)
+        app._ensure_children(top)
+        assert [c.label.plain for c in top.children[:6]] == [
+            "garr[0]/",
+            "garr[1]/",
+            "g_if/",
+            "genblk3/",
+            "g_case0/",
+            "g_outer[0]/",
+        ], [c.label.plain for c in top.children]
+        for row in top.children[:6]:
+            assert app._node_kind(row) == "module", row.label.plain
+
+        def show(path: str) -> None:
+            node = app._find_scope_node(path)
+            assert node is not None, f"no scope node for {path}"
+            app._expand_to(node)
+            app._select(app._visible().index(node))
+
+        generate_focus = {
+            "gen_top.garr[0]": (21, "for (genvar i = 0; i < N; i++) begin : garr"),
+            "gen_top.garr[1]": (21, "for (genvar i = 0; i < N; i++) begin : garr"),
+            "gen_top.g_if": (26, "if (USE_IF) begin : g_if"),
+            "gen_top.genblk3": (33, "if (N > 0) begin"),
+            "gen_top.g_case0": (39, "0: begin : g_case0"),
+            "gen_top.g_outer[0]": (48, "for (genvar j = 0; j < 1; j++) begin : g_outer"),
+            "gen_top.g_outer[0].g_inner": (49, "if (USE_IF) begin : g_inner"),
+            "gen_top.g_decl": (59, "if (USE_IF) begin : g_decl"),
+        }
+        for path, (line, text) in generate_focus.items():
+            show(path)
+            assert app._focus == ("tests/rtl/generate.sv", line, line), (
+                f"{path} focus: {app._focus}"
+            )
+            assert _numbered_rows(str(source.content), line, text), (
+                f"{path} source row missing: {text!r}"
+            )
+            assert status_path(app) == path, status_path(app)
+
+        leaf_focus = {
+            "gen_top.garr[0].u_leaf": (23, "gen_leaf #(.W(8)) u_leaf("),
+            "gen_top.garr[1].u_leaf": (23, "gen_leaf #(.W(8)) u_leaf("),
+            "gen_top.g_if.u_if": (28, "gen_leaf #(.W(8)) u_if("),
+            "gen_top.genblk3.u_anon": (35, "gen_leaf #(.W(8)) u_anon("),
+            "gen_top.g_case0.u_case0": (41, "gen_leaf #(.W(8)) u_case0("),
+            "gen_top.g_outer[0].g_inner.u_nested": (
+                51,
+                "gen_leaf #(.W(8)) u_nested(",
+            ),
+        }
+        for path, (line, text) in leaf_focus.items():
+            show(path)
+            assert app._focus == ("tests/rtl/generate.sv", line, line), (
+                f"{path} focus: {app._focus}"
+            )
+            assert _numbered_rows(str(source.content), line, text), (
+                f"{path} source row missing: {text!r}"
+            )
+
+        # inactive branches and a zero-width for array have no row at all
+        for absent in (
+            "gen_top.g_else",
+            "gen_top.g_case_def",
+            "gen_top.g_zero",
+        ):
+            assert app._find_scope_node(absent) is None, absent
+
+        # a generate block's local declaration stays a row on its module (the
+        # yosys net name carries the block prefix) and focuses the declaration
+        select_leaf(app, "gen_top", "net", "g_if.t")
+        assert app._current_node.label.plain == "logic [7:0] g_if.t", (
+            app._current_node.label.plain
+        )
+        assert app._focus == ("tests/rtl/generate.sv", 27, 27), app._focus
+        assert status_path(app) == "gen_top.g_if.t", status_path(app)
+
+    # The docs generate example chains its lanes on one bus. A load from one
+    # generated lane output crosses to one 8-bit slice, not the whole bus.
+    manifest = Manifest(
+        name="generate-docs",
+        sources=("docs/examples/generate/generate_top.sv",),
+        params=(("LANES", "4"),),
+        top="generate_top",
+    )
+    design = elaborate(manifest, root)
+    app = TrenApp(design, root=root, settings=Config(yank_provider="osc52"))
+    async with app.run_test(size=(110, 32)) as pilot:
+        assert app._select_path("generate_top.g[0].u_lane", "y")
+        await pilot.press("L")
+        assert [r["label"] for r in app._trace_rows()] == [
+            "stage[15:8]  ↑ generate_top"
+        ], app._trace_rows()
+        app._trace_index = 0
+        await pilot.press("enter")
+        assert app._trace_head_label(app._trace_cursor) == (
+            "generate_top.stage[15:8]"
+        ), app._trace_head_label(app._trace_cursor)
+        assert [r["label"] for r in app._trace_rows()] == [
+            "g[1].u_lane.a  → lane"
+        ], app._trace_rows()
+        await pilot.press("escape")
+
+        # The reverse: drivers of the next lane input return to the same
+        # slice, and entering it reaches the previous lane output.
+        assert app._select_path("generate_top.g[1].u_lane", "a")
+        await pilot.press("d")
+        assert [r["label"] for r in app._trace_rows()] == [
+            "stage[15:8]  ↑ generate_top"
+        ], app._trace_rows()
+        app._trace_index = 0
+        await pilot.press("enter")
+        assert app._trace_head_label(app._trace_cursor) == (
+            "generate_top.stage[15:8]"
+        ), app._trace_head_label(app._trace_cursor)
+        assert [r["label"] for r in app._trace_rows()] == [
+            "g[0].u_lane.y  → lane"
+        ], app._trace_rows()
+
+
 async def drive_search_window() -> None:
     """Committed search over more matches than the window: n/N slide it.
 
@@ -1424,6 +1563,7 @@ async def main(argv: list[str] | None = None) -> None:
     root = Path.cwd()
     if args.manifest is not None:
         await drive_real(root, args.manifest)
+        await drive_generate(root)
     else:
         await drive_fixture()
         await drive_unreadable_src()

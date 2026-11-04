@@ -1,0 +1,11 @@
+{
+  "name": "generate",
+  "sources": [
+    "tests/rtl/generate.sv"
+  ],
+  "incdirs": [],
+  "defines": [],
+  "params": [],
+  "top": "gen_top",
+  "blackboxes": []
+}

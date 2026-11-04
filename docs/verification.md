@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 335 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 405 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -94,6 +94,27 @@ carry - `[7:1]`, `[0:7]`, `[15:8]` - because the drives assert the demo's
 line numbers. Its acceptance test asserts the IR *and* the leaf text the
 hierarchy paints, so a range that stops reaching the label fails here.
 
+`tests/rtl/generate.sv` covers the generate family: a named for array, a
+named and an anonymous if, a selected case branch, an inactive else/default,
+a nested if, a zero-width for and local nets. Its acceptance test asserts:
+
+- active blocks become `module=None` scopes; inactive and zero-width branches
+  do not;
+- each leaf under a generate block keeps yosys's dotted cell path
+  (`g_if.u_if`, `g_outer[0].g_inner.u_nested`);
+- a generate scope focuses its block span, a leaf focuses its instantiation
+  span, and the anonymous block carries slang's `genblk3` name;
+- local nets stay on the enclosing module with the block prefix
+  (`g_if.t`), because yosys flattens generate nets that way;
+- the leaf parameter override resolves (`W=8`, default `4`);
+- two instances of one parameterised module with different generate
+  conditions each keep only their own active branch.
+
+`slang-hier` lists only the leaf instances. The elaborator rebuilds the
+generate block nodes from `GenerateBlock` and `GenerateBlockArray` members in
+`slang --ast-json`; a change in that AST shape therefore reaches this test
+first.
+
 This layer is the thing that pins **tool-version behaviour**: if yosys/slang
 change something, this test fails loudly instead of silently disturbing every
 finding downstream.
@@ -117,7 +138,14 @@ fixture (no tools) and real-IR mode. Two flavours:
   the highlighted cell/pin line, the split geometry (source over the row
   tree), `L` mirroring the trace onto loads, `escape` restoring the single
   pane, the outward edge of a port, black-box stops, `X` cuts, yank format
-  rendering + OSC payload, editor target.
+  rendering + OSC payload, editor target. The same run then drives
+  `tests/rtl/generate.sv`: the visible generate-if/case/nested tree rows,
+  absent inactive/zero-width rows, and the source focus of each block and of
+  a leaf under it. It also drives the chained `docs/examples/generate` design:
+  a load from one generated lane output crosses to its 8-bit parent slice and
+  names only the next lane input, not every load on the bus. The pure TUI
+  tests also keep that slice through a cell pin, so expanding a sliced cone
+  does not widen back to the whole pin net.
 
 Both assert **observable app state** (labels, focus, traces, yanked strings)
 rather than screenshots, so they are deterministic and CI-safe. Their blind

@@ -39,7 +39,13 @@ class DocumentationLinkTests(unittest.TestCase):
 
     def test_the_example_directories_exist(self) -> None:
         for name in (
-            "one-file", "multi-file", "multi-dir", "define", "parameter", "vivado"
+            "one-file",
+            "multi-file",
+            "multi-dir",
+            "define",
+            "generate",
+            "parameter",
+            "vivado",
         ):
             with self.subTest(name=name):
                 self.assertTrue((EXAMPLES / name).is_dir())
@@ -47,7 +53,13 @@ class DocumentationLinkTests(unittest.TestCase):
     def test_the_example_index_names_every_example(self) -> None:
         text = (EXAMPLES / "README.md").read_text(encoding="utf-8")
         for name in (
-            "one-file", "multi-file", "multi-dir", "define", "parameter", "vivado"
+            "one-file",
+            "multi-file",
+            "multi-dir",
+            "define",
+            "generate",
+            "parameter",
+            "vivado",
         ):
             with self.subTest(name=name):
                 self.assertIn(f"`{name}/`", text)
@@ -173,6 +185,45 @@ class ExampleElaborationTests(unittest.TestCase):
             {port.name: (port.width, port.range) for port in top.ports},
             {"a": (16, "[15:0]"), "y": (16, "[15:0]")},
         )
+
+    def test_generate_example(self) -> None:
+        manifest, design = self._design(
+            EXAMPLES / "generate" / "design.f", "generate_top"
+        )
+        self.assertEqual(
+            manifest.sources, ("docs/examples/generate/generate_top.sv",)
+        )
+        self.assertEqual(manifest.params, (("LANES", "4"),))
+        names = {scope.name for scope in design.scopes}
+        self.assertTrue(
+            {
+                "generate_top.g[0]",
+                "generate_top.g[1]",
+                "generate_top.g[2]",
+                "generate_top.g[3]",
+                "generate_top.g_wide",
+                "generate_top.g_wide.u_wide",
+            }
+            <= names,
+            names,
+        )
+        top = design.scope("generate_top")
+        assert top is not None
+        self.assertEqual(
+            {port.name: port.width for port in top.ports},
+            {"a": 8, "y": 8},
+        )
+
+        _, default_design = self._design(
+            EXAMPLES / "generate" / "generate_top.sv", "generate_top"
+        )
+        default_names = {scope.name for scope in default_design.scopes}
+        self.assertTrue(
+            {"generate_top.g[0]", "generate_top.g[1]"} <= default_names,
+            default_names,
+        )
+        self.assertNotIn("generate_top.g[2]", default_names)
+        self.assertNotIn("generate_top.g_wide", default_names)
 
     def test_vivado_example(self) -> None:
         manifest, design = self._design(EXAMPLES / "vivado" / "project.xpr")

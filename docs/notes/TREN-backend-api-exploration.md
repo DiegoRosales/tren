@@ -3,8 +3,8 @@
   source     : Nextcloud Notes app, category "TREN"
   note_id    : 1503469
   title      : TREN — backend API exploration & recommendations
-  etag       : 11406c0439b03d3ce8773bcc47d1b775
-  mirrored   : 2026-09-13
+  etag       : 30f2b0eca8cc7fe94fae75999779c518
+  mirrored   : 2026-11-04
   The Nextcloud note is canonical; this file may drift. Refresh by re-fetching
   the note (the Nextcloud editor reformats markdown on save).
 -->
@@ -33,11 +33,13 @@ cross-boundary part-selects). Per-test detail + reproductions in
    works off this one file.
 2. **Scope tree + declarations + resolved parameters: `slang-hier` /
    `slang --ast-json`.** `slang-hier --params --custom-format
-   "{inst}\t{module}\t{file}"` is the scope tree (generate included);
+   "{inst}\t{module}\t{file}"` is the leaf instance tree (generate paths
+   included, but not the generate block nodes themselves);
    `--ast-json --ast-json-source-info --ast-json-detailed-types` is the
    elaborated AST (ports, types, per-instance parameter values as `32'd32`,
-   port-connection expressions, source spans). Use it for naming, structure,
-   parameters, and pretty declarations.
+   port-connection expressions, source spans, and the
+   `GenerateBlock`/`GenerateBlockArray` members). Use it for naming,
+   structure, parameters, and pretty declarations.
 3. **Verilator: use only as an optional third overlay.** Its modern API is
    `--json-only` (V3 AST), which is *not* the `--xml-only` the design note
    describes (removed in 5.052). It has the best declarations + per-instance

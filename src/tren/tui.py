@@ -211,6 +211,23 @@ def _net_slice(net: Net, positions: list[int]) -> str:
     return f"[{start}:{end}]"
 
 
+def _normalise_positions(
+    scope: Scope | None,
+    name: str,
+    positions: tuple[int, ...],
+) -> tuple[int, ...] | None:
+    """Keep only a real slice; a full net or port carries no bit subset."""
+    if not positions or scope is None:
+        return positions or None
+    for net in scope.nets:
+        if net.name == name:
+            return None if len(positions) == net.width else positions
+    for port in scope.ports:
+        if port.name == name:
+            return None if len(positions) == port.width else positions
+    return positions
+
+
 def _pin_slice(pin: CellPin, positions: list[int]) -> str:
     """Bits of a cell pin one net touches, as the pin select to show."""
     if not positions:
@@ -370,6 +387,7 @@ class TraceNode:
         *,
         via: tuple | None = None,
         pin_label: str | None = None,
+        positions: tuple[int, ...] | None = None,
     ) -> None:
         self.scope_path = scope_path
         self.net_name = net_name
@@ -379,6 +397,9 @@ class TraceNode:
         self.via = via
         # a net reached through a cell pin renders as "pin <-/-> net"
         self.pin_label = pin_label
+        # the bits of this net that the trace carries. None means every bit;
+        # a cross through a port or cell pin part-select keeps the touched bits.
+        self.positions = positions
         # a crossed net shows its rows only while it is expanded
         self.expanded = False
         # cell rows whose pins are shown (the key lives on the owner node)
@@ -772,7 +793,11 @@ class TrenApp(App[None]):
         # per-module cell lookup and (cell, pin) -> nets, built on first use
         self._cells_by_module: dict[str, dict[str, Cell]] = {}
         self._cell_pins_by_module: dict[
-            str, dict[tuple[str, str], list[tuple[str, str]]]
+            str,
+            dict[
+                tuple[str, str],
+                list[tuple[str, str, tuple[int, ...], tuple[int, ...]]],
+            ],
         ] = {}
         self.trace_dump: str = ""
         # user cuts (X): scope paths made opaque at runtime
@@ -1476,7 +1501,16 @@ class TrenApp(App[None]):
         `top.u_core.u_alu0.A`.
         """
         if not node.net_name.startswith("$"):
-            return f"{node.scope_path}.{node.net_name}"
+            label = f"{node.scope_path}.{node.net_name}"
+            if node.positions is not None:
+                scope = self._scopes.get(node.scope_path)
+                net = next(
+                    (n for n in scope.nets if n.name == node.net_name),
+                    None,
+                ) if scope is not None else None
+                if net is not None:
+                    label += _net_slice(net, node.positions)
+            return label
         if node.pin_label:
             return f"{node.scope_path}.{node.pin_label}"
         return f"{node.scope_path}.{node.net_name}"
@@ -1507,10 +1541,21 @@ class TrenApp(App[None]):
         )
         cells = self._cells_of(scope)
         other_side = "in" if self._trace_dir == "drivers" else "out"
-        pin_nets: dict[tuple[str, str], list[tuple[str, str]]] | None = None
+        pin_nets: (
+            dict[
+                tuple[str, str],
+                list[tuple[str, str, tuple[int, ...], tuple[int, ...]]],
+            ]
+            | None
+        ) = None
         seen: set[tuple[str, str]] = set()
         rows: list[dict] = []
-        for bit in conn.bits if conn is not None else ():
+        bits = conn.bits if conn is not None else ()
+        if node.positions is not None:
+            bits = tuple(
+                bits[p] for p in node.positions if 0 <= p < len(bits)
+            )
+        for bit in bits:
             eps = bit.drivers if self._trace_dir == "drivers" else bit.loads
             # a port whose direction the netlist cannot tell shows in both
             # directions, marked; it must never vanish from a trace
@@ -1534,7 +1579,27 @@ class TrenApp(App[None]):
                         row["kind"] = "boundary"
                         row["target"] = (child, port)
                         row["label"] = f"{cell}.{port}  → {child_scope.module}"
-                        row["key"] = ("edge", child, port)
+                        child_positions = None
+                        if node.positions is not None:
+                            selected_bits = tuple(
+                                sorted(
+                                    {
+                                        e.bit
+                                        for b in bits
+                                        for e in (
+                                            *b.drivers,
+                                            *b.loads,
+                                            *b.unknown,
+                                        )
+                                        if e.cell == cell and e.port == port
+                                    }
+                                )
+                            )
+                            child_positions = _normalise_positions(
+                                child_scope, port, selected_bits
+                            )
+                        row["positions"] = child_positions
+                        row["key"] = ("edge", child, port, child_positions)
                 else:
                     meta = cells.get(cell)
                     row["kind"] = "cell"
@@ -1550,17 +1615,52 @@ class TrenApp(App[None]):
                     if meta is not None:
                         if pin_nets is None:
                             pin_nets = self._cell_pin_nets(scope)
-                        row["pins"] = [
-                            (pin.name, net, label)
-                            for pin in meta.pins
-                            if pin.direction == other_side
-                            for net, label in pin_nets.get((cell, pin.name), ())
-                        ]
+                        selected_pin_bits = (
+                            {
+                                e.bit
+                                for b in bits
+                                for e in (*b.drivers, *b.loads, *b.unknown)
+                                if e.cell == cell and e.port == port
+                            }
+                            if node.positions is not None
+                            else None
+                        )
+                        row["pins"] = []
+                        for pin in meta.pins:
+                            if pin.direction != other_side:
+                                continue
+                            for net_name, label, net_positions, pin_bits in pin_nets.get(
+                                (cell, pin.name), ()
+                            ):
+                                if selected_pin_bits is None:
+                                    positions = net_positions
+                                else:
+                                    positions = tuple(
+                                        position
+                                        for position, bit in zip(
+                                            net_positions, pin_bits
+                                        )
+                                        if bit in selected_pin_bits
+                                    )
+                                    if not positions:
+                                        continue
+                                row["pins"].append(
+                                    (
+                                        pin.name,
+                                        net_name,
+                                        label,
+                                        _normalise_positions(
+                                            scope, net_name, positions
+                                        ),
+                                    )
+                                )
                 if unknown:
                     row["unknown"] = True
                     row["label"] += "  (direction unknown)"
                 rows.append(row)
-        rows.extend(self._outward_rows(scope, scope_path, net_name))
+        rows.extend(
+            self._outward_rows(scope, scope_path, net_name, node.positions)
+        )
         node.rows = rows
         return rows
 
@@ -1649,8 +1749,11 @@ class TrenApp(App[None]):
 
     def _cell_pin_nets(
         self, scope: Scope
-    ) -> dict[tuple[str, str], list[tuple[str, str]]]:
-        """(cell, pin) -> [(net, label)] for the nets a pin connects to.
+    ) -> dict[
+        tuple[str, str],
+        list[tuple[str, str, tuple[int, ...], tuple[int, ...]]],
+    ]:
+        """(cell, pin) -> [(net, label, net positions, pin bits)].
 
         Built once per module from the connectivity map: every bit endpoint
         names the net that carries it, so a pin's nets fall out of the same
@@ -1661,7 +1764,9 @@ class TrenApp(App[None]):
         walked once; the label names the wire and notes the other names. A
         wire with no source-level name (a yosys `$...` intermediate) leaves
         the net part out, so the line reads as the pin alone. A pin spread
-        over several wires carries its bit select, as `S[0]`.
+        over several wires carries its bit select, as `S[0]`. The entry also
+        keeps the net positions and pin bits, so a sliced trace can carry its
+        selected bits through the cell.
         """
         key = scope.module or scope.name
         index = self._cell_pins_by_module.get(key)
@@ -1684,7 +1789,9 @@ class TrenApp(App[None]):
         index = {}
         for pin_key, by_net in hits.items():
             pin = pins.get(pin_key)
-            groups: dict[tuple, list[tuple[str, str, list[int]]]] = {}
+            groups: dict[
+                tuple, list[tuple[str, str, tuple[int, ...], list[int]]]
+            ] = {}
             for net_name in sorted(by_net):
                 pairs = by_net[net_name]
                 net = nets.get(net_name)
@@ -1695,9 +1802,16 @@ class TrenApp(App[None]):
                 else:
                     signature = tuple(net.bits[position] for position in positions)
                 groups.setdefault(signature, []).append(
-                    (net_name, select, [bit for _, bit in pairs])
+                    (
+                        net_name,
+                        select,
+                        tuple(positions),
+                        [bit for _, bit in pairs],
+                    )
                 )
-            entries: list[tuple[int, str, str]] = []
+            entries: list[
+                tuple[int, str, str, tuple[int, ...], tuple[int, ...]]
+            ] = []
             for members in groups.values():
                 members.sort(
                     key=lambda item: (
@@ -1706,10 +1820,10 @@ class TrenApp(App[None]):
                         item[0],
                     )
                 )
-                primary, select, pin_bits = members[0]
+                primary, select, net_positions, pin_bits = members[0]
                 named = [
                     f"{name}{sel}"
-                    for name, sel, _ in members
+                    for name, sel, _, _ in members
                     if not name.startswith("$")
                 ]
                 head = f"{pin.name if pin else pin_key[1]}"
@@ -1723,9 +1837,18 @@ class TrenApp(App[None]):
                     label = f"{head} {arrow} {text}"
                 else:
                     label = head
-                entries.append((min(pin_bits), primary, label))
+                entries.append(
+                    (
+                        min(pin_bits),
+                        primary,
+                        label,
+                        net_positions,
+                        tuple(pin_bits),
+                    )
+                )
             index[pin_key] = [
-                (net, label) for _, net, label in sorted(entries)
+                (net, label, net_positions, pin_bits)
+                for _, net, label, net_positions, pin_bits in sorted(entries)
             ]
         self._cell_pins_by_module[key] = index
         return index
@@ -1859,16 +1982,30 @@ class TrenApp(App[None]):
                 aliases.append((port, shared))
         return aliases
 
-    def _outward_rows(self, scope: Scope, scope_path: str, net_name: str) -> list[dict]:
+    def _outward_rows(
+        self,
+        scope: Scope,
+        scope_path: str,
+        net_name: str,
+        selected: tuple[int, ...] | None = None,
+    ) -> list[dict]:
         """Rows for the port edge on the outside of the scope.
 
         An input port is driven from outside the scope and an output port is
         loaded outside it, so the in-scope rows stop at the module edge. The
         parent net that connects the instance port is the next step; enter
         crosses to it. The design top has no parent, so its ports get none.
+
+        ``selected`` is the bit subset a slice trace carries. It narrows the
+        parent edge to those bits, so a generated lane output joined to one
+        slice of a bus names only that slice's parent net and loads.
         """
         rows: list[dict] = []
-        for port, positions in self._port_aliases(scope, net_name):
+        for port, port_positions in self._port_aliases(scope, net_name):
+            if selected is not None:
+                port_positions = set(port_positions) & set(selected)
+            if not port_positions:
+                continue
             outward = (
                 self._trace_dir == "drivers" and port.direction in ("in", "inout")
             ) or (
@@ -1891,7 +2028,7 @@ class TrenApp(App[None]):
                         if any(
                             e.cell == link.instance
                             and e.port == link.port
-                            and e.bit in positions
+                            and e.bit in port_positions
                             for e in (*bit.drivers, *bit.loads, *bit.unknown)
                         )
                     ]
@@ -1900,14 +2037,30 @@ class TrenApp(App[None]):
                     parent_net = next(
                         (n for n in parent.nets if n.name == conn.net), None
                     )
-                    select = _net_slice(parent_net, touched) if parent_net is not None else ""
+                    target_positions = tuple(touched)
+                    if (
+                        parent_net is not None
+                        and len(target_positions) == len(parent_net.bits)
+                    ):
+                        target_positions = None
+                    select = (
+                        _net_slice(parent_net, touched)
+                        if parent_net is not None
+                        else ""
+                    )
                     rows.append(
                         {
                             "cell": link.instance,
                             "port": link.port,
                             "kind": "up",
                             "target": (link.parent_scope, conn.net),
-                            "key": ("edge", link.parent_scope, conn.net),
+                            "positions": target_positions,
+                            "key": (
+                                "edge",
+                                link.parent_scope,
+                                conn.net,
+                                target_positions,
+                            ),
                             "label": f"{conn.net}{select}  ↑ {link.parent_scope}",
                         }
                     )
@@ -1956,7 +2109,7 @@ class TrenApp(App[None]):
                     return False
                 node.expanded_rows.add(key)
                 if not self._trace_children(node, row):
-                    for _pin, net_name, label in row["pins"]:
+                    for _pin, net_name, label, positions in row["pins"]:
                         node.children.append(
                             TraceNode(
                                 node.scope_path,
@@ -1964,6 +2117,7 @@ class TrenApp(App[None]):
                                 node,
                                 via=key,
                                 pin_label=label,
+                                positions=positions,
                             )
                         )
             else:
@@ -1974,7 +2128,13 @@ class TrenApp(App[None]):
                 if children:
                     child = children[0]
                 else:
-                    child = TraceNode(target[0], target[1], node, via=key)
+                    child = TraceNode(
+                        target[0],
+                        target[1],
+                        node,
+                        via=key,
+                        positions=row.get("positions"),
+                    )
                     node.children.append(child)
                 child.expanded = True
                 self._select_path(child.scope_path, child.net_name)

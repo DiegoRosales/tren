@@ -3,8 +3,8 @@
   source     : Nextcloud Notes app, category "TREN"
   note_id    : 1503454
   title      : TREN — RTL explorer TUI (concept)
-  etag       : f7b5a0aa40295ae5d2032c845f740fef
-  mirrored   : 2026-09-13
+  etag       : d8a74f9425d3a759a158de2051b91416
+  mirrored   : 2026-11-04
   The Nextcloud note is canonical; this file may drift. Refresh by re-fetching
   the note (the Nextcloud editor reformats markdown on save).
 -->
@@ -173,7 +173,7 @@ TREN should parse nothing itself. Survey of candidates (backend rows verified
 |----------------------|-----------------------------|----------------------------------------|-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | yosys                | `write_json` netlist        | **connectivity, bit-level**            | weak natively     | the only one that hands you a real graph; JSON backend requires `proc`; do not `opt`                                                                          |
 | yosys-slang (plugin) | same as yosys               | same                                   | good              | slang frontend into RTLIL — likely the sweet spot, but NOT packaged in nixpkgs; would need `yosys.withPlugins` + a manual derivation, so treat as future work |
-| slang                | `--ast-json` elaborated AST | source-faithful, full param resolution | **best in class** | `pyslang` still not packaged; the package ships a C API (`libsvlang.a`); `slang-hier` dumps the scope tree incl. generate                                     |
+| slang                | `--ast-json` elaborated AST | source-faithful, full param resolution | **best in class** | `pyslang` still not packaged; the package ships a C API (`libsvlang.a`); `slang-hier` dumps leaf instance paths with generate paths included, while the generate block nodes themselves come from `--ast-json` (`GenerateBlock` / `GenerateBlockArray`) |
 | Verilator            | `--json-only` V3 AST        | post-elaboration AST                   | good              | `--xml-only` is gone since 5.052; `--json-only` emits `.tree.json` + `.tree.meta.json` (pointer-linked V3 AST)                                                |
 | Surelog              | UHDM database               | full elaboration                       | good              | heavier dependency, C++/Python API                                                                                                                            |
 | Verible              | `--export_json` CST         | **syntax only, no elaboration**        | good              | useful for source-faithful views, cannot resolve params                                                                                                       |

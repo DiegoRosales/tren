@@ -17,11 +17,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tren.ir import Cell, CellPin, Net, Port
+from tren.ir import (
+    BitLink,
+    Cell,
+    CellPin,
+    Design,
+    Endpoint,
+    Net,
+    NetConnectivity,
+    Port,
+    Scope,
+)
 from tren.tui import (
+    TrenApp,
+    TraceNode,
     _cell_row_label,
     _gutter_width,
     _net_slice,
+    _normalise_positions,
     _parse_src,
     _pin_slice,
     _src_focus,
@@ -238,6 +251,74 @@ class PinSliceTests(unittest.TestCase):
     def test_one_bit(self) -> None:
         pin = CellPin(name="S", direction="in", width=3)
         self.assertEqual(_pin_slice(pin, [2]), "[2]")
+
+
+class CellPinSliceTests(unittest.TestCase):
+    """A sliced trace keeps the child net positions through a cell pin."""
+
+    def test_pin_net_positions_survive_a_sliced_trace(self) -> None:
+        stage = Net(
+            name="stage", width=16, bits=tuple(range(16)), range="[15:0]"
+        )
+        tap = Net(
+            name="tap", width=16, bits=tuple(range(100, 116)), range="[15:0]"
+        )
+        cell = Cell(
+            name="$and",
+            pins=(
+                CellPin("A", direction="in", width=8),
+                CellPin("Y", direction="out", width=8),
+            ),
+        )
+        scope = Scope(
+            name="top",
+            module="top",
+            nets=(stage, tap),
+            cells=(cell,),
+        )
+        stage_bits = tuple(
+            BitLink(
+                position=position,
+                loads=(Endpoint("$and", "A", position - 8),)
+                if 8 <= position < 16
+                else (),
+            )
+            for position in range(16)
+        )
+        tap_bits = tuple(
+            BitLink(
+                position=position,
+                drivers=(Endpoint("$and", "Y", position - 8),)
+                if 8 <= position < 16
+                else (),
+            )
+            for position in range(16)
+        )
+        design = Design(
+            top="top",
+            scopes=(scope,),
+            connectivity=(
+                NetConnectivity(net="stage", scope="top", bits=stage_bits),
+                NetConnectivity(net="tap", scope="top", bits=tap_bits),
+            ),
+        )
+        app = TrenApp(design)
+        node = TraceNode("top", "stage", None, positions=tuple(range(8, 16)))
+        app._trace_dir = "loads"
+        rows = app._trace_rows_of(node)
+        cell_row = next(row for row in rows if row["kind"] == "cell")
+        self.assertEqual(
+            [
+                (pin, positions)
+                for _name, pin, _label, positions in cell_row["pins"]
+            ],
+            [("tap", tuple(range(8, 16)))],
+        )
+        self.assertIsNone(_normalise_positions(scope, "stage", tuple(range(16))))
+        self.assertEqual(
+            _normalise_positions(scope, "tap", tuple(range(8, 16))),
+            tuple(range(8, 16)),
+        )
 
 
 class GutterWidthTests(unittest.TestCase):
