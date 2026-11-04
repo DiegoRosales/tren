@@ -32,7 +32,7 @@ Use these options as the first argument. They do not open the TUI.
 | `--debug-config-origins` | Print only the values that a TOML file set, grouped by file, and exit 0. |
 
 `--version-debug` does not read the configuration files. Use `--debug-config`
-for the values. See [Settings](../README.md#settings) for the configuration
+for the values. See [Configuration](configuration.md) for the configuration
 keys.
 
 ## `tren open`
@@ -135,7 +135,7 @@ values.
 
 The export is a template and a snapshot. A value that a file set keeps its
 origin in `show`; the export writes only values. See
-[Settings](../README.md#settings) for the layers and the keys.
+[Configuration](configuration.md) for the layers and the keys.
 
 ## `tren-tui`
 

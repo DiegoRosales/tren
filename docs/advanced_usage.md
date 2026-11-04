@@ -263,4 +263,4 @@ tren config export --out .tren.toml
 A project file may set the cache directory, the theme, the line numbers, the
 hierarchy colours, the yank format, and the clipboard provider. It may not
 set a non-empty `editor.command`; keep that in the user or system file. The
-[README settings section](../README.md#settings) lists every key.
+[configuration page](configuration.md) lists every key.

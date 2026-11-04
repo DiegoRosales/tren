@@ -26,9 +26,14 @@ EXAMPLES = DOCS / "examples"
 
 
 class DocumentationLinkTests(unittest.TestCase):
-    def test_readme_links_the_user_guides(self) -> None:
+    def test_readme_links_the_documents(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
-        for name in ("quick_start.md", "command_reference.md", "advanced_usage.md"):
+        for name in (
+            "quick_start.md",
+            "command_reference.md",
+            "advanced_usage.md",
+            "configuration.md",
+        ):
             with self.subTest(name=name):
                 self.assertIn(f"docs/{name}", text)
 
@@ -59,6 +64,7 @@ class DocumentationLinkTests(unittest.TestCase):
             DOCS / "quick_start.md",
             DOCS / "command_reference.md",
             DOCS / "advanced_usage.md",
+            DOCS / "configuration.md",
             EXAMPLES / "README.md",
         ]
         paths.extend(EXAMPLES.rglob("*.sv"))

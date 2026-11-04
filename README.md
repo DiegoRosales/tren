@@ -51,6 +51,8 @@ revisited when a real 100k-instance IR shows the ceiling matters.
 - [Advanced usage](docs/advanced_usage.md) - the cache, filelists, sources
   in several directories, hand-written manifests, and the Vivado and HLS
   imports.
+- [Configuration](docs/configuration.md) - the config layers, every TOML key,
+  and the project-file safety rule.
 - [User guide](#user-guide) below - the screen, keys, search, tracing, and
   black boxes.
 
@@ -127,45 +129,21 @@ The checkout is detached at the release tag. The editable install reads
 `src/` directly, so an edit is live on the next command. Contributors work
 from the repository default branch instead of the release tag.
 
-## Releases
-
-TREN uses Semantic Versioning and tags each release `vMAJOR.MINOR.PATCH`.
-Until the package is on PyPI, the install commands above pin the current
-release tag. See [docs/release.md](docs/release.md) for the version bump,
-gates, tag and publish steps.
-
-`tren --version` prints the package version and the Python version. A source
-checkout adds the short Git SHA as `dev-<sha>`:
-
-```sh
-tren 0.0.1 (Python 3.14.8)                    # tagged install
-tren 0.0.1 (dev-abc1234, Python 3.14.8)       # source checkout
-```
-
-`tren --version-debug` prints the same first line, then the interpreter
-executable, platform, package path, Git clean/dirty state, textual and rich
-versions, and the configuration layer paths. It does not read the config
-files; use `--debug-config` for values.
-
 ## User guide
 
 ### Starting the TUI
 
+Open a design by giving TREN its source directory, filelist, RTL file, Vivado
+project, or manifest. For example:
+
 ```sh
-tren tests/rtl                    # import + elaborate + open (one command)
-tren open tests/rtl               # the same, with the explicit verb
-tren tests/rtl/demo.manifest.json # open an existing manifest
-tren-tui                          # vendored demo fixture, no backends
-tren --version                    # version, source SHA, Python version
-tren --version-debug              # version plus environment and config paths
+tren open path/to/rtl --top my_top
 ```
 
-`tren <target>` (or the explicit `tren open <target>`) accepts anything an
-importer accepts: a `.f` filelist, a single `.sv`/`.v` file, a source
-directory, or a Vivado `.xpr`. The importer runs in memory; add `--out PATH`
-to keep the generated manifest (a directory receives `PATH/manifest.json`).
-Pass `--root DIR` when relative paths must resolve from another directory,
-and `--refresh` to bypass the IR cache.
+You can leave out `open` and run `tren path/to/rtl --top my_top`. To try the
+included demo without installing yosys or slang, run `tren-tui`. See the
+[command reference](docs/command_reference.md) for all target types and
+options.
 
 The screen is three panes - **tree** (the scope hierarchy, like a filesystem)
 | **source** (the focused module's RTL) | **I/O** (parameters + ports). `q`
@@ -183,113 +161,22 @@ own or when the selection moves.
 The pane `1`/`2`/`3` selected - the one `j`/`k`/`y` act on - is lifted out of
 the background; the other two stay dark. Exactly one pane is ever lit.
 
-The first run elaborates (yosys + slang) and caches the IR under the
-configured cache directory (`.cache/tren/` by default); later runs start
-instantly. The cache is keyed on the manifest, the sources' mtimes **and** the
-shape of the IR itself - so editing RTL *or* upgrading to a tren whose IR
-carries new fields re-elaborates once, instead of serving a blob that
-predates them.
+The first run elaborates (yosys + slang) and caches the IR (`.cache/tren/` by
+default); later runs start instantly. The key covers the manifest, the
+sources' mtimes and the shape of the IR, so an RTL edit or an IR change
+re-elaborates once. The [advanced usage](docs/advanced_usage.md#use-the-cache)
+page lists the inputs and the flags.
 
 ### Settings
 
-TREN reads three optional TOML files and merges them in a fixed order. A key
-in a later layer replaces the same key in an earlier layer:
+TREN reads optional TOML files - a system file, a user file and the nearest
+project `.tren.toml` - and merges them in that order. The keys cover the cache
+directory, the editor command, the theme, the line numbers, the hierarchy
+colours, and the yank format and clipboard provider.
 
-| Layer | Path |
-|---|---|
-| built-in defaults | - |
-| system | `/etc/tren/config.toml` |
-| user | `$XDG_CONFIG_HOME/tren/config.toml`, or `~/.config/tren/config.toml` |
-| project | `.tren.toml`, the nearest file from the current directory up to the repository root |
-
-Discovery is deterministic. The user layer uses `XDG_CONFIG_HOME` only when it
-holds an absolute path. Outside a git repository only the current directory
-is searched for `.tren.toml`. Inside a repository the search stops at the
-root, and the nearest `.tren.toml` wins. The project layer never stacks two
-files.
-
-Every key is optional. An unknown key, a wrong type or an invalid value stops
-the command and names the file and the key.
-
-| Key | Default | Effect |
-|---|---|---|
-| `cache.dir` | `.cache/tren` | IR cache directory. A relative path resolves from the current directory. |
-| `editor.command` | empty | Editor command for `e` and `E`. `TREN_EDITOR` wins; otherwise this value, then `EDITOR`, then `VISUAL`. System and user layers only; a project file may set it empty. |
-| `tui.theme` | `textual-dark` | Textual theme name for the TUI chrome. |
-| `tui.line_numbers` | `true` | Show the line-number gutter at startup. `n` still toggles it. |
-| `tui.hierarchy.enabled` | `true` | Colour hierarchy rows by kind. `false` gives a monochrome tree. |
-| `tui.hierarchy.scope` | `theme` | Module-instance rows. |
-| `tui.hierarchy.module` | `theme` | Module definitions and generate blocks. |
-| `tui.hierarchy.blackbox` | `theme` | Black boxes and user cuts. |
-| `tui.hierarchy.port` | `theme` | Input and output port leaves. The theme role follows the direction. |
-| `tui.hierarchy.inout` | `theme` | Inout port leaves. |
-| `tui.hierarchy.net` | `theme` | Net leaves. |
-| `yank.format` | `sv` | Initial format for `y`, `Y` and the status path: `sv`, `vivado`, `yosys` or `vcd`. |
-| `yank.provider` | `auto` | Clipboard provider for `y`: `auto`, `tmux` or `osc52`. `auto` uses tmux inside a tmux session, otherwise OSC 52. |
-
-Each `tui.hierarchy` colour key is `theme` (the default), `none` (leave
-that kind uncoloured), or a Textual colour name or hex value. `theme`
-takes the role from the active Textual theme: `text-primary` for instances,
-`foreground-lighten-1` for module definitions, `text-warning` for black
-boxes, `text-secondary` for input ports, `text-error` for inout ports,
-`text-success` for output ports and `foreground-darken-2` for nets. A theme
-colour is lightened when needed to stay legible on the pane surfaces; an
-explicit colour is used as written. While hierarchy colouring is enabled,
-the I/O pane uses the same port colours.
-
-A project file that changes the yank format, the clipboard provider, the
-line numbers and the hierarchy colours:
-
-```toml
-[yank]
-format = "yosys"
-provider = "tmux"
-
-[tui]
-line_numbers = false
-
-[tui.hierarchy]
-net = "none"
-port = "#a6c9ff"
-inout = "#d17e92"
-```
-
-`tren config` shows every effective value and the file that set it. `tren
-config export` writes a complete TOML template at those values, so one file
-works as a template and as a report:
-
-```sh
-tren config                              # effective values + origins
-tren config export > .tren.toml          # full template at the current values
-tren config export --out .tren.toml      # the same, written to a file
-tren config export --out config-dir      # writes config-dir/config.toml
-```
-
-Two top-level flags print configuration information and exit without opening
-the TUI:
-
-```sh
-tren --debug-config           # every effective value as TOML
-tren --debug-config-origins   # only values set by a file, grouped by path
-```
-
-`TREN_SYSTEM_CONFIG`, `TREN_USER_CONFIG` and `TREN_PROJECT_CONFIG` override
-the three layer paths. Tests and unusual installs use them; normal discovery
-does not.
-
-### Configuration safety
-
-A project file is not trusted to choose a command. `editor.command` is
-accepted only from the system and user layers; a `.tren.toml` that sets a
-non-empty value is an error. This stops a cloned repository from choosing the
-executable that `e` runs. The other settings only select paths, colors and
-display options, so a project may set them.
-
-`TREN_EDITOR`, `EDITOR`, and `VISUAL` are process environment variables. They
-remain explicit user choices and are not part of the project layer.
-
-An exported file used as a project `.tren.toml` must leave `editor.command`
-empty. Keep a non-empty command in the user or system file.
+`tren config` shows every effective value and the file that set it. The
+[configuration](docs/configuration.md) page lists the layers, every key and
+the rule that stops a project file from choosing the editor.
 
 ### The tree pane
 
@@ -428,18 +315,17 @@ In the **trace split**: `enter` or `l` expands the row: into the far net, or a c
 
 ### Navigating
 
-`j`/`k` move through the tree **without unfolding** anything - only `l`
-expands the highlighted scope to reveal its children (file-manager model),
-and `h` collapses it again. The arrow keys do the same four things: `down`
-and `up` move, `right` expands, `left` collapses. `ctrl+u` steps up one granularity level, current
-scope first: from a port/net leaf it jumps to that module's row (not past it
-to the parent); pressed again it moves up to the parent module. `enter` puts
-the highlighted module into the centre. With the I/O pane active, `enter`
-re-centres the selected port's declaration instead. The center pane shows
-the **real RTL
-file** at the module's *instantiation in its parent* (or its declaration at
-the top), with the focused range highlighted and kept in view - `e` opens
-the editor at exactly that line, `E` at the module's own definition.
+The tree works like a file manager: `j`/`k` move between visible rows
+**without unfolding** anything, and `l`/`h` reveal or hide a scope's children.
+`ctrl+u` steps up one granularity level, current scope first: from a port/net
+leaf it jumps to that module's row (not past it to the parent); pressed again
+it moves up to the parent module. With the I/O pane active, `enter` re-centres
+the selected port's declaration instead.
+
+The center pane shows the **real RTL file** at the module's *instantiation in
+its parent* (or its declaration at the top), with the focused range
+highlighted and kept in view - `e` opens the editor at exactly that line, `E`
+at the module's own definition.
 
 Selecting a **port** or **net** leaf focuses that signal's own *declaration*
 line rather than the enclosing module - the `a` port leaf under `top/u_core`
@@ -483,14 +369,10 @@ the list stays responsive.
 ### Yanking paths
 
 `y` writes the path of the current selection to the clipboard. The
-`yank.provider` setting selects the path:
-
-- `auto` (default) uses tmux when `$TMUX` is set and the `tmux` command is
-  available, otherwise OSC 52;
-- `tmux` runs `tmux load-buffer -w -`, so it works with
-  `set-clipboard external`;
-- `osc52` writes a raw OSC 52 sequence, for terminals that accept application
-  clipboard writes.
+`yank.provider` setting selects the route: `auto` uses tmux inside a tmux
+session, otherwise OSC 52; `tmux` and `osc52` force one. The tmux
+`set-clipboard external` case is in
+[advanced usage](docs/advanced_usage.md#choose-a-clipboard-provider).
 
 The status line uses the same format, so `Y` previews the path before `y`
 writes it. It appends `[yanked]` after a successful write, then clears the
@@ -657,31 +539,45 @@ the concatenation collapses to pure net aliasing, so `o` shows no driver
 ### Headless / CI
 
 `make check` runs the unit suite plus both Pilot drives - the same gates the
-CI workflow runs. `make test` / `make drive` / `make drive-real` run them
-individually; `make roundtrip` verifies the OSC 52 + editor path and
+CI workflow runs. `make roundtrip` verifies the OSC 52 + editor path and
 `make pane-cue` the rendered active-pane highlight, status line formats, yank
 marker and tmux clipboard provider, both against a real terminal on a private
-tmux server (Pilot asserts style *values*, not what the terminal paints - see
-`docs/verification.md`). `make bom` regenerates the
-auto-generated software bill of materials (`docs/sw-bom.md`) from whatever the
-dev shell resolves.
+tmux server (Pilot asserts style *values*, not what the terminal paints). See
+`docs/verification.md` for what each layer catches.
 
 ### Reading Vitis HLS RTL output (no Xilinx needed)
 
 The committed `tests/hls_examples/hls/<block>/rtl_output` exports are read
 directly: `make hls-import`, `make hls-elaborate` and `make hls-run` import /
-elaborate / browse one block (`BLOCK` defaults to `fft_wrapper`). The
-elaborator handles the generated Verilog-2005 including yosys's constant / x
-bits. Example: `fft_wrapper` bundles 140 scopes, ~72k bit-links and 1763
-boundaries.
+elaborate / browse one block (`BLOCK` defaults to `fft_wrapper`). Each
+`rtl_output/` is a snapshot of the exported `impl/verilog` (RTL +
+`component.xml`), so it needs no Xilinx install. The elaborator handles the
+generated Verilog-2005 including yosys's constant / x bits. Example:
+`fft_wrapper` bundles 140 scopes, ~72k bit-links and 1763 boundaries.
+
+`tests/hls_examples/` mirrors ipyfuse's structure: `cpp/` (the C/C++ sources),
+`dat/` (golden/input data), and `hls/<block>/{config.tcl,directives.tcl,
+rtl_output/}` plus a shared `hls/run_hls.tcl`. Regenerating an example needs a
+Vitis/HLS install. Xilinx binaries expect a conventional `/usr/lib` layout
+that NixOS lacks, so the flake ships a `#xilinx` FHS sandbox (ported from
+ipyfuse) for x86_64-linux. The env's runScript shell is interactive-only
+(`nix develop -c` does not reach it), so enter it first, then run the Makefile:
+
+    nix develop .#xilinx                          # interactive FHS shell (first build is slow)
+    make setup_xilinx     # XILINX_VITIS=/path/to/Vitis ./settings64.sh path -> .xilinx_env
+    make fft_wrapper_HLS  # vitis_hls -f run_hls.tcl fft_wrapper; regenerates rtl_output/
+    make hls_examples     # rebuild every block
+    exit
+
+`.xilinx_env` and the per-block `solution_1/` synthesis workspace are
+gitignored; `rtl_output/` snapshots are committed.
 
 ### Manifest schema and backend tolerance flags
 
-`tren import` emits a manifest (`sources`, `incdirs`, `defines`, `params`,
-`top`, `blackboxes`). The one-command `tren <target>` imports in memory and
-writes a manifest only when `--out` is given. Two optional list fields carry
-backend tolerance flags - real third-party RTL needs them, and they travel
-with the design, not the tool:
+`tren import` emits a manifest; the [command
+reference](docs/command_reference.md#manifest-fields) lists its fields. Two
+optional list fields carry backend tolerance flags - real third-party RTL
+needs them, and they travel with the design, not the tool:
 
 | Field | Reaches | Value an import writes |
 |---|---|---|
@@ -704,69 +600,28 @@ Always on, no manifest needed: slang gets `--ignore-unknown-modules` (an
 unresolved module is a normal black box in TREN) and yosys gets `-nolatches`
 (TREN wants the net graph, not a synthesis result). The zybo_sampler design
 (39 scopes, 20984 bit-links) is the reference case: `tren open` on its `.xpr`
-elaborates with no hand-written manifest. It elaborates in the default shell
-on yosys 0.70; nixpkgs yosys 0.69 stopped on the macro-argument
-token-pasting bug in `codec_registers.sv`, and no manifest flag fixed that.
-
-When a backend fails, `tren elaborate` prints that tool's own stderr
-(trimmed to 40 lines) followed by the full command line, then exits 1 - no
-Python traceback.
+elaborates with no hand-written manifest.
 
 ### Importers
 
-Manifest producers - bootstrap, not a dependency (`tren import`). Every
-importer writes the slang tolerance flags (see the manifest section above).
+Manifest producers - bootstrap, not a dependency (`tren import`). The importer
+set is a plain filelist (`.f`, or a bare source directory) and Vivado
+(`project.xpr`, auto-detected). The filelist grammar, the Vivado variables and
+the directory scan are in [advanced usage](docs/advanced_usage.md#use-a-filelist).
 
-- **Plain filelist** (`.f`, slang `-F` grammar) or a bare source directory.
-- **Vivado** (`project.xpr`, auto-detected): parse `<FileSets>` DesignSrcs
-  (+`TopModule`) and resolve Vivado's `$PSRCDIR`-style variables; complete
-  the sources with a directory scan because batch/HLS projects carry the RTL
-  outside the FileSets. `.vh` files are `\`include`\`-only (excluded),
-  generated-dir duplicates are dropped, and non-Verilog FileSet entries
-  (`.bd`) warn. Verified against a Vitis HLS 2025.2 export: yosys
-  `read_verilog` parses the generated Verilog-2005 cleanly; `slang-hier`
-  additionally needs Vivado's `vivado_interfaces.svh` interface library for
-  the block-level `bd_0_sv.sv`, which the workspace does not ship - pass
-  `--top fft_wrapper` (or add the lib dir) to elaborate the HLS core.
+Verified against a Vitis HLS 2025.2 export: yosys `read_verilog` parses the
+generated Verilog-2005 cleanly; `slang-hier` additionally needs Vivado's
+`vivado_interfaces.svh` interface library for the block-level `bd_0_sv.sv`,
+which the workspace does not ship - pass `--top fft_wrapper` (or add the lib
+dir) to elaborate the HLS core.
 
 **incdirs default to the source directories.** Every importer records the
-directory holding each source as an incdir, including `.` for a source at the
-root. A `` `include `` next to its source, or in a sibling source directory,
-therefore resolves without a manual entry. The reason is a backend mismatch:
-slang and Vivado resolve a relative `` `include `` against the including
-file's directory. yosys `read_verilog` searches the cwd and that directory
-before its `-I` dirs (verified on yosys 0.70: a cross-directory include needs
-`-I`). slang does not search the cwd, so the root is an incdir when a source
-sits there. Explicit `+incdir+` filelist entries and Vivado header-typed
-FileSet entries (`.vh`/`.svh`) add their dirs too - the default is a floor,
-not a replacement. `tren elaborate` applies the same source-dir floor to any
-manifest, so a manifest that only hand-writes sources needs no manual incdir
-either.
-
-### Vitis HLS examples and the #xilinx sandbox
-
-`tests/hls_examples/` mirrors ipyfuse's structure: `cpp/` (the C/C++ sources),
-`dat/` (golden/input data), and `hls/<block>/{config.tcl,directives.tcl,
-rtl_output/}` plus a shared `hls/run_hls.tcl`. Each `rtl_output/` is a
-committed snapshot of the exported `impl/verilog` (RTL + `component.xml`),
-so it works without a Xilinx install:
-
-    tren import tests/hls_examples/hls/fft_wrapper/rtl_output --top fft_wrapper
-
-Regenerating an example needs a Vitis/HLS install. Xilinx binaries expect a
-conventional `/usr/lib` layout that NixOS lacks, so the flake ships a
-`#xilinx` FHS sandbox (ported from ipyfuse) for x86_64-linux. The env's
-runScript shell is interactive-only (`nix develop -c` does not reach it), so
-enter it first, then run the Makefile:
-
-    nix develop .#xilinx                          # interactive FHS shell (first build is slow)
-    make setup_xilinx     # XILINX_VITIS=/path/to/Vitis ./settings64.sh path -> .xilinx_env
-    make fft_wrapper_HLS  # vitis_hls -f run_hls.tcl fft_wrapper; regenerates rtl_output/
-    make hls_examples     # rebuild every block
-    exit
-
-`.xilinx_env` and the per-block `solution_1/` synthesis workspace are
-gitignored; `rtl_output/` snapshots are committed.
+directory holding each source as an incdir, so a `` `include `` next to its
+source, or in a sibling source directory, resolves with no manual entry.
+Explicit `+incdir+` filelist entries and Vivado header-typed FileSet entries
+(`.vh`/`.svh`) add their dirs too - the default is a floor, not a replacement.
+`tren elaborate` applies the same source-dir floor to any manifest, so a
+manifest that only hand-writes sources needs no manual incdir either.
 
 ### Layout
 
@@ -788,7 +643,8 @@ tests/               unit tests, the Pilot workdir, and the executable
                      committed rtl_output/ exports)
 manifest.json        hand-checkable design manifest (sources/incdirs/top/...)
 docs/                verification.md, release.md, quick_start.md,
-                     command_reference.md, advanced_usage.md, examples/
+                     command_reference.md, advanced_usage.md,
+                     configuration.md, examples/
                      + notes/ mirrors; tech-concepts.md and sw-bom.md
 tools/               osc52_roundtrip.sh, pane_cue_capture.sh, profile_1k_scopes.py,
                      bom.py (SW BOM generator)

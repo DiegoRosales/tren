@@ -89,5 +89,6 @@ behaviour of the backends lives in `docs/verification.md` and the sibling
 | `docs/notes/TREN-concept.md` | The design note mirror (canonical: Nextcloud note 1503454). | architecture decisions |
 | `docs/notes/TREN-backend-api-exploration.md` | Verified yosys/slang/verilator API report. | backend choices |
 | `docs/notes/TREN-tui-exploration.md` | Framework verdict and how TUIs work. | UI choice |
+| `docs/configuration.md` | The configuration layers, every TOML key and the editor-command rule. | configuration |
 | `docs/verification.md` | The layered verification strategy and change checklist. | acceptance |
 | `docs/sw-bom.md` | The auto-generated software bill of materials. | dependency audit |
