@@ -34,7 +34,7 @@ default shell, so neither path changes what a gate checks.
 
 ### Layer 1 - unit tests (`make test`)
 
-Pure Python plus `make -n` dry runs of the Makefile. 405 tests.
+Pure Python plus `make -n` dry runs of the Makefile. 408 tests.
 
 - **IR** (`tests/test_ir.py`): constructors, lossless JSON round-trip
   (`Design.read(p).to_json() == p`), fixture adapter.
@@ -62,7 +62,7 @@ Pure Python plus `make -n` dry runs of the Makefile. 405 tests.
   `tren.__version__`, the README install tag and `tren --version` agree. The
   command also reports the Python version and, in a source checkout, the
   short Git SHA as `dev-<sha>`. `--version-debug` adds interpreter, platform,
-  package, dependency and configuration paths.
+  package, dependency, external tool and configuration paths.
 - **Clipboard** (`tests/test_clipboard.py`): provider selection for `auto`,
   `tmux` and `osc52`, the explicit-provider override, the missing-tmux
   fallback, and the tmux writer's argv, stdin and error paths.

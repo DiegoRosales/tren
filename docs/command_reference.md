@@ -26,9 +26,12 @@ Use these options as the first argument. They do not open the TUI.
 |---|---|
 | `-h`, `--help` | Print the usage text and exit 0. |
 | `-V`, `--version` | Print the version, the Python version, and the source SHA in a checkout. |
-| `--version-debug` | Print the version line, then the interpreter, platform, package path, Git state, dependency versions, and configuration paths. |
+| `--version-debug` | Print the version line, then the interpreter, platform, package path, Git state, dependency versions, external tool versions and paths, and configuration paths. |
 | `--debug-config` | Print every effective configuration value as TOML and exit 0. |
 | `--debug-config-origins` | Print only the values that a TOML file set, grouped by file, and exit 0. |
+
+`--version-debug` reports the yosys and slang versions and paths from `PATH`.
+It prints a warning when either tool is missing.
 
 `--version-debug` does not read the configuration files. Use `--debug-config`
 for the values. See [Configuration](configuration.md) for the configuration

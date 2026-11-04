@@ -76,14 +76,55 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("takes no arguments", err.getvalue())
 
+    def test_tool_lines_report_version_and_path(self) -> None:
+        result = mock.Mock(stdout="Yosys 0.70+post\n", stderr="")
+        with mock.patch(
+            "tren.__main__.shutil.which", return_value="/bin/yosys"
+        ), mock.patch("tren.__main__.subprocess.run", return_value=result) as run:
+            lines = cli._tool_lines("yosys", "-V")
+        self.assertEqual(lines, ["yosys: 0.70+post (/bin/yosys)"])
+        run.assert_called_once_with(
+            ["/bin/yosys", "-V"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        slang = mock.Mock(stdout="slang version 12.0.0+0\n", stderr="")
+        with mock.patch(
+            "tren.__main__.shutil.which", return_value="/bin/slang"
+        ), mock.patch("tren.__main__.subprocess.run", return_value=slang):
+            self.assertEqual(
+                cli._tool_lines("slang", "--version"),
+                ["slang: 12.0.0+0 (/bin/slang)"],
+            )
+
+    def test_tool_lines_warn_when_the_tool_is_missing(self) -> None:
+        with mock.patch("tren.__main__.shutil.which", return_value=None):
+            lines = cli._tool_lines("slang", "--version")
+        self.assertEqual(
+            lines,
+            [
+                "warning: slang not found on PATH",
+                "slang: not found",
+            ],
+        )
+
     def test_version_debug_reports_environment(self) -> None:
         out = io.StringIO()
         with mock.patch("tren.__main__._source_root", return_value=None):
             with mock.patch(
                 "tren.__main__._installed_version", return_value="test-1.0"
             ):
-                with redirect_stdout(out):
-                    code = cli.main(["--version-debug"])
+                with mock.patch(
+                    "tren.__main__._tool_lines",
+                    side_effect=[
+                        ["yosys: Yosys test (/bin/yosys)"],
+                        ["slang: slang version test (/bin/slang)"],
+                    ],
+                ):
+                    with redirect_stdout(out):
+                        code = cli.main(["--version-debug"])
         text = out.getvalue()
         self.assertEqual(code, 0)
         self.assertIn(f"python: {platform.python_version()}", text)
@@ -98,10 +139,30 @@ class VersionTests(unittest.TestCase):
         self.assertIn(f"cwd: {Path.cwd()}", text)
         self.assertIn("textual: test-1.0", text)
         self.assertIn("rich: test-1.0", text)
+        self.assertIn("yosys: Yosys test (/bin/yosys)", text)
+        self.assertIn("slang: slang version test (/bin/slang)", text)
         self.assertIn("config:", text)
         self.assertIn("  system: ", text)
         self.assertIn("  user: ", text)
         self.assertIn("  project: ", text)
+
+    def test_version_debug_warns_when_tools_are_missing(self) -> None:
+        out = io.StringIO()
+        with mock.patch(
+            "tren.__main__._source_root", return_value=None
+        ), mock.patch(
+            "tren.__main__._installed_version", return_value="test-1.0"
+        ), mock.patch(
+            "tren.__main__.shutil.which", return_value=None
+        ):
+            with redirect_stdout(out):
+                code = cli.main(["--version-debug"])
+        text = out.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("warning: yosys not found on PATH", text)
+        self.assertIn("warning: slang not found on PATH", text)
+        self.assertIn("yosys: not found", text)
+        self.assertIn("slang: not found", text)
 
     def test_version_debug_reports_a_dirty_source_tree(self) -> None:
         out = io.StringIO()
@@ -113,6 +174,8 @@ class VersionTests(unittest.TestCase):
             "tren.__main__._source_dirty", return_value=True
         ), mock.patch(
             "tren.__main__._installed_version", return_value="test-1.0"
+        ), mock.patch(
+            "tren.__main__._tool_lines", return_value=[]
         ):
             with redirect_stdout(out):
                 code = cli.main(["--version-debug"])

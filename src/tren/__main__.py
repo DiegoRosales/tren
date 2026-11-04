@@ -21,7 +21,7 @@ Options:
     --version   print the package version, source SHA and Python version
     --version-debug
                 print the version plus interpreter, platform, package,
-                dependency and configuration paths
+                dependency, external tool and configuration paths
 
 Debug flags:
 
@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -92,6 +93,42 @@ def _installed_version(name: str) -> str:
         return "not installed"
 
 
+def _tool_lines(name: str, version_flag: str) -> list[str]:
+    """Version line and path for one external tool, with a missing warning."""
+    path = shutil.which(name)
+    if path is None:
+        return [
+            f"warning: {name} not found on PATH",
+            f"{name}: not found",
+        ]
+    try:
+        result = subprocess.run(
+            [path, version_flag],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return [
+            f"warning: {name} could not run: {exc}",
+            f"{name}: unknown ({path})",
+        ]
+    output = (result.stdout or "").strip() or (result.stderr or "").strip()
+    version = output.splitlines()[0].strip() if output else ""
+    if version:
+        version = version.split(" (", 1)[0].strip()
+        if version.casefold().startswith(name.casefold()):
+            version = version[len(name) :].strip()
+        if version.casefold().startswith("version "):
+            version = version[len("version ") :].strip()
+    if not version:
+        return [
+            f"warning: {name} at {path} did not report a version",
+            f"{name}: unknown ({path})",
+        ]
+    return [f"{name}: {version} ({path})"]
+
+
 def _version_line(sha: str | None) -> str:
     details = [f"Python {platform.python_version()}"]
     if sha:
@@ -123,6 +160,8 @@ def _version_debug() -> str:
     lines.append(f"cwd: {cwd}")
     lines.append(f"textual: {_installed_version('textual')}")
     lines.append(f"rich: {_installed_version('rich')}")
+    lines.extend(_tool_lines("yosys", "-V"))
+    lines.extend(_tool_lines("slang", "--version"))
 
     from .config import discover_files
 
@@ -153,7 +192,7 @@ options:
   --version     show the TREN version, source SHA and Python version
   --version-debug
                 show the version plus interpreter, platform, package,
-                dependency and configuration paths
+                dependency, external tool and configuration paths
 
 commands:
   import [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...

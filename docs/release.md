@@ -100,8 +100,9 @@ tren 0.0.1 (dev-abc1234, Python 3.14.8)
 ```
 
 `tren --version-debug` prints the same first line, then the interpreter,
-platform, package path, Git state, dependency versions and configuration
-layer paths. Use it in a bug report.
+platform, package path, Git state, dependency versions, the yosys and slang
+versions and paths, and configuration layer paths. It warns when yosys or
+slang is missing. Use it in a bug report.
 
 The install needs only the Python dependencies for this check; yosys and
 slang are needed to open a design.
