@@ -8,6 +8,7 @@ name = "tren"
 version = "0.0.1"
 description = "TREN - TUI RTL Explorer & Navigator"
 readme = "README.md"
+license = { file = "LICENSE" }
 # Syntax floor, checked with python3.11 -m compileall. The project is
 # developed and gated on the 3.14 the dev shell pins (see README, Pinned
 # versions); nothing here is 3.12+ only.

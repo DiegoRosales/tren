@@ -70,6 +70,7 @@ pip install -e .
 - [Configuration](docs/configuration.md) describes configuration files and
   settings.
 - [Examples](docs/examples/README.md) lists openable designs.
+- [License](LICENSE) contains the MIT license terms.
 - [Release process](docs/release.md) and [verification strategy](docs/verification.md)
   describe project maintenance.
 

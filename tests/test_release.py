@@ -26,6 +26,11 @@ class VersionTests(unittest.TestCase):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(project["project"]["version"], tren.__version__)
 
+    def test_project_declares_the_mit_license(self) -> None:
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(project["project"]["license"], {"file": "LICENSE"})
+        self.assertIn("MIT License", (ROOT / "LICENSE").read_text(encoding="utf-8"))
+
     def test_version_is_semver(self) -> None:
         self.assertRegex(tren.__version__, r"^\d+\.\d+\.\d+$")
 
