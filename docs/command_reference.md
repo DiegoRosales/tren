@@ -8,16 +8,15 @@ program disagree, the program is correct.
 
 | Command | Purpose |
 |---|---|
-| `tren <target>` | Shorthand for `tren open <target>`. |
 | `tren open <target>` | Import the target unless it is a manifest, elaborate it, and open the TUI. |
 | `tren import <target>` | Write a design manifest. Do not open the TUI. |
 | `tren elaborate <manifest>` | Build the IR from a manifest and print a summary. Do not open the TUI. |
 | `tren config` | Show the effective configuration. |
 | `tren config export` | Write a complete TOML template. |
-| `tren-tui` | Open the vendored demo fixture, or elaborate a manifest. |
 
 Run `tren --help` for the short usage text. Run `tren <command> --help` for
-the options of one command.
+the options of one command. A target alone is not a command: `tren rtl` stops
+with an error, and `tren open rtl` opens the design.
 
 ## Global options
 
@@ -44,8 +43,7 @@ tren open <target> [--root DIR] [--cache DIR] [--refresh]
 ```
 
 `<target>` is a manifest JSON, a `.f` filelist, a single `.sv` or `.v` file,
-a source directory, or a Vivado `.xpr`. A bare `tren <target>` is the same
-command.
+a source directory, or a Vivado `.xpr`.
 
 | Option | Default | Effect |
 |---|---|---|
@@ -137,30 +135,13 @@ The export is a template and a snapshot. A value that a file set keeps its
 origin in `show`; the export writes only values. See
 [Configuration](configuration.md) for the layers and the keys.
 
-## `tren-tui`
-
-```text
-tren-tui [--manifest PATH] [--cache DIR]
-```
-
-Without options, `tren-tui` opens the vendored `tests/fixtures/demo-tree.json`
-fixture. This path needs no backend tools.
-
-| Option | Default | Effect |
-|---|---|---|
-| `--manifest PATH` | the fixture | Elaborate this manifest and open the result. |
-| `--cache DIR` | `cache.dir` | IR cache directory for `--manifest`. |
-
-`tren-tui --manifest` uses the current directory as the root for the
-manifest's relative paths.
-
 ## Exit states
 
 | State | Meaning |
 |---|---|
 | 0 | The command completed. |
 | 1 | A backend tool failed. An uncaught importer error also exits 1. |
-| 2 | `tren open`, `tren elaborate`, or `tren config` rejected an argument or a configuration value. |
+| 2 | TREN rejected a command, an argument, or a configuration value. |
 
 `tren open` and `tren elaborate` print the failing tool's stderr and the full
 command line. They do not print a Python traceback for a backend failure.

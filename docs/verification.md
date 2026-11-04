@@ -22,7 +22,7 @@ The two rules that shape everything here (AGENTS.md section 4):
 | 3. Headless UI drives | the real TUI driven by textual Pilot | `test_drive.py`, `make drive` / `drive-real` | yes |
 | 4. Real-terminal round trip | OSC 52 bytes + `$EDITOR` invocation, and the rendered active-pane cue, status path formats, yank marker and tmux provider, on a real terminal | `tools/osc52_roundtrip.sh`, `make roundtrip`, `tools/pane_cue_capture.sh`, `make pane-cue` | no (needs tmux/pty) |
 | 5. Scale / cache profile | lazy-load materialisation + elaboration cache | `tools/profile_1k_scopes.py`, `make profile` | no |
-| 6. Importers on real artefacts | manifests read real Vivado/HLS RTL workspaces | `make import` / `make hls-*` (manual) | no (reference workspaces live outside CI) |
+| 6. Importers on real artefacts | manifests read real Vivado/HLS RTL workspaces | `make test-import-rtl` / `make hls-*` (manual) | no (reference workspaces live outside CI) |
 
 `make check` = layers 1 + 3 (the CI workflow's exact steps). Layer 4/5 run
 locally; layer 4 needs a terminal so it is not in CI.
@@ -195,7 +195,8 @@ Importers are the interface to the *outside* (Vivado, HLS, vendor
 filelists), so their verification runs against real exported RTL rather than
 hand-made fixtures:
 
-- `make import` regenerates `tests/rtl/manifest.json` from the demo source tree;
+- `make test-import-rtl` regenerates `tests/rtl/manifest.json` from the demo
+  source tree;
 - `make hls-import`/`hls-elaborate BLOCK=...` read the committed
   `tests/hls_examples/hls/<block>/rtl_output` sets - `test_adder_2p`,
   `test_axis_interfaces`, and `fft_wrapper` (140 scopes / ~50k bit-links /

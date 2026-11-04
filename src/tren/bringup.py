@@ -1,6 +1,6 @@
 """One-command bringup: target -> manifest -> IR -> TUI.
 
-``tren <target>`` is the short path from a source tree to the explorer. The
+``tren open <target>`` takes a source tree to the explorer in one step. The
 target is either a manifest JSON or anything an importer accepts (``.f``
 filelist, ``.sv``/``.v`` file, source directory, Vivado ``.xpr``). A source
 target is imported in memory; the manifest is written only when ``--out`` is
@@ -102,7 +102,7 @@ def _print_warnings(warnings: list[str]) -> None:
         print(f"  warning: {warning}", file=sys.stderr)
 
 
-def main(argv: list[str] | None = None, *, prog: str = "tren") -> int:
+def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
     parser = argparse.ArgumentParser(
         prog=prog,
         description=(

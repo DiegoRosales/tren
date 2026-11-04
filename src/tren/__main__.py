@@ -28,7 +28,7 @@ Debug flags:
     --debug-config-origins
                 print the values a TOML file set, grouped by file path, and exit
 
-A bare ``tren <target>`` (no subcommand) is the same as ``tren open <target>``.
+A command name is required. A target alone is not a command.
 """
 
 from __future__ import annotations
@@ -145,7 +145,6 @@ def _version_debug() -> str:
 
 _USAGE = """\
 usage: tren <command> [args]
-       tren [options] <target>
 
 options:
   -h, --help    show this help and exit
@@ -173,8 +172,7 @@ debug flags:
   --debug-config-origins
                 print the values a TOML file set, grouped by file path, and exit
 
-A bare 'tren <target>' is the same as 'tren open <target>'. Run
-'tren open --help' for the full option list.
+Run 'tren open --help' for the full option list.
 """
 
 
@@ -226,8 +224,15 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "config":
         from .config import main as config_main
         return config_main(rest)
-    from .bringup import main as bringup_main
-    return bringup_main(argv)
+    # A target alone is not a command. The slot stays free for a future
+    # entry point, so it must not silently open a design.
+    print(f"tren: unknown command: {cmd}", file=sys.stderr)
+    print(
+        "Run 'tren open <target>' to open a design, or 'tren --help' for "
+        "the command list.",
+        file=sys.stderr,
+    )
+    return 2
 
 
 if __name__ == "__main__":

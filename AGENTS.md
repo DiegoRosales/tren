@@ -18,12 +18,13 @@ src/tren/            the package: CLI parsing, IR model, elaboration, TUI
 tests/               unit tests + the executable fixtures they drive
   rtl/               demo.sv (the drives) + ranges.sv (declared ranges) and
                      their tracked manifests
-  fixtures/          the vendored demo-tree.json fixture IR (tren-tui, the
-                     no-backends drive)
+  fixtures/          the vendored demo-tree.json fixture IR (python -m
+                     tren.tui, the no-backends drive)
   hls_examples/      Vitis HLS example blocks + committed rtl_output/ exports
 docs/                verification.md, release.md, quick_start.md,
-                     command_reference.md, advanced_usage.md, examples/,
-                     notes/ mirrors; tech-concepts.md, sw-bom.md
+                     command_reference.md, advanced_usage.md,
+                     configuration.md, examples/, notes/ mirrors;
+                     tech-concepts.md, sw-bom.md
 tools/               round-trip + capture scripts, profilers, BOM + guide generators
 out/                 gitignored drive screenshots (shot*.svg)
 ```

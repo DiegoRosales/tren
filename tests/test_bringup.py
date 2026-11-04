@@ -1,6 +1,6 @@
 """Unit tests for the one-command bringup.
 
-``tren <target>`` must import a source target (or read a manifest),
+``tren open <target>`` must import a source target (or read a manifest),
 elaborate it in the same process, keep importer warnings visible, and only
 write a manifest when ``--out`` asks for one. The bundled backends run only
 in the acceptance test at the bottom (gated on the dev shell).
@@ -143,11 +143,16 @@ class SubcommandTests(unittest.TestCase):
         self.assertEqual(code, 0)
         run.assert_called_once_with(["rtl", "--top", "foo"], prog="tren open")
 
-    def test_bare_target_dispatches_to_bringup(self) -> None:
-        with mock.patch("tren.bringup.main", return_value=0) as run:
+    def test_a_target_alone_is_not_a_command(self) -> None:
+        err = io.StringIO()
+        with mock.patch("tren.bringup.main", return_value=0) as run, redirect_stderr(
+            err
+        ):
             code = cli.main(["rtl"])
-        self.assertEqual(code, 0)
-        run.assert_called_once_with(["rtl"])
+        self.assertEqual(code, 2)
+        run.assert_not_called()
+        self.assertIn("unknown command: rtl", err.getvalue())
+        self.assertIn("tren --help", err.getvalue())
 
 
 def _loaded(config: Config):

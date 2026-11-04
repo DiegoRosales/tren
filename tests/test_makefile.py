@@ -35,7 +35,7 @@ class MakefileTest(unittest.TestCase):
         return done.stdout
 
     def test_default_runs_in_the_current_shell(self) -> None:
-        for target in ("test", "drive", "import"):
+        for target in ("test", "drive", "test-import-rtl"):
             with self.subTest(target=target):
                 self.assertNotIn("nix develop", self._dry_run(target))
 
@@ -50,8 +50,7 @@ class MakefileTest(unittest.TestCase):
         self.assertIn("nix develop .#tren-yosys-src -c", out)
 
     def test_tren_comes_from_path(self) -> None:
-        self.assertIn("tren open tests/rtl", self._dry_run("open"))
-        self.assertIn("tren-tui", self._dry_run("run-fixture"))
+        self.assertIn("tren open tests/rtl", self._dry_run("test-open-rtl"))
 
 
 if __name__ == "__main__":

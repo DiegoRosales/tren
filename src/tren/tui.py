@@ -2954,10 +2954,10 @@ class TrenApp(App[None]):
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`python -m tren.tui` and the `tren-tui` console script.
+    """`python -m tren.tui` - open the demo fixture or a manifest, no backends.
 
-    A function rather than a bare `__main__` block so the installed package
-    can expose it as an entry point (pyproject.toml § project.scripts).
+    A developer path for the bundled fixture IR and for a manifest that is
+    already elaborated. Users open a design with `tren open`.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -2975,7 +2975,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         settings = load_config().config
     except ConfigError as exc:
-        print(f"tren-tui: {exc}", file=sys.stderr)
+        print(f"tren: {exc}", file=sys.stderr)
         return 2
     cache = args.cache if args.cache is not None else Path(settings.cache_dir)
     if args.manifest is not None:

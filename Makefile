@@ -25,26 +25,26 @@ HLS_EXAMPLES_PATH := tests/hls_examples
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run open run-fixture import elaborate test drive drive-real roundtrip \
+.PHONY: help test-open-manifest test-open-rtl test-import-rtl \
+        test-elaborate-manifest test drive drive-real roundtrip \
         pane-cue profile bom guide check hls-import hls-elaborate hls-run
 
 help:
-	@echo "TREN examples (run inside a dev shell; NIX_DEV=1 to wrap in nix develop):"
+	@echo "TREN examples and command smoke tests (run inside a dev shell; NIX_DEV=1 to wrap in nix develop):"
 	@echo
-	@echo "  make run            TUI on the real demo IR (tests/rtl/demo.manifest.json)"
-	@echo "  make open           import + elaborate + open (TARGET=tests/rtl default)"
-	@echo "  make run-fixture    TUI on the vendored demo fixture"
-	@echo "  make import         regenerate tests/rtl/manifest.json from tests/rtl/ (dir scan)"
-	@echo "  make elaborate      elaborate the demo manifest -> IR summary (cached)"
-	@echo "  make test           unit tests"
-	@echo "  make drive          headless Pilot drive, fixture mode"
-	@echo "  make drive-real     headless Pilot drive, real IR + trace/black-box flows"
-	@echo "  make roundtrip      real-terminal OSC 52 + editor round trip (private tmux server)"
-	@echo "  make pane-cue       real-terminal check of the pane cue + path status line (private tmux server)"
-	@echo "  make profile        lazy-load + cache profile on a synthetic 1100-scope IR"
-	@echo "  make bom            regenerate docs/sw-bom.md from the dev shell"
-	@echo "  make guide          regenerate the README keys block from tren/keys.py"
-	@echo "  make check          unit + both drives (what CI runs)"
+	@echo "  make test-open-manifest       TUI on the real demo IR (tests/rtl/demo.manifest.json)"
+	@echo "  make test-open-rtl            import + elaborate + open (TARGET=tests/rtl default)"
+	@echo "  make test-import-rtl          regenerate tests/rtl/manifest.json from tests/rtl/ (dir scan)"
+	@echo "  make test-elaborate-manifest  elaborate the demo manifest -> IR summary (cached)"
+	@echo "  make test                     unit tests"
+	@echo "  make drive                    headless Pilot drive, fixture mode"
+	@echo "  make drive-real               headless Pilot drive, real IR + trace/black-box flows"
+	@echo "  make roundtrip                real-terminal OSC 52 + editor round trip (private tmux server)"
+	@echo "  make pane-cue                 real-terminal check of the pane cue + path status line (private tmux server)"
+	@echo "  make profile                  lazy-load + cache profile on a synthetic 1100-scope IR"
+	@echo "  make bom                      regenerate docs/sw-bom.md from the dev shell"
+	@echo "  make guide                    regenerate the README keys block from tren/keys.py"
+	@echo "  make check                    unit + both drives (what CI runs)"
 	@echo
 	@echo "  NIX_DEV=1           wrap each command in nix develop (default: run in the current shell)"
 	@echo "  TREN_SHELL          dev shell the wrapper enters; default = ."
@@ -63,23 +63,20 @@ help:
 
 # --- interactive TUI (q quits) --------------------------------------------
 
-run:
+test-open-manifest:
 	$(NIX) tren open tests/rtl/demo.manifest.json
 
 TARGET ?= tests/rtl
 
-open:
+test-open-rtl:
 	$(NIX) tren open $(TARGET)
-
-run-fixture:
-	$(NIX) tren-tui
 
 # --- examples (all verified, non-interactive) -----------------------------
 
-import:
+test-import-rtl:
 	$(NIX) tren import tests/rtl --out tests/rtl/manifest.json
 
-elaborate:
+test-elaborate-manifest:
 	$(NIX) tren elaborate tests/rtl/demo.manifest.json
 
 test:

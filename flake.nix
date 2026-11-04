@@ -70,15 +70,18 @@
           (pyproject.renderers.buildPythonPackage { python = pkgs.python3; })
           // {
             makeWrapperArgs = [
-              "--prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.yosys pkgs.sv-lang ]}"
+              "--prefix"
+              "PATH"
+              ":"
+              (pkgs.lib.makeBinPath [ pkgs.yosys pkgs.sv-lang ])
             ];
           }
         );
 
-      # An interpreter with tren *installed*: `import tren` and the `tren` /
-      # `tren-tui` console scripts resolve into the store, exactly as they
-      # would for someone who installed the package - no PYTHONPATH, no venv,
-      # and no dependence on the directory you happen to be standing in.
+      # An interpreter with tren *installed*: `import tren` and the `tren`
+      # console script resolve into the store, exactly as they would for
+      # someone who installed the package - no PYTHONPATH, no venv, and no
+      # dependence on the directory you happen to be standing in.
       trenEnv =
         pkgs:
         pkgs.python3.withPackages (
@@ -141,28 +144,18 @@
         echo
       '';
 
-      # `tren` and `tren-tui` for the shells that do not install the package:
-      # both run the repo's own src/ through PYTHONPATH, so edits take effect
-      # with no reinstall, and both console scripts exist in every shell. Use
-      # the textual-carrying interpreter: the bare/open command imports
+      # `tren` for the shells that do not install the package: it runs the
+      # repo's own src/ through PYTHONPATH, so an edit takes effect with no
+      # reinstall. Use the textual-carrying interpreter: `tren open` imports
       # tren.tui, which needs textual and rich. Plain pkgs.python3 has neither.
       trenFromSource =
         pkgs:
-        let
-          script = name: module: pkgs.writeShellScriptBin name ''
-            set -eu
-            SRC="''${TREN_SRC:-$PWD/src}"
-            export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
-            exec ${trenPython pkgs}/bin/python -m ${module} "$@"
-          '';
-        in
-        pkgs.symlinkJoin {
-          name = "tren-from-source";
-          paths = [
-            (script "tren" "tren")
-            (script "tren-tui" "tren.tui")
-          ];
-        };
+        pkgs.writeShellScriptBin "tren" ''
+          set -eu
+          SRC="''${TREN_SRC:-$PWD/src}"
+          export PYTHONPATH="''${PYTHONPATH:+$PYTHONPATH:}$SRC"
+          exec ${trenPython pkgs}/bin/python -m tren "$@"
+        '';
     in
     {
       # `nix build` / `nix run .#tren` - the same store path .#tren shells in.
@@ -192,7 +185,7 @@
 
             # tren packaged the nix way: buildPythonPackage builds the whole
             # project into the store with its declared dependencies, so
-            # `import tren` and the `tren` / `tren-tui` console scripts behave
+            # `import tren` and the `tren` console script behave
             # exactly as they would for a consumer of the package. Nothing
             # here reads the checkout, which is the point - it is how you
             # catch a module that only ever worked because src/ was on the

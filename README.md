@@ -74,9 +74,8 @@ tren --version
 General usage
 
 ```sh
-tren tests/rtl                         # import + elaborate + open the TUI (one command)
-tren open tests/rtl                    # the same, with the explicit verb
-tren tests/rtl/demo.manifest.json      # the same, from an existing manifest
+tren open tests/rtl                    # import + elaborate + open the TUI (one command)
+tren open tests/rtl/demo.manifest.json # the same, from an existing manifest
 tren import tests/rtl                  # -> tests/rtl/manifest.json (first importer: .f filelist / dir scan)
 tren import tests/rtl/some.xpr         # Vivado project.xpr (auto-detected)
 tren elaborate tests/rtl/manifest.json # elaborate a manifest (yosys + slang-hier + slang -> IR)
@@ -140,10 +139,8 @@ project, or manifest. For example:
 tren open path/to/rtl --top my_top
 ```
 
-You can leave out `open` and run `tren path/to/rtl --top my_top`. To try the
-included demo without installing yosys or slang, run `tren-tui`. See the
-[command reference](docs/command_reference.md) for all target types and
-options.
+See the [command reference](docs/command_reference.md) for all target types
+and options.
 
 The screen is three panes - **tree** (the scope hierarchy, like a filesystem)
 | **source** (the focused module's RTL) | **I/O** (parameters + ports). `q`
@@ -456,9 +453,9 @@ exit                                         # leave the shell
 ```
 
 The shell pins Python 3.14 + textual 8.2.8, yosys, slang, verilator, rust,
-make and tmux. `tren` and `tren-tui` read the checkout's `src/` through
-`PYTHONPATH`, so an edit is live on the next command. Every gate in
-`docs/verification.md` assumes this shell.
+make and tmux. `tren` reads the checkout's `src/` through `PYTHONPATH`, so an
+edit is live on the next command. Every gate in `docs/verification.md` assumes
+this shell.
 
 Run the checks and tools inside the shell:
 
@@ -471,7 +468,7 @@ make roundtrip                               # real-terminal OSC 52 + $EDITOR ro
 make pane-cue                                # real-terminal pane cue + status formats + yank marker + tmux provider
 make profile                                 # lazy-load + cache profile (1 100-scope synthetic IR)
 make bom                                     # regenerate docs/sw-bom.md
-make run                                     # start the TUI on the vendored demo
+make test-open-manifest                      # start the TUI on the demo manifest
 PYTHONPATH=src python -m tren.spike          # spike: drivers/loads of one net
 nix develop .#xilinx                         # FHS sandbox for Xilinx tools (interactive; then: make fft_wrapper_HLS)
 ```
@@ -485,15 +482,15 @@ make, tmux) so they cannot drift apart on tool versions. They differ in how
 | Shell | tren comes from | yosys build | Use it for |
 |---|---|---|---|
 | `nix develop` | the checkout's `src/`, via `PYTHONPATH` | nixpkgs (0.70) | day-to-day work. Edits are live on the next command; every gate in `docs/verification.md` assumes this shell |
-| `nix develop .#tren` | the nix store (`buildPythonPackage`) | nixpkgs (0.70) | checking the *package*: `import tren` and the `tren` / `tren-tui` console scripts resolve into the store, from any directory |
+| `nix develop .#tren` | the nix store (`buildPythonPackage`) | nixpkgs (0.70) | checking the *package*: `import tren` and the `tren` console script resolve into the store, from any directory |
 | `nix develop .#tren-venv` | `.venv/`, `pip install -e .` | nixpkgs (0.70) | the textbook Python flow on nix's interpreter - an editable install, so edits are live too |
 | `nix develop .#tren-yosys-src` | the checkout's `src/` | yosys git (`github:YosysHQ/yosys`, flake pin) | verifying against yosys main. The first entry builds the whole tool from source |
 | `nix develop .#xilinx` | the checkout's `src/` | nixpkgs (0.70) | the FHS sandbox for Vivado / Vitis HLS (x86_64-linux only) |
 
 Every `make` target runs in the shell you are already in, and calls `tren` from
-`PATH`. Every shell above puts `tren` and `tren-tui` there (verified in all but
-`.#xilinx`, which cannot run `-c` commands; WARNING: it lists the same
-wrapper). Enter a shell once (see above), then run the targets directly.
+`PATH`. Every shell above puts `tren` there (verified in all but `.#xilinx`,
+which cannot run `-c` commands; WARNING: it lists the same wrapper). Enter a
+shell once (see above), then run the targets directly.
 
 The targets spawn no shell of their own, so a target costs one command, not a
 nested `nix develop`. From a host shell, set `NIX_DEV=1` to wrap each command
@@ -635,7 +632,7 @@ src/tren/            package
   config.py          layered configuration files + the `tren config` command
   formats.py         yank format registry + templates
   tui.py             the textual app (implements the screen + keys only)
-  __main__.py        subcommand front door (import / elaborate / open / config / bare target)
+  __main__.py        subcommand front door (import / elaborate / open / config)
 tests/               unit tests, the Pilot workdir, and the executable
                      fixtures: rtl/ (demo.sv for the drives and ranges.sv for
                      declared ranges), fixtures/ (the demo-tree.json fixture
