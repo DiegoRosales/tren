@@ -79,7 +79,7 @@ works as a template and as a report:
 tren config                              # effective values + origins
 tren config export > .tren.toml          # full template at the current values
 tren config export --out .tren.toml      # the same, written to a file
-tren config export --out config-dir      # writes config-dir/config.toml
+tren config export --out config-dir      # existing directory: writes config-dir/config.toml
 ```
 
 The `--debug-config` and `--debug-config-origins` flags print the values

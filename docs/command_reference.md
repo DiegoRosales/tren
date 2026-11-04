@@ -143,8 +143,9 @@ origin in `show`; the export writes only values. See
 | 1 | A backend tool failed. An uncaught importer error also exits 1. |
 | 2 | TREN rejected a command, an argument, or a configuration value. |
 
-`tren open` and `tren elaborate` print the failing tool's stderr and the full
-command line. They do not print a Python traceback for a backend failure.
+`tren open` and `tren elaborate` print the last 40 lines of the failing
+tool's stderr, prefixed with `...` when trimmed, and the full command line.
+They do not print a Python traceback for a backend failure.
 
 ## Environment variables
 

@@ -4,37 +4,42 @@
 
 ## Introduction
 
-TREN is a TUI to explore RTL designs in an easy way. It allows you to explore
-the RTL like you do in simulator frontends like DVE/Verdi, GTKWave, etc.
-As you navigate the RTL hierarchy, the RTL view follows you. There you can
-do useful things such as tracing drivers/loads, copying the current hierarchy
-path in a few different formats (sv, Vivado, yosys) and fuzzy find RTL elements
+TREN is a TUI for exploring RTL designs. It lets you browse the hierarchy in
+the way a simulator frontend or a waveform viewer presents a design. The RTL
+source view follows the hierarchy as you move. TREN traces drivers and loads,
+copies the current hierarchical path in several formats (sv, Vivado, yosys),
+and finds RTL elements with a fuzzy search.
 
-Now there's just one thing which is quite annoying. 
-Most projects have their code spread across different directories or even different repositories.
-Many projects employ a collection of scripts to generate filelists to use for synthesis and simulation.
-Why not leverage that?
-The goal of this project is ease of use. The idea is that you simply point it
-at a codebase and with little to no interaction it pulls the filelist, determines
-the RTL-top and elaborates the design. It also doesn't throw a fuzz if it cannot resolve a module
-Right now the project supports only a few of ways to automatically gather a filelist,
-but the idea is to expand it to support as many presets as possible.
+How does it actually load an RTL design?
 
-How can you open a desgin?
+The filelist is the common problem. Most projects spread their code across
+several directories or repositories, and many projects generate filelists
+with a set of scripts for synthesis and simulation. 
+Why not reuse that?
+The goal is ease of use: point TREN at a codebase, and with little
+interaction it collects the filelist, finds the RTL top, and elaborates the
+design. An unresolved module does not stop it. The project currently supports 
+a small set of ways to collect a filelist, but the goal is to support as many
+presets as possible.
 
- - You can point it at a single file (if multiple modules are declared in the file, then provide the RTL top)
- - You can point it at a directory and give it an RTL top
- - You can provide a filelist with the RTL top
- - You can point it to a Vivado .xpr file and it will auto-derive the filelist and RTL top
+You can open a design in these ways:
 
-To be implemented
+- Point at a single file. If the file declares several modules, give the RTL
+  top.
+- Point at a directory full of RTL files and give the RTL top.
+- Give a filelist and the RTL top.
+- Point at a Vivado `.xpr` file. TREN derives the filelist and the RTL top
+  from it.
 
- - Lazy loading (interactively find and add the files)
- - Custom pre-processor script that generates a filelist
- - Support to gather filelists from prebuilt workspaces from other EDA tools: vcs, questa, quartus, etc.
+To be implemented:
 
-Now, how does it actually elaborate the design? This project uses Yosys and slang as backend
-to elaborate the design and to correlate the elaboration with the RTL code
+- Lazy loading: find and add files interactively.
+- A custom pre-processor script that generates a filelist.
+- Filelists from the prebuilt workspaces of other EDA tools: VCS, Questa,
+  Quartus, and others.
+
+TREN elaborates the design with Yosys and slang, and correlates the
+elaboration with the RTL source.
 
 Status: **spike phase, built on textual 8.2**. The backend pair is verified
 and pinned (see *Sources of truth*): yosys `write_json` for bit-level
@@ -53,25 +58,30 @@ revisited when a real 100k-instance IR shows the ceiling matters.
   imports.
 - [Configuration](docs/configuration.md) - the config layers, every TOML key,
   and the project-file safety rule.
-- [User guide](#user-guide) below - the screen, keys, search, tracing, and
+- [Release process](docs/release.md) - the version scheme, gates, tag and
+  publish steps.
+- [Quick user guide](#quick-user-guide) below - the screen, keys, search, tracing, and
   black boxes.
 
 ## Quick start with Nix
 
+### Using nix run
+
+Pass the TREN arguments after `--`:
+
 ```sh
-## Using nix run
-nix run github:DiegoRosales/tren -- <args>
-
-## For example:
 nix run github:DiegoRosales/tren -- --version
+nix run github:DiegoRosales/tren -- open path/to/rtl --top my_top
+```
 
-####
-## Using nix shell
+### Using nix shell
+
+```sh
 nix shell github:DiegoRosales/tren
 tren --version
 ```
 
-General usage
+### General usage
 
 ```sh
 tren open tests/rtl                    # import + elaborate + open the TUI (one command)
@@ -128,7 +138,7 @@ The checkout is detached at the release tag. The editable install reads
 `src/` directly, so an edit is live on the next command. Contributors work
 from the repository default branch instead of the release tag.
 
-## User guide
+## Quick User guide
 
 ### Starting the TUI
 

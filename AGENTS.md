@@ -144,10 +144,10 @@ source for the pinned nixpkgs rev).
 
 ### Writing style: Simplified Technical English (ASD-STE100)
 
-Write all prose in **ASD-STE100 Simplified Technical English**: code comments,
-docstrings, commit messages, README and `docs/`, Deck card text, and the
-chat report of what you did. Identifiers follow the same spirit (one word per
-meaning), but keep established names.
+Write prose in **ASD-STE100 Simplified Technical English** in code comments,
+docstrings, commit messages, `docs/`, Deck card text, and the chat report of
+what you did. `README.md` is the exception; see *Voice* below. Identifiers
+follow the same spirit (one word per meaning), but keep established names.
 
 The rules that matter here:
 
@@ -162,6 +162,26 @@ The rules that matter here:
   into noun clusters of more than three words.
 - No slang, metaphor, irony, or backstory. Say what the change does.
 - Paragraphs of 6 sentences or less.
+
+### Voice: write the README for a person
+
+`README.md` is the project's front page. Write it for a human who is deciding
+whether to use TREN, and let it carry a voice: personality, a comparison to a
+familiar tool, an opinion about the problem it solves. The STE rules above
+apply to every other file, not to the README.
+
+The README must not read like a specification for a language model, and it
+must not restate the repository conventions. That is this file's job. Keep the
+README short and point to `docs/` for detail.
+
+Creative language does not relax the following:
+
+- Correct grammar and spelling. A sentence still needs its verb and its full
+  stop.
+- Accurate commands, key names, paths, versions and configuration values.
+  Read them from the program, not from memory.
+- Plain ASCII, as described below.
+- One meaning per technical term, in the README and in `docs/` alike.
 
 ### Character set: ASCII only
 

@@ -19,3 +19,6 @@ __pycache__/
 # the per-block synthesis workspace (rtl_output/ snapshots ARE committed)
 .xilinx_env
 /tests/hls_examples/hls/*/*/solution_1
+
+# setuptools build output
+/build/
