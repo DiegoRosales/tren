@@ -49,7 +49,7 @@ behaviour of the backends lives in `docs/verification.md` and the sibling
 | Concept | What it does | Component | Location |
 |---|---|---|---|
 | Importer as bootstrap | Importers produce a manifest once; the result is hand-fixed and checked in, not regenerated every run. | `importer`, `vivado` | `src/tren/importer.py`, `src/tren/vivado.py` |
-| Filelist grammar | A plain `.f`/directory importer reads `-I`, `-D`, `+incdir+` and sources, mirroring slang's command-file grammar. | `importer` | `importer.py:parse_filelist`, `import_manifest` |
+| Filelist grammar | A plain `.f`/directory importer reads `-I`, `-D`, `-G`, `+incdir+` and sources, mirroring slang's command-file grammar. | `importer` | `importer.py:parse_filelist`, `import_manifest` |
 | Vivado project parser | `.xpr` FileSets, `TopModule`, and the `$PSRCDIR`-style variable scheme resolve to a source set. | `vivado` | `vivado.py:parse_vivado`, `_resolve` |
 | Recorded reality | `vivado.jou`/`settings.tcl` supply the top when the XML has none; a directory scan completes the sources. | `vivado` | `vivado.py:_recorded_top`, `_scan_verilog` |
 

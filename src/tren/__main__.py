@@ -2,13 +2,14 @@
 
 Commands:
 
-    import [<target>] [-f PATH]... [--out PATH] [--name NAME] [--top TOP]
+    import [<target>] [-f PATH]... [-G NAME=VALUE]... [--out PATH]
+                [--name NAME] [--top TOP]
                 emit a design manifest for a .f filelist, a .sv file, a
                 directory of sources, or an explicit -f list (tren.importer)
     elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
                 elaborate a manifest into the TREN IR (tren.elaborate)
-    open [<target>] [-f PATH]... [--root DIR] [--cache DIR] [--refresh]
-                [--out PATH]
+    open [<target>] [-f PATH]... [-G NAME=VALUE]... [--root DIR]
+                [--cache DIR] [--refresh] [--out PATH]
                 import the target (or the -f list) unless it is a manifest,
                 elaborate it and open the TUI (tren.bringup)
     config [show|export] [--out PATH]
@@ -155,13 +156,14 @@ options:
                 dependency and configuration paths
 
 commands:
-  import [<target>] [-f PATH]... [--out PATH] [--name NAME] [--top TOP]
+  import [<target>] [-f PATH]... [-G NAME=VALUE]... [--out PATH]
+                [--name NAME] [--top TOP]
                 emit a design manifest for a .f filelist, a .sv file, a
                 directory of sources, or an explicit -f list
   elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
                 elaborate a manifest into the TREN IR
-  open [<target>] [-f PATH]... [--root DIR] [--cache DIR] [--refresh]
-                [--out PATH]
+  open [<target>] [-f PATH]... [-G NAME=VALUE]... [--root DIR]
+                [--cache DIR] [--refresh] [--out PATH]
                 import the target (or the -f list) unless it is a manifest,
                 elaborate it and open the TUI
   config [show|export] [--out PATH]

@@ -97,11 +97,13 @@ class TargetDispatchTests(unittest.TestCase):
                     files=[str(root / "b.sv"), str(root / "a.sv")],
                     root=root,
                     top="top",
+                    params=[("WIDTH", "16")],
                 )
             self.assertEqual(
                 manifest.sources, ("b.sv", "a.sv")
             )
             self.assertEqual(manifest.name, root.name)
+            self.assertEqual(manifest.params, (("WIDTH", "16"),))
             self.assertIs(got, design)
 
     def test_file_list_writes_the_manifest(self) -> None:
@@ -112,6 +114,24 @@ class TargetDispatchTests(unittest.TestCase):
             with mock.patch("tren.bringup.elaborate", return_value=Design(top="top")):
                 load_target(files=[str(root / "a.sv")], root=root, out=out)
             self.assertEqual(Manifest.read(out).sources, ("a.sv",))
+
+    def test_file_list_duplicate_parameter_keeps_last_and_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "a.sv").write_text("module top; endmodule\n")
+            warnings: list[str] = []
+            with mock.patch("tren.bringup.elaborate", return_value=Design(top="top")):
+                manifest, _ = load_target(
+                    files=[str(root / "a.sv")],
+                    root=root,
+                    params=[("WIDTH", "8"), ("WIDTH", "16")],
+                    warnings_out=warnings,
+                )
+            self.assertEqual(manifest.params, (("WIDTH", "16"),))
+            self.assertTrue(
+                any("parameter WIDTH is defined more than once" in w for w in warnings),
+                warnings,
+            )
 
     def test_missing_file_warns_and_keeps_the_rest(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -160,6 +180,31 @@ class TargetDispatchTests(unittest.TestCase):
             path.write_text(Manifest().to_json())
             with self.assertRaisesRegex(ValueError, "only apply when importing"):
                 load_target(path, top="other")
+
+    def test_manifest_rejects_parameter_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "manifest.json"
+            path.write_text(Manifest().to_json())
+            with self.assertRaisesRegex(ValueError, "only apply when importing"):
+                load_target(path, params=[("WIDTH", "16")])
+
+    def test_manifest_duplicate_parameters_warn(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "manifest.json"
+            path.write_text(
+                Manifest(params=(("W", "8"), ("W", "16"))).to_json()
+            )
+            warnings: list[str] = []
+            with mock.patch(
+                "tren.bringup.elaborate", return_value=Design(top="top")
+            ):
+                manifest, _ = load_target(path, root=root, warnings_out=warnings)
+            self.assertEqual(manifest.params, (("W", "16"),))
+            self.assertTrue(
+                any("parameter W is defined more than once" in w for w in warnings),
+                warnings,
+            )
 
 
 class WarningTests(unittest.TestCase):
@@ -266,6 +311,30 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(load.call_args.args[0], None)
         self.assertEqual(load.call_args.kwargs["files"], ["a.sv", "b.sv"])
+
+    def test_main_passes_parsed_parameter_overrides(self) -> None:
+        design = Design(top="top")
+        manifest = Manifest(sources=("a.sv",))
+        with mock.patch(
+            "tren.bringup.load_config", return_value=_loaded(Config())
+        ), mock.patch(
+            "tren.bringup.load_target", return_value=(manifest, design)
+        ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
+            io.StringIO()
+        ):
+            code = main(["-f", "a.sv", "-G", "WIDTH=16", "-G", "DEPTH=4"])
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            load.call_args.kwargs["params"],
+            [("WIDTH", "16"), ("DEPTH", "4")],
+        )
+
+    def test_main_rejects_a_malformed_parameter(self) -> None:
+        with mock.patch(
+            "tren.bringup.load_config", return_value=_loaded(Config())
+        ), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
+            main(["-f", "a.sv", "-G", "WIDTH"])
+        self.assertEqual(exc.exception.code, 2)
 
     def test_main_rejects_a_target_with_files(self) -> None:
         with mock.patch(

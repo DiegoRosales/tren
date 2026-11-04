@@ -8,8 +8,8 @@ program disagree, the program is correct.
 
 | Command | Purpose |
 |---|---|
-| `tren open [<target>] [-f PATH]...` | Import the target (or the `-f` file list) unless it is a manifest, elaborate it, and open the TUI. |
-| `tren import [<target>] [-f PATH]...` | Write a design manifest. Do not open the TUI. |
+| `tren open [<target>] [-f PATH]... [-G NAME=VALUE]...` | Import the target (or the `-f` file list) unless it is a manifest, elaborate it, and open the TUI. |
+| `tren import [<target>] [-f PATH]... [-G NAME=VALUE]...` | Write a design manifest. Do not open the TUI. |
 | `tren elaborate <manifest>` | Build the IR from a manifest and print a summary. Do not open the TUI. |
 | `tren config` | Show the effective configuration. |
 | `tren config export` | Write a complete TOML template. |
@@ -37,9 +37,9 @@ keys.
 ## `tren open`
 
 ```text
-tren open [<target>] [-f PATH]... [--root DIR] [--cache DIR]
-                   [--refresh] [--out PATH] [--name NAME] [--top TOP]
-                   [--format auto|f|vivado]
+tren open [<target>] [-f PATH]... [-G NAME=VALUE]... [--root DIR]
+                   [--cache DIR] [--refresh] [--out PATH] [--name NAME]
+                   [--top TOP] [--format auto|f|vivado]
 ```
 
 `<target>` is a manifest JSON, a `.f` filelist, a single `.sv` or `.v` file,
@@ -52,6 +52,7 @@ and is skipped; the command stops when every listed file is missing.
 | Option | Default | Effect |
 |---|---|---|
 | `-f`, `--file PATH` | none | Add a source file. Repeat the option to list several files. The list replaces the target. A missing file warns and is skipped. |
+| `-G`, `--param NAME=VALUE` | none | Override a top-level parameter. Repeat the option for more parameters. A repeated name warns; the last value wins. A value must be one token. A `.f` filelist accepts the same `-G NAME=VALUE` line. |
 | `--root DIR` | current directory | Anchor for stored relative paths and for the backend tools. |
 | `--cache DIR` | `cache.dir` | IR cache directory. A relative path resolves from the current directory. |
 | `--refresh` | off | Rebuild the IR even when the cache has an entry. |
@@ -60,9 +61,9 @@ and is skipped; the command stops when every listed file is missing.
 | `--top TOP` | `top`, or the Vivado `TopModule` | Top module. |
 | `--format FORMAT` | `auto` | Importer: `auto`, `f`, or `vivado`. It does not apply with `-f`. |
 
-`--out`, `--name`, `--top`, and `--format` apply only to a source target. The
-command stops with an error when the target is a manifest. With `-f`, the
-design name defaults to the root directory name.
+`--out`, `--name`, `--top`, `--param`, and `--format` apply only to a source
+target. The command stops with an error when the target is a manifest. With
+`-f`, the design name defaults to the root directory name.
 
 A source target is imported in memory. The manifest is written only when
 `--out` is given. A manifest target is read as it is; use `tren elaborate`
@@ -75,8 +76,8 @@ option; the importer uses that value when `--top` is absent.
 ## `tren import`
 
 ```text
-tren import [<target>] [-f PATH]... [--out PATH] [--name NAME]
-                     [--top TOP] [--format auto|f|vivado]
+tren import [<target>] [-f PATH]... [-G NAME=VALUE]... [--out PATH]
+                     [--name NAME] [--top TOP] [--format auto|f|vivado]
 ```
 
 `tren import` writes a manifest and exits. It does not elaborate the design
@@ -86,6 +87,7 @@ stops when it gets neither or both.
 | Option | Default | Effect |
 |---|---|---|
 | `-f`, `--file PATH` | none | Add a source file. Repeat the option to list several files. The list replaces the target. A missing file warns and is skipped. |
+| `-G`, `--param NAME=VALUE` | none | Override a top-level parameter. Repeat the option for more parameters. A repeated name warns; the last value wins. A value must be one token. A `.f` filelist accepts the same `-G NAME=VALUE` line. |
 | `--out PATH` | target directory | Manifest file path. A directory target writes `<target>/manifest.json`; a file target writes `<target parent>/manifest.json`. With `-f`, it writes `<current directory>/manifest.json`. |
 | `--name NAME` | target name, or the Vivado project name | Design name in the manifest. With `-f`, it defaults to the root directory name. |
 | `--top TOP` | `top`, or the Vivado `TopModule` | Top module. |
@@ -97,12 +99,13 @@ incdirs, the same rule a directory scan uses. A missing file warns and is
 skipped; the command stops when every listed file is missing. Run the
 command from the project root, or move the manifest and sources together.
 The command prints the source count, the top module, the incdirs, the defines,
-and the slang flags. Importer warnings go to standard error.
+the parameter overrides, and the slang flags. Importer warnings go to standard
+error.
 
 The plain importer has these target rules:
 
 - A `.f` filelist uses the filelist grammar and resolves its paths from the
-  filelist directory.
+  filelist directory. It can carry `-G NAME=VALUE` parameter overrides.
 - A single `.sv` or `.v` file becomes one source.
 - A directory with one `.f` file uses that filelist. A directory with more
   than one `.f` file stops with an error.
@@ -182,7 +185,7 @@ current directory when `--root` is absent.
 | `sources` | list of strings | Source files. |
 | `incdirs` | list of strings | Include directories. |
 | `defines` | list of pairs | Preprocessor defines as `[name, value]`. |
-| `params` | list of pairs | Reserved parameter entries. The normal flow leaves this empty. |
+| `params` | list of pairs | Top-level parameter overrides as `[name, value]`. A repeated name uses the last value; the CLI warns. The elaborator passes them to every backend. |
 | `top` | string | Top module. |
 | `blackboxes` | list of strings | Reserved black-box entries. The normal flow leaves this empty. |
 | `slang_flags` | list of strings | Extra arguments for `slang-hier` and `slang --ast-json`. |

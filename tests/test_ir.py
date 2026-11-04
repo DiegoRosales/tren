@@ -156,6 +156,11 @@ class ManifestTests(unittest.TestCase):
         b = Manifest(sources=("a.v", "b.v"))
         self.assertNotEqual(a.canonical_bytes(), b.canonical_bytes())
 
+    def test_duplicate_params_keep_the_last_value(self) -> None:
+        m = Manifest(params=(("W", "8"), ("W", "16")))
+        self.assertEqual(m.params_map(), {"W": "16"})
+        self.assertEqual(m.duplicate_params(), {"W": "16"})
+
 
 class CacheTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -193,6 +198,15 @@ class CacheTests(unittest.TestCase):
         (self.tmp / "rtl" / "b.sv").write_text("")
         a = Manifest(name="demo", sources=("rtl/b.sv", "rtl/a.sv"))
         b = Manifest(name="demo", sources=("rtl/a.sv", "rtl/b.sv"))
+        self.assertNotEqual(cache_key(a, self.tmp), cache_key(b, self.tmp))
+
+    def test_parameter_change_changes_key(self) -> None:
+        a = Manifest(
+            name="demo", sources=("rtl/demo.sv",), params=(("W", "8"),)
+        )
+        b = Manifest(
+            name="demo", sources=("rtl/demo.sv",), params=(("W", "16"),)
+        )
         self.assertNotEqual(cache_key(a, self.tmp), cache_key(b, self.tmp))
 
     def test_missing_source_key_stable(self) -> None:

@@ -102,12 +102,72 @@ The filelist grammar supports these forms:
 | `+incdir DIR`, `-I DIR`, `--include-directory DIR` | An include directory. |
 | `+define+NAME`, `+define+NAME=VALUE` | A preprocessor define. |
 | `-D NAME`, `-D NAME=VALUE`, `--define-macro NAME=VALUE` | A preprocessor define. |
+| `-G NAME=VALUE` | A top-level parameter override. |
 | `// comment` | A line comment. |
 | `"path with spaces.sv"` | A quoted path. |
+
+If a `-G` name occurs more than once, the last value wins and the importer
+warns.
 
 The importer does not follow a nested `-f` filelist. It warns about an option
 it does not carry into the manifest. A flag in the manifest reaches slang,
 and slang stops there with its own message.
+
+## Override a top-level parameter
+
+A top-level parameter changes the port ranges and the generated scopes. The
+example declares `param_top #(parameter int WIDTH = 8)` in
+`docs/examples/parameter/param_top.sv` and instantiates `adder #(WIDTH)`.
+Open it with the default width:
+
+```sh
+tren open docs/examples/parameter/param_top.sv --top param_top
+```
+
+The I/O pane shows the ports as 8 bits wide. Override the parameter with a
+repeated `-G`/`--param` option:
+
+```sh
+tren open docs/examples/parameter/param_top.sv --top param_top -G WIDTH=16
+```
+
+The ports become 16 bits wide and the I/O pane shows `WIDTH = 16`. Repeat
+`-G` for more parameters. A value must be one token, for example
+`-G WIDTH=16` or `-G MODE=2`. If a name appears more than once, the last
+value wins and TREN prints a warning.
+
+A filelist can carry the same line. `docs/examples/parameter/design.f`:
+
+```text
+// The top-level override sets WIDTH on param_top.
+-G WIDTH=16
+param_top.sv
+```
+
+Open the filelist:
+
+```sh
+tren open docs/examples/parameter/design.f --top param_top
+```
+
+A CLI value wins when the filelist sets the same name; TREN warns that the
+name is repeated. This command opens the same filelist with 32-bit ports:
+
+```sh
+tren open docs/examples/parameter/design.f --top param_top -G WIDTH=32
+```
+
+The importer stores the result in the manifest. Keep the manifest to inspect
+the entry:
+
+```sh
+tren import docs/examples/parameter/design.f --top param_top \
+    --out .cache/parameter/manifest.json
+```
+
+The `params` field then reads `[["WIDTH", "16"]]`. The elaborator passes the
+override to both backends: slang receives `-G WIDTH=16`, and yosys receives
+`chparam -set WIDTH 16 param_top`.
 
 ## Use several source directories
 

@@ -4,6 +4,7 @@ Wraps the pinned CLIs (versions recorded in README.md):
 
 - ``slang-hier --params`` - the scope tree (every instance path, generate
   scopes included) plus per-instance resolved parameters (``W=32'd32``).
+  A manifest top-level override reaches slang as ``-G NAME=VALUE``.
 - ``yosys ... ; hierarchy -top <top>; proc; write_json`` - connectivity
   (per net bit, drivers/loads within the module), boundary links (submodule
   cell ports), black-box detection and ports, and net widths/src. The yosys
@@ -139,6 +140,8 @@ def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
         args += ["-I", str(inc)]
     for name, value in manifest.defines:
         args += ["-D", f"{name}={value}" if value else name]
+    for name, value in manifest.params_map().items():
+        args += ["-G", f"{name}={value}"]
     args += [str(s) for s in manifest.sources]
     nodes: list[dict[str, Any]] = []
     for line in _run(args, root).splitlines():
@@ -158,8 +161,13 @@ def run_yosys(manifest: Manifest, root: Path, out_json: str) -> None:
     for inc in _effective_incdirs(manifest):
         read_args.append(f"-I{inc}")
     sources = " ".join(read_args + [str(s) for s in manifest.sources])
+    overrides = "".join(
+        f"chparam -set {name} {value} {manifest.top}; "
+        for name, value in manifest.params_map().items()
+    )
     script = (
         f"read_verilog -sv {sources}; "
+        f"{overrides}"
         f"hierarchy -top {manifest.top}; "
         "proc; "
         f"write_json {out_json}"
@@ -182,6 +190,8 @@ def run_slang_ast(manifest: Manifest, root: Path, out_json: str) -> dict:
         args += ["-I", str(inc)]
     for name, value in manifest.defines:
         args += ["-D", f"{name}={value}" if value else name]
+    for name, value in manifest.params_map().items():
+        args += ["-G", f"{name}={value}"]
     args += [str(s) for s in manifest.sources]
     _run(args, root)
     return json.loads(Path(out_json).read_text())
@@ -834,6 +844,15 @@ def main(argv: list[str] | None = None) -> int:
     cache = args.cache if args.cache is not None else Path(settings.cache_dir)
 
     manifest = Manifest.read(args.manifest)
+    duplicates = manifest.duplicate_params()
+    for name, value in duplicates.items():
+        print(
+            f"  warning: parameter {name} is defined more than once; "
+            f"using the last value {value}",
+            file=sys.stderr,
+        )
+    if duplicates:
+        manifest = replace(manifest, params=tuple(manifest.params_map().items()))
     try:
         design = elaborate(
             manifest,

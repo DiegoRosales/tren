@@ -87,6 +87,7 @@ class BackendFlagTests(unittest.TestCase):
 
     MANIFEST = Manifest(
         sources=("tests/rtl/demo.sv",),
+        params=(("WIDTH", "16"),),
         slang_flags=("--timescale=1ns/1ps", "--allow-use-before-declare", "-Wno-redefinition"),
         yosys_flags=("-DEXTRA=1",),
     )
@@ -119,6 +120,8 @@ class BackendFlagTests(unittest.TestCase):
         self.assertIn("--timescale=1ns/1ps", cmd)
         self.assertIn("--allow-use-before-declare", cmd)
         self.assertIn("-Wno-redefinition", cmd)
+        self.assertIn("-G", cmd)
+        self.assertIn("WIDTH=16", cmd)
         self.assertIn("tests/rtl/demo.sv", cmd)
 
     def test_slang_ast_carries_defaults_and_manifest_flags(self) -> None:
@@ -128,6 +131,8 @@ class BackendFlagTests(unittest.TestCase):
         self.assertIn("--ignore-unknown-modules", cmd)
         self.assertIn("--timescale=1ns/1ps", cmd)
         self.assertIn("--ast-json-source-info", cmd)
+        self.assertIn("-G", cmd)
+        self.assertIn("WIDTH=16", cmd)
 
     def test_yosys_carries_defaults_and_manifest_flags(self) -> None:
         script = self._capture(
@@ -136,8 +141,34 @@ class BackendFlagTests(unittest.TestCase):
         self.assertIn(
             "read_verilog -sv -nolatches -DEXTRA=1 -Itests/rtl tests/rtl/demo.sv", script
         )
-        self.assertIn("hierarchy -top top", script)
+        self.assertIn("chparam -set WIDTH 16 top; hierarchy -top top", script)
         self.assertIn("proc;", script)
+
+    def test_yosys_has_no_chparam_without_overrides(self) -> None:
+        bare = Manifest(sources=("tests/rtl/demo.sv",))
+        script = self._capture(
+            lambda: run_yosys(bare, REPO, "/tmp/netlist.json")
+        )[0][3]
+        self.assertNotIn("chparam", script)
+
+    def test_duplicate_parameters_use_the_last_value(self) -> None:
+        manifest = Manifest(
+            sources=("tests/rtl/demo.sv",),
+            params=(("WIDTH", "8"), ("WIDTH", "16")),
+        )
+        hier = self._capture(lambda: run_slang_hier(manifest, REPO))[0]
+        self.assertIn("WIDTH=16", hier)
+        self.assertNotIn("WIDTH=8", hier)
+        ast = self._capture(
+            lambda: run_slang_ast(manifest, REPO, "/tmp/ast.json")
+        )[0]
+        self.assertIn("WIDTH=16", ast)
+        self.assertNotIn("WIDTH=8", ast)
+        script = self._capture(
+            lambda: run_yosys(manifest, REPO, "/tmp/netlist.json")
+        )[0][3]
+        self.assertIn("chparam -set WIDTH 16 top", script)
+        self.assertNotIn("chparam -set WIDTH 8", script)
 
     def test_effective_incdirs_adds_source_dirs(self) -> None:
         """A hand-written manifest listing only sources gets the
@@ -293,6 +324,38 @@ class UnknownDirectionAcceptanceTests(unittest.TestCase):
             [(endpoint.cell, endpoint.port) for endpoint in link.unknown],
             [("u_ip", "dout")],
         )
+
+
+@unittest.skipUnless(
+    shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
+    "requires the nix dev shell (yosys/slang on PATH)",
+)
+class ParameterOverrideAcceptanceTests(unittest.TestCase):
+    """A top-level override reaches both backends and the IR."""
+
+    def test_override_changes_the_port_width_and_range(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "param_top.sv").write_text(
+                "module top #(parameter int WIDTH = 8)\n"
+                "  (input logic [WIDTH-1:0] a, output logic [WIDTH-1:0] y);\n"
+                "  assign y = a;\n"
+                "endmodule\n"
+            )
+            manifest = Manifest(
+                name="param_top",
+                sources=("param_top.sv",),
+                params=(("WIDTH", "16"),),
+                top="top",
+            )
+            design = elaborate(manifest, root, cache=None)
+        scope = design.scope("top")
+        assert scope is not None
+        ports = {port.name: port for port in scope.ports}
+        self.assertEqual((ports["a"].width, ports["y"].width), (16, 16))
+        self.assertEqual(ports["a"].range, "[15:0]")
+        self.assertEqual(ports["y"].range, "[15:0]")
+        self.assertIn("16", {p.name: p.value for p in scope.params}["WIDTH"])
 
 
 class SlangOverlayUnitTests(unittest.TestCase):

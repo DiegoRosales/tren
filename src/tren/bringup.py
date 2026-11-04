@@ -16,11 +16,12 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from .config import Config, ConfigError, load_config
 from .elaborate import IrCache, design_summary, elaborate, tool_failure_message
-from .importer import import_manifest, import_sources
+from .importer import import_manifest, import_sources, parse_param
 from .ir import Design
 from .manifest import Manifest
 
@@ -47,6 +48,7 @@ def load_target(
     out: str | Path | None = None,
     name: str | None = None,
     top: str | None = None,
+    params: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     fmt: str = "auto",
     warnings_out: list[str] | None = None,
 ) -> tuple[Manifest, Design]:
@@ -56,8 +58,9 @@ def load_target(
     replaces ``target``; give one or the other. ``root`` is the anchor for
     stored paths and tool invocation (default: current directory). ``out``
     writes the imported manifest; without it the manifest stays in memory.
-    Importer warnings go to ``warnings_out`` when given, so the caller can
-    show them before the TUI takes the screen.
+    ``params`` are top-level parameter overrides. Importer warnings go to
+    ``warnings_out`` when given, so the caller can show them before the TUI
+    takes the screen.
     """
     root = Path.cwd() if root is None else Path(root)
     if files is not None:
@@ -70,6 +73,7 @@ def load_target(
             root=root,
             name=name,
             top=top,
+            params=params,
             warnings_out=warnings_out,
         )
         if out is not None:
@@ -81,18 +85,36 @@ def load_target(
             raise ValueError("a target or at least one -f/--file is required")
         target = Path(target)
         if is_manifest_target(target):
-            if out is not None or name is not None or top is not None or fmt != "auto":
+            if (
+                out is not None
+                or name is not None
+                or top is not None
+                or params
+                or fmt != "auto"
+            ):
                 raise ValueError(
-                    "--out/--name/--top/--format only apply when importing a "
-                    "source target"
+                    "--out/--name/--top/--param/--format only apply when "
+                    "importing a source target"
                 )
             manifest = Manifest.read(target)
+            duplicates = manifest.duplicate_params()
+            if warnings_out is not None:
+                for name, value in duplicates.items():
+                    warnings_out.append(
+                        f"parameter {name} is defined more than once; "
+                        f"using the last value {value}"
+                    )
+            if duplicates:
+                manifest = replace(
+                    manifest, params=tuple(manifest.params_map().items())
+                )
         else:
             manifest = import_manifest(
                 target,
                 root=root,
                 name=name,
                 top=top,
+                params=params,
                 fmt=fmt,
                 warnings_out=warnings_out,
             )
@@ -170,6 +192,10 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
         help="top module (default: 'top', or the Vivado TopModule)",
     )
     parser.add_argument(
+        "-G", "--param", action="append", dest="params", metavar="NAME=VALUE",
+        help="override a top-level parameter; repeat the option for more",
+    )
+    parser.add_argument(
         "--format", choices=("auto", "f", "vivado"), default="auto",
         help="importer format (default: auto)",
     )
@@ -180,6 +206,10 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
         parser.error("a target or at least one -f/--file is required")
     if args.files and args.format != "auto":
         parser.error("--format does not apply with -f/--file")
+    try:
+        params = [parse_param(text) for text in (args.params or [])]
+    except ValueError as exc:
+        parser.error(str(exc))
 
     try:
         settings = load_config().config
@@ -200,6 +230,7 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
             out=args.out,
             name=args.name,
             top=args.top,
+            params=params,
             fmt=args.format,
             warnings_out=warnings,
         )
