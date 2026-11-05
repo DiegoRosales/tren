@@ -29,10 +29,11 @@ behaviour of the backends lives in `docs/verification.md` and the sibling
 | Bit map | Invert `netnames`+`connections` into a per-bit map of drivers and loads. | `bits` module | `bits.py:rows_hitting_bits`, `drivers_of`, `loads_of` |
 | Module-local bit ids | Bit ids are valid only inside one module; constants (`"0"`, `"x"`) are not ids. | `bits`, `elaborate` | `bits.py:cell_connections`, `elaborate.py:_bit_key` |
 | `$paramod` unmangling | yosys mangles module keys to `$paramod\name\PARAM=val`; the base name and resolved params are recovered. | `bits` | `bits.py:unmangle` |
+| Netlist frontend fallback | `read_verilog` first, then `read_slang` when the design uses a construct `read_verilog` cannot parse. `read_slang` names a module `<module>$<instance path>`, so the IR join uses the path. | `elaborate`, `manifest` | `elaborate.py:run_yosys`, `module_key`, `_module_base`, `manifest.py:FRONTENDS` |
 | slang-hier instance tree | Every leaf instance path, generate paths included, with per-instance resolved params. The generate block nodes themselves come from the AST. | sv-lang (dev shell), `elaborate` | `elaborate.py:run_slang_hier` |
 | slang --ast-json declarations | Source-faithful types, declared ranges, param kinds, source locations and `GenerateBlock` / `GenerateBlockArray` nodes. | sv-lang (dev shell), `elaborate` | `elaborate.py:run_slang_ast`, `_parse_ast_decls` |
 | CLI wrapper | A pinned argv is built and subprocessed per backend; the output feeds the IR assembly. | `elaborate` | `elaborate.py:_run`, `run_yosys`, `run_slang_hier`, `run_slang_ast` |
-| Partial elaboration | Missing modules stay opaque as black boxes; the design always opens. | `elaborate`, `tui` | `elaborate.py:build_design`, `tui.py:action_toggle_cut` |
+| Partial elaboration | Missing modules stay opaque as black boxes; the design always opens. A module the source set never declares gets a body-less declaration inferred from its instantiation, so the slang frontend can elaborate the rest. | `elaborate`, `stubs`, `tui` | `elaborate.py:_drop_stub_modules`, `stubs.py:infer`, `tui.py:action_toggle_cut` |
 
 ## 3. Persistence and the cache
 

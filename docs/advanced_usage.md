@@ -328,6 +328,53 @@ source directories to the incdirs, so the list above may omit them. Keep
 and slang rejects by default. Remove a flag when the design must stay
 slang-clean.
 
+Add `"frontend": "slang"` when the design needs `read_slang` every time.
+The default, `"auto"`, runs `read_verilog` first and uses `read_slang` only
+when `read_verilog` cannot parse the design.
+
+## SystemVerilog that `read_verilog` cannot parse
+
+yosys `read_verilog` stops at a package import, an assignment pattern
+(`'{default: ...}`), and a streaming operator (`{<<8{...}}`). The netlist
+pass falls back to `read_slang`, the sv-elab frontend that yosys carries, so
+these designs elaborate without a separate tool:
+
+```sh
+tren elaborate tests/sv/sv_constructs.manifest.json
+```
+
+`read_slang` keeps the hierarchy only with `--keep-hierarchy`, which the
+elaborator passes. It names each module after its instance path, so the IR
+join uses the path, and the scope tree looks the same as for a
+`read_verilog` design.
+
+sv-elab also stops at an instantiated module that has no declaration, and the
+option that used to tolerate one is retired upstream. TREN does not stop with
+it: it reads the instantiation back from the AST and writes a body-less
+declaration for each missing module, so the design elaborates. The file lands
+in the cache directory, next to the IR, and the run warns that it did this:
+
+```text
+  warning: no declaration for 2 module(s); elaborated as inferred black boxes: vendor_ip, vendor_pos
+  stub: .cache/tren/<key>.stubs.sv
+```
+
+Use `tren stub` to see the same file before a run, or to start a real
+declaration:
+
+```sh
+tren stub tests/sv/missing_rtl.manifest.json
+tren stub tests/sv/missing_rtl.manifest.json --out tests/sv/vendor_stubs.sv
+```
+
+The stub is a hint, not a model, and the IR treats it that way. Port order
+comes from the instantiation, a positional connection is named `p0`, `p1`, and
+a width is known only where the connected expression has one. Every port is an
+`input`, because that is the only direction that accepts an expression. TREN
+drops the stub from the netlist again before it builds the IR, so the box looks
+like any other unresolved module: ports from the cell, directions unknown,
+nothing invented in a trace.
+
 ## Use a Vivado project
 
 The Vivado importer reads the `project.xpr` FileSets and the `TopModule`

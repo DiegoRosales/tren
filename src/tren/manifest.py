@@ -1,8 +1,8 @@
 """The design manifest - what TREN elaborates.
 
 A hand-written, checkable-in file (sources/incdirs/defines/params/top/
-blackboxes). Importers write one; the elaborator consumes one; the on-disk
-cache is keyed by it. Parsed from JSON, losslessly round-trippable.
+blackboxes/frontend). Importers write one; the elaborator consumes one; the
+on-disk cache is keyed by it. Parsed from JSON, losslessly round-trippable.
 """
 
 from __future__ import annotations
@@ -10,6 +10,13 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+FRONTENDS = ("auto", "verilog", "slang")
+"""yosys frontends the netlist pass can use.
+
+``auto`` runs ``read_verilog`` and falls back to ``read_slang`` when the
+design uses a SystemVerilog construct that ``read_verilog`` cannot parse.
+"""
 
 
 @dataclass(frozen=True)
@@ -23,6 +30,7 @@ class Manifest:
     blackboxes: tuple[str, ...] = ()  # globs/user cuts
     slang_flags: tuple[str, ...] = ()  # extra slang-hier/slang args
     yosys_flags: tuple[str, ...] = ()  # extra read_verilog args
+    frontend: str = "auto"  # auto, verilog or slang
 
     def defines_map(self) -> dict[str, str]:
         return dict(self.defines)
@@ -54,6 +62,12 @@ class Manifest:
     @classmethod
     def from_json(cls, text: str) -> Manifest:
         data = json.loads(text)
+        frontend = data.get("frontend", "auto")
+        if frontend not in FRONTENDS:
+            raise ValueError(
+                f"manifest: frontend must be one of {', '.join(FRONTENDS)}, "
+                f"got {frontend!r}"
+            )
         return cls(
             name=data.get("name", "design"),
             sources=tuple(data.get("sources", ())),
@@ -64,6 +78,7 @@ class Manifest:
             blackboxes=tuple(data.get("blackboxes", ())),
             slang_flags=tuple(data.get("slang_flags", ())),
             yosys_flags=tuple(data.get("yosys_flags", ())),
+            frontend=frontend,
         )
 
     def write(self, path: str | Path) -> None:
@@ -92,6 +107,7 @@ class Manifest:
                 "blackboxes": sorted(self.blackboxes),
                 "slang_flags": sorted(self.slang_flags),
                 "yosys_flags": sorted(self.yosys_flags),
+                "frontend": self.frontend,
             },
             sort_keys=True,
             separators=(",", ":"),

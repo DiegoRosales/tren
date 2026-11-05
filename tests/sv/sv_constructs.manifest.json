@@ -1,0 +1,11 @@
+{
+  "name": "sv_constructs",
+  "sources": [
+    "tests/sv/sv_constructs.sv"
+  ],
+  "incdirs": [],
+  "defines": [],
+  "params": [],
+  "top": "sv_constructs",
+  "blackboxes": []
+}

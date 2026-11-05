@@ -10,7 +10,10 @@ Wraps the pinned CLIs (versions recorded in README.md):
   (per net bit, drivers/loads within the module), boundary links (submodule
   cell ports), black-box detection and ports, and net widths/src. The yosys
   rules from AGENTS.md apply: ``proc`` required, never ``opt``, never
-  ``flatten``; bit IDs are positional-only across scopes.
+  ``flatten``; bit IDs are positional-only across scopes. The read pass is
+  ``read_verilog -sv``, with ``read_slang --keep-hierarchy`` as the fallback
+  for a design it cannot parse (a package import, an assignment pattern, a
+  streaming operator).
 - ``slang --ast-json --ast-json-source-info --ast-json-detailed-types`` -
   declarations (parameter kinds, source locations for ports) and the
   ``GenerateBlock`` / ``GenerateBlockArray`` nodes that become generate
@@ -39,7 +42,7 @@ import sys
 import tempfile
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .bits import cell_directions, unmangle
 from .cache import IrCache
@@ -58,7 +61,8 @@ from .ir import (
     Port,
     Scope,
 )
-from .manifest import Manifest
+from .manifest import FRONTENDS, Manifest
+from .stubs import Stub, infer as infer_stubs, render as render_stubs, summary as stub_summary
 
 # --------------------------------------------------------------------------
 # CLI wrappers
@@ -77,6 +81,10 @@ _HIER_RE = re.compile(
 # manifest's `slang_flags` / `yosys_flags`.
 _SLANG_DEFAULT_FLAGS = ("--ignore-unknown-modules",)
 _YOSYS_DEFAULT_FLAGS = ("-nolatches",)
+
+# sv-elab (the yosys `read_slang` backend) rejects these outright. A manifest
+# that lists them for slang-hier must still elaborate here, so drop them.
+_SLANG_READ_UNSUPPORTED = frozenset({"--ignore-unknown-modules"})
 
 
 def _run(cmd: list[str], cwd: Path) -> str:
@@ -153,8 +161,32 @@ def run_slang_hier(manifest: Manifest, root: Path) -> list[dict[str, Any]]:
     return nodes
 
 
-def run_yosys(manifest: Manifest, root: Path, out_json: str) -> None:
-    """Netlist for connectivity/boundaries/black-box ports (srcs relative)."""
+def _slang_read_args(manifest: Manifest, read_flags: tuple[str, ...]) -> list[str]:
+    """``read_slang`` option arguments, without the source files.
+
+    ``--keep-hierarchy`` is the point of this backend: without it sv-elab
+    inlines every submodule into the top. ``--empty-blackboxes`` keeps a
+    body-less module as one shared black-box module instead of cloning it per
+    instance. The two together give the same scope shape ``read_verilog``
+    gives, with module names spelled ``<module>$<instance path>``.
+
+    The caller appends the stub file and the manifest sources, so every
+    option stays ahead of every file name.
+    """
+    args = ["--keep-hierarchy", "--empty-blackboxes"]
+    for flag in read_flags:
+        if flag not in _SLANG_READ_UNSUPPORTED:
+            args.append(flag)
+    for inc in _effective_incdirs(manifest):
+        args += ["-I", str(inc)]
+    for name, value in manifest.defines_map().items():
+        args += ["-D", f"{name}={value}" if value else name]
+    for name, value in manifest.params_map().items():
+        args += ["-G", f"{name}={value}"]
+    return args
+
+
+def _yosys_verilog_script(manifest: Manifest, out_json: str) -> str:
     read_args: list[str] = list(_YOSYS_DEFAULT_FLAGS)
     for flag in manifest.yosys_flags:
         read_args.append(flag)
@@ -167,14 +199,72 @@ def run_yosys(manifest: Manifest, root: Path, out_json: str) -> None:
         f"chparam -set {name} {value} {manifest.top}; "
         for name, value in manifest.params_map().items()
     )
-    script = (
+    return (
         f"read_verilog -sv {sources}; "
         f"{overrides}"
         f"hierarchy -top {manifest.top}; "
         "proc; "
         f"write_json {out_json}"
     )
-    _run(["yosys", "-Q", "-p", script], root)
+
+
+def _yosys_slang_script(
+    manifest: Manifest, out_json: str, stub_path: str | None = None
+) -> str:
+    parts = _slang_read_args(manifest, manifest.slang_flags)
+    if stub_path:
+        parts.append(stub_path)
+    parts.extend(str(source) for source in manifest.sources)
+    return (
+        f"read_slang {' '.join(parts)}; "
+        f"hierarchy -top {manifest.top}; "
+        "proc; "
+        f"write_json {out_json}"
+    )
+
+
+def run_yosys(
+    manifest: Manifest,
+    root: Path,
+    out_json: str,
+    frontend: str | None = None,
+    make_stubs: Callable[[], str | None] | None = None,
+) -> str:
+    """Netlist for connectivity/boundaries/black-box ports (srcs relative).
+
+    Return the frontend that produced it: ``verilog`` or ``slang``.
+
+    ``read_verilog`` cannot parse assignment patterns (``'{default: ...}``),
+    streaming operators (``{<<8{...}}``) or a package import, so a design
+    that uses them has no netlist at all. ``read_slang`` (the sv-elab
+    frontend built into yosys) elaborates them. It has no tolerance for an
+    instantiated module with no declaration, though, and ``read_verilog``
+    has: try ``read_verilog`` first, and fall back to ``read_slang`` only
+    when it fails.
+
+    ``make_stubs`` writes inferred black-box declarations and returns their
+    path. It runs only when the ``read_slang`` attempt starts, so a design
+    that ``read_verilog`` parses never pays for it.
+    """
+    frontend = frontend or manifest.frontend
+    if frontend not in FRONTENDS:
+        raise ValueError(
+            f"frontend must be one of {', '.join(FRONTENDS)}, got {frontend!r}"
+        )
+    order = ("verilog", "slang") if frontend == "auto" else (frontend,)
+    for position, name in enumerate(order):
+        if name == "verilog":
+            script = _yosys_verilog_script(manifest, out_json)
+        else:
+            stub_path = make_stubs() if make_stubs is not None else None
+            script = _yosys_slang_script(manifest, out_json, stub_path)
+        try:
+            _run(["yosys", "-Q", "-p", script], root)
+            return name
+        except subprocess.CalledProcessError:
+            if position == len(order) - 1:
+                raise
+    raise AssertionError("unreachable: the frontend order is never empty")
 
 
 def run_slang_ast(manifest: Manifest, root: Path, out_json: str) -> dict:
@@ -498,6 +588,44 @@ def _is_blackbox(mod: dict) -> bool:
     return bool((mod.get("attributes") or {}).get("blackbox"))
 
 
+def _module_base(key: str) -> str:
+    """Source module name of a yosys netlist module key.
+
+    ``read_verilog`` mangles a parameterised module as
+    ``$paramod\\core\\W=...``; ``read_slang --keep-hierarchy`` clones a
+    module once per instance as ``core$top.u_core``. Both spell the source
+    name first, and neither a module nor an instance name can hold ``$``.
+    """
+    base, _ = unmangle(key)
+    if base == key:
+        return key.partition("$")[0]
+    return base
+
+
+def module_key(
+    modules: dict[str, Any],
+    module: str,
+    path: str,
+    base_to_key: dict[str, str] | None = None,
+) -> str | None:
+    """Netlist key of ``module`` as instantiated at ``path``, or None.
+
+    A ``read_slang`` netlist names the module after the instance path, so
+    two instances of one module become two keys. A module that is not cloned
+    (the top, or a shared black box) keeps its plain name. ``base_to_key``
+    covers the ``read_verilog`` netlist, whose keys are ``$paramod``-mangled
+    and carry the source name nowhere but inside the mangle.
+    """
+    exact = f"{module}${path}"
+    if exact in modules:
+        return exact
+    if module in modules:
+        return module
+    if base_to_key is not None:
+        return base_to_key.get(module)
+    return None
+
+
 def _ports_for(mod: dict, decl: dict[str, Any] | None) -> tuple[Port, ...]:
     """Ports of one module: yosys for the bits, slang's declaration for the rest.
 
@@ -630,6 +758,15 @@ def _params_for(
 def _build_connectivity(
     netlist: dict, base_to_key: dict[str, str]
 ) -> tuple[NetConnectivity, ...]:
+    """Connectivity for every module base, from one netlist key per base.
+
+    ``NetConnectivity.scope`` is the source module name, the key the TUI uses
+    to look connectivity up for any instance of that module. A ``read_slang``
+    netlist clones a module per instance, so one key per base is enough while
+    every instance elaborates the same netlist. Two instances that override
+    different parameters share the first key's connectivity; ``read_verilog``
+    already had that limit with its ``$paramod`` keys.
+    """
     out: list[NetConnectivity] = []
     for base, key in sorted(base_to_key.items()):
         mod = netlist["modules"].get(key) or {}
@@ -679,12 +816,12 @@ def _build_connectivity(
 
 def _build_boundaries(
     netlist: dict,
-    base_to_key: dict[str, str],
     module_of: dict[str, str],
+    base_to_key: dict[str, str],
 ) -> tuple[BoundaryLink, ...]:
     out: list[BoundaryLink] = []
     for path, base in sorted(module_of.items()):
-        key = base_to_key.get(base)
+        key = module_key(netlist["modules"], base, path, base_to_key)
         if not key:
             continue
         mod = netlist["modules"].get(key) or {}
@@ -717,14 +854,14 @@ def build_design(
     netlist: dict,
     ast_decls: tuple[dict[str, Any], dict[str, Any]],
     root: Path,
+    frontend: str = "read_verilog",
 ) -> Design:
     del root
     decls, generates = ast_decls
 
     base_to_key: dict[str, str] = {}
     for key in netlist["modules"]:
-        base, _ = unmangle(key)
-        base_to_key.setdefault(base, key)
+        base_to_key.setdefault(_module_base(key), key)
 
     # --- module scopes (from slang-hier), ports/nets/blackbox from yosys ----
     scopes: dict[str, Scope] = {}
@@ -733,7 +870,7 @@ def build_design(
         path = node["inst"]
         base = node["module"]
         module_of[path] = base
-        key = base_to_key.get(base)
+        key = module_key(netlist["modules"], base, path, base_to_key)
         mod = netlist["modules"].get(key) or {}
         scopes[path] = Scope(
             name=path,
@@ -768,7 +905,7 @@ def build_design(
     # slang-hier omits an instance when its module declaration is absent.
     # Yosys still keeps the cell and its connected port names in the netlist.
     for path, base in tuple(module_of.items()):
-        key = base_to_key.get(base)
+        key = module_key(netlist["modules"], base, path, base_to_key)
         mod = netlist["modules"].get(key) or {} if key else {}
         for name, cell in sorted((mod.get("cells") or {}).items()):
             cell_type = cell.get("type", "")
@@ -814,7 +951,16 @@ def build_design(
                 container = ""
                 break
             container = parent
-        key = base_to_key.get(module_of.get(container, "")) if container else None
+        key = (
+            module_key(
+                netlist["modules"],
+                module_of.get(container, ""),
+                container,
+                base_to_key,
+            )
+            if container
+            else None
+        )
         mod = netlist["modules"].get(key) or {} if key else {}
         insts: list[Instance] = []
         for q in children:
@@ -838,8 +984,10 @@ def build_design(
         top=manifest.top,
         scopes=tuple(sorted(scopes.values(), key=lambda s: s.name)),
         connectivity=_build_connectivity(netlist, base_to_key),
-        boundaries=_build_boundaries(netlist, base_to_key, module_of),
-        created_by="tren.elaborate (slang-hier + yosys + slang --ast-json)",
+        boundaries=_build_boundaries(netlist, module_of, base_to_key),
+        created_by=(
+            f"tren.elaborate ({frontend} + slang-hier + slang --ast-json)"
+        ),
     )
 
 
@@ -848,12 +996,69 @@ def build_design(
 # --------------------------------------------------------------------------
 
 
+def _drop_stub_modules(netlist: dict, stub_modules: frozenset[str]) -> None:
+    """Remove the inferred declarations from the netlist again.
+
+    They exist only so the elaboration accepts the instantiations. With them
+    removed, the instance carries no ``port_directions`` and its module is
+    absent, which is the shape TREN already reads as a black box: ports from
+    the cell, directions unknown.
+    """
+    modules = netlist.get("modules") or {}
+    for module in stub_modules:
+        modules.pop(module, None)
+    for mod in modules.values():
+        for cell in (mod.get("cells") or {}).values():
+            if cell.get("type") in stub_modules:
+                cell.pop("port_directions", None)
+
+
+def _stub_writer(
+    stubs: dict[str, Stub],
+    directory: Path,
+    manifest: Manifest,
+    root: Path,
+    cache: IrCache | None,
+    warnings: list[str] | None,
+) -> Callable[[], str | None]:
+    """A callable that writes the stub file once and returns its path."""
+    state: dict[str, str | None] = {}
+
+    def write() -> str | None:
+        if "path" in state:
+            return state["path"]
+        if not stubs:
+            state["path"] = None
+            return None
+        path = (
+            cache.stub_path(manifest)
+            if cache is not None
+            else directory / "tren-stubs.sv"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_stubs(stubs, source=manifest.name))
+        state["path"] = str(path)
+        if warnings is not None:
+            # Without a cache the file lives in the elaboration's temporary
+            # directory and is gone when the run ends. Naming it in the
+            # warning would point the user at a file that no longer exists.
+            shown = path if cache is not None else None
+            text = stub_summary(stubs, shown)
+            if text:
+                warnings.append(text)
+        return state["path"]
+
+    return write
+
+
 def elaborate(
     manifest: Manifest,
     root: str | Path,
     *,
     cache: IrCache | None = None,
     refresh: bool = False,
+    frontend: str | None = None,
+    warnings_out: list[str] | None = None,
 ) -> Design:
     root = Path(root)
     if cache is not None and not refresh:
@@ -862,13 +1067,29 @@ def elaborate(
             return hit
     hier_nodes = run_slang_hier(manifest, root)
     with tempfile.TemporaryDirectory(prefix="tren-elab-") as td:
-        netlist_path = str(Path(td) / "netlist.json")
-        run_yosys(manifest, root, netlist_path)
-        netlist = json.loads(Path(netlist_path).read_text())
         ast_path = str(Path(td) / "ast.json")
         run_slang_ast(manifest, root, ast_path)
         ast = json.loads(Path(ast_path).read_text())
-    design = build_design(manifest, hier_nodes, netlist, _parse_ast_decls(ast, root=root), root)
+        stubs = infer_stubs(ast, root)
+        netlist_path = str(Path(td) / "netlist.json")
+        used = run_yosys(
+            manifest,
+            root,
+            netlist_path,
+            frontend,
+            _stub_writer(stubs, Path(td), manifest, root, cache, warnings_out),
+        )
+        netlist = json.loads(Path(netlist_path).read_text())
+    if used == "slang":
+        _drop_stub_modules(netlist, frozenset(stubs))
+    design = build_design(
+        manifest,
+        hier_nodes,
+        netlist,
+        _parse_ast_decls(ast, root=root),
+        root,
+        frontend=f"read_{used}",
+    )
     if cache is not None:
         cache.put(manifest, design)
     return design
@@ -913,6 +1134,13 @@ def main(argv: list[str] | None = None) -> int:
         help="cache directory (default: the cache.dir setting)",
     )
     parser.add_argument("--refresh", action="store_true", help="rebuild even on a cache hit")
+    parser.add_argument(
+        "--frontend", choices=FRONTENDS, default=None,
+        help=(
+            "yosys frontend for the netlist pass (default: the manifest's "
+            "frontend, itself 'auto': read_verilog, then read_slang on failure)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -922,7 +1150,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     cache = args.cache if args.cache is not None else Path(settings.cache_dir)
 
-    manifest = Manifest.read(args.manifest)
+    warnings: list[str] = []
+    try:
+        manifest = Manifest.read(args.manifest)
+    except (OSError, ValueError) as exc:
+        print(f"tren: {exc}", file=sys.stderr)
+        return 2
     duplicate_params = manifest.duplicate_params()
     duplicate_defines = manifest.duplicate_defines()
     for name, value in duplicate_defines.items():
@@ -947,11 +1180,17 @@ def main(argv: list[str] | None = None) -> int:
             args.root,
             cache=IrCache(cache, root=args.root),
             refresh=args.refresh,
+            frontend=args.frontend,
+            warnings_out=warnings,
         )
     except subprocess.CalledProcessError as exc:
+        for warning in warnings:
+            print(f"  warning: {warning}", file=sys.stderr)
         print(tool_failure_message(exc), file=sys.stderr)
         return 1
 
+    for warning in warnings:
+        print(f"  warning: {warning}", file=sys.stderr)
     for line in design_summary(design):
         print(line)
     return 0

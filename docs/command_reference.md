@@ -11,6 +11,7 @@ program disagree, the program is correct.
 | `tren open [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...` | Import the target (or the `-f` file list) unless it is a manifest, elaborate it, and open the TUI. |
 | `tren import [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...` | Write a design manifest. Do not open the TUI. |
 | `tren elaborate <manifest>` | Build the IR from a manifest and print a summary. Do not open the TUI. |
+| `tren stub <manifest>` | Write the black-box declarations inferred for modules the source set does not declare. |
 | `tren config` | Show the effective configuration. |
 | `tren config export` | Write a complete TOML template. |
 
@@ -123,6 +124,7 @@ The plain importer has these target rules:
 
 ```text
 tren elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
+                           [--frontend auto|verilog|slang]
 ```
 
 | Option | Default | Effect |
@@ -130,11 +132,33 @@ tren elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
 | `--root DIR` | current directory | Anchor for the manifest's relative source paths. |
 | `--cache DIR` | `cache.dir` | IR cache directory. |
 | `--refresh` | off | Rebuild the IR even when the cache has an entry. |
+| `--frontend` | the manifest's `frontend` | yosys frontend for the netlist pass. `auto` runs `read_verilog`, then `read_slang` when the design uses a construct `read_verilog` cannot parse. `verilog` and `slang` never fall back. |
 
 The command runs yosys, `slang-hier`, and `slang --ast-json`, then prints the
 scope count, the connectivity count, and the boundary count. Use it to check
 a manifest in a script. The [advanced usage](advanced_usage.md) page shows
 the intermediate steps.
+
+## `tren stub`
+
+```text
+tren stub <manifest> [--root DIR] [--out PATH]
+```
+
+| Option | Default | Effect |
+|---|---|---|
+| `--root DIR` | current directory | Anchor for the manifest's relative source paths. |
+| `--out PATH` | standard output | Write the stub file here instead of standard output. |
+
+The command reads the instantiations of modules that the source set does not
+declare, and writes one body-less `(* blackbox *)` module per missing module.
+Elaboration writes the same file by itself into the cache directory, so this
+command is for reading what TREN assumes about a design, or for starting a
+real declaration. It runs `slang --ast-json`; it does not run yosys.
+
+Port order follows the instantiation, a positional connection is named `p0`,
+`p1`, and every port is an `input`. See
+[advanced usage](advanced_usage.md#systemverilog-that-read_verilog-cannot-parse).
 
 ## `tren config`
 
@@ -194,8 +218,9 @@ current directory when `--root` is absent.
 | `params` | list of pairs | Top-level parameter overrides as `[name, value]`. A repeated name uses the last value; the CLI warns. The elaborator passes them to every backend. |
 | `top` | string | Top module. |
 | `blackboxes` | list of strings | Reserved black-box entries. The normal flow leaves this empty. |
-| `slang_flags` | list of strings | Extra arguments for `slang-hier` and `slang --ast-json`. |
+| `slang_flags` | list of strings | Extra arguments for `slang-hier`, `slang --ast-json` and yosys `read_slang`. `--ignore-unknown-modules` is dropped for the last one. |
 | `yosys_flags` | list of strings | Extra arguments for yosys `read_verilog`. |
+| `frontend` | string | `auto` (default), `verilog` or `slang`. Which yosys frontend builds the netlist. `auto` runs `read_verilog`, then `read_slang` when the design uses a construct `read_verilog` cannot parse. |
 
 Every importer writes the slang tolerances that Vivado and yosys accept. The
 [README manifest section](../README.md#manifest-schema-and-backend-tolerance-flags)

@@ -94,6 +94,19 @@ Use `-D NAME[=VALUE]` to define a macro. Use `-G NAME=VALUE` to override a
 top-level parameter. Both options can be repeated. For filelists and other
 options, see the [command reference](docs/command_reference.md).
 
+TREN reads plain Verilog and SystemVerilog. When a design uses something
+yosys's own parser cannot handle - a package, an assignment pattern, a
+streaming operator - TREN quietly switches to yosys's slang frontend, and the
+hierarchy, ports and traces look the same as before.
+
+Missing RTL is the normal case, so TREN never stops for it. When a module is
+instantiated but never declared, TREN builds a placeholder from the
+instantiation itself, tells you which modules it invented, and opens the
+design anyway. Everything around the missing block stays explorable; the
+placeholder's port directions are unknown, because guessing one would quietly
+drop a driver from a trace. `tren stub` prints exactly what TREN assumed, so
+you can check it, or use it as the starting point for a real declaration.
+
 ### The screen
 
 The screen has three panes: the hierarchy tree, the focused RTL source, and

@@ -1,0 +1,11 @@
+{
+  "name": "missing_rtl",
+  "sources": [
+    "tests/sv/missing_rtl.sv"
+  ],
+  "incdirs": [],
+  "defines": [],
+  "params": [],
+  "top": "missing_rtl",
+  "blackboxes": []
+}

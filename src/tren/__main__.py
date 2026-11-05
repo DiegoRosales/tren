@@ -15,6 +15,9 @@ Commands:
     config [show|export] [--out PATH]
                 show the effective settings with their origins, or export a
                 complete TOML template (tren.config)
+    stub <manifest> [--root DIR] [--out PATH]
+                write the black-box declarations inferred for modules the
+                source set does not declare (tren.stubs)
 
 Options:
 
@@ -208,6 +211,9 @@ commands:
   config [show|export] [--out PATH]
                 show the effective settings with their origins, or export a
                 complete TOML template
+  stub <manifest> [--root DIR] [--out PATH]
+                write the black-box declarations inferred for modules the
+                source set does not declare
 
 debug flags:
   --debug-config
@@ -267,6 +273,9 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "config":
         from .config import main as config_main
         return config_main(rest)
+    if cmd == "stub":
+        from .stubs import main as stub_main
+        return stub_main(rest)
     # A target alone is not a command. The slot stays free for a future
     # entry point, so it must not silently open a design.
     print(f"tren: unknown command: {cmd}", file=sys.stderr)

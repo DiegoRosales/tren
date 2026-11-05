@@ -151,6 +151,20 @@ class ManifestTests(unittest.TestCase):
         m = Manifest(name="d", sources=("a.v",), defines=(("W", "32"),), top="top")
         self.assertEqual(Manifest.from_json(m.to_json()), m)
 
+    def test_frontend_round_trips_and_defaults_to_auto(self) -> None:
+        m = Manifest(sources=("a.v",), frontend="slang")
+        self.assertEqual(Manifest.from_json(m.to_json()).frontend, "slang")
+        self.assertEqual(Manifest.from_json('{"sources": ["a.v"]}').frontend, "auto")
+
+    def test_frontend_rejects_a_typo(self) -> None:
+        with self.assertRaises(ValueError):
+            Manifest.from_json('{"sources": ["a.v"], "frontend": "sv"}')
+
+    def test_frontend_changes_the_cache_key(self) -> None:
+        auto = Manifest(sources=("a.v",))
+        forced = Manifest(sources=("a.v",), frontend="slang")
+        self.assertNotEqual(auto.canonical_bytes(), forced.canonical_bytes())
+
     def test_canonical_bytes_keeps_source_order(self) -> None:
         a = Manifest(sources=("b.v", "a.v"))
         b = Manifest(sources=("a.v", "b.v"))

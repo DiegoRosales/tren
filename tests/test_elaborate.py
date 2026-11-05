@@ -28,6 +28,7 @@ from tren.elaborate import (  # noqa: E402
     _build_connectivity,
     _decl_default,
     _effective_incdirs,
+    _module_base,
     _net_type_string,
     _nets_for,
     _parse_ast_decls,
@@ -38,6 +39,7 @@ from tren.elaborate import (  # noqa: E402
     build_design,
     elaborate,
     main as elaborate_main,
+    module_key,
     parse_hier_line,
     run_slang_ast,
     run_slang_hier,
@@ -213,6 +215,160 @@ class BackendFlagTests(unittest.TestCase):
         cmd = self._capture(lambda: run_slang_hier(bare, REPO))[0]
         self.assertIn("--ignore-unknown-modules", cmd)
         self.assertNotIn("--timescale", cmd)
+
+
+class FrontendSelectionTests(unittest.TestCase):
+    """Which yosys frontend the netlist pass tries, and in what order."""
+
+    MANIFEST = Manifest(
+        sources=("tests/rtl/demo.sv",),
+        defines=(("SYNTHESIS", "1"),),
+        params=(("WIDTH", "16"),),
+        slang_flags=("--ignore-unknown-modules", "--timescale=1ns/1ps"),
+        yosys_flags=("-DEXTRA=1",),
+    )
+
+    def _run_with(self, failing: str | None = None):
+        """Run run_yosys with a fake tool; return (frontend, scripts)."""
+        import tren.elaborate as elab
+
+        scripts: list[str] = []
+
+        def fake_run(cmd, cwd):
+            script = cmd[3]
+            scripts.append(script)
+            if failing is not None and script.startswith(failing):
+                raise subprocess.CalledProcessError(1, cmd, output="", stderr="boom")
+            return ""
+
+        original = elab._run
+        try:
+            elab._run = fake_run
+            used = run_yosys(self.MANIFEST, REPO, "/tmp/netlist.json")
+        finally:
+            elab._run = original
+        return used, scripts
+
+    def test_plain_design_stays_on_read_verilog(self) -> None:
+        used, scripts = self._run_with()
+        self.assertEqual(used, "verilog")
+        self.assertEqual(len(scripts), 1)
+        self.assertTrue(scripts[0].startswith("read_verilog -sv"))
+        self.assertIn("chparam -set WIDTH 16 top; hierarchy -top top", scripts[0])
+        self.assertIn("proc;", scripts[0])
+
+    def test_read_verilog_failure_falls_back_to_read_slang(self) -> None:
+        used, scripts = self._run_with(failing="read_verilog")
+        self.assertEqual(used, "slang")
+        self.assertEqual(len(scripts), 2)
+        self.assertTrue(scripts[1].startswith("read_slang "))
+        self.assertIn("hierarchy -top top; proc;", scripts[1])
+
+    def test_slang_script_keeps_the_hierarchy(self) -> None:
+        _, scripts = self._run_with(failing="read_verilog")
+        script = scripts[1]
+        self.assertIn("--keep-hierarchy", script)
+        self.assertIn("--empty-blackboxes", script)
+        # sv-elab hard-errors on this flag; it must not reach read_slang
+        self.assertNotIn("--ignore-unknown-modules", script)
+        # a read_verilog-only flag must not reach it either
+        self.assertNotIn("-nolatches", script)
+        self.assertNotIn("chparam", script)
+
+    def test_slang_script_carries_slang_flags_defines_and_params(self) -> None:
+        _, scripts = self._run_with(failing="read_verilog")
+        script = scripts[1]
+        self.assertIn("--timescale=1ns/1ps", script)
+        self.assertIn("-D", script)
+        self.assertIn("SYNTHESIS=1", script)
+        self.assertIn("-G", script)
+        self.assertIn("WIDTH=16", script)
+        self.assertIn("-I tests/rtl", script)
+
+    def test_forced_frontend_does_not_fall_back(self) -> None:
+        manifest = Manifest(sources=("tests/rtl/demo.sv",), frontend="slang")
+        import tren.elaborate as elab
+
+        scripts: list[str] = []
+
+        def fake_run(cmd, cwd):
+            scripts.append(cmd[3])
+            return ""
+
+        original = elab._run
+        try:
+            elab._run = fake_run
+            used = run_yosys(manifest, REPO, "/tmp/netlist.json")
+        finally:
+            elab._run = original
+        self.assertEqual(used, "slang")
+        self.assertTrue(scripts[0].startswith("read_slang "))
+
+    def test_both_frontends_failing_raises_the_last_error(self) -> None:
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            self._run_with(failing="read_")
+        self.assertIn("read_slang", caught.exception.cmd[3])
+
+    def test_slang_script_puts_options_before_the_files(self) -> None:
+        import tren.elaborate as elab
+
+        scripts: list[str] = []
+
+        def fake_run(cmd, cwd):
+            scripts.append(cmd[3])
+            return ""
+
+        original = elab._run
+        try:
+            elab._run = fake_run
+            run_yosys(
+                self.MANIFEST,
+                REPO,
+                "/tmp/netlist.json",
+                "slang",
+                lambda: "/tmp/stubs.sv",
+            )
+        finally:
+            elab._run = original
+        script = scripts[0]
+        self.assertTrue(script.startswith("read_slang --keep-hierarchy"))
+        self.assertLess(
+            script.index("/tmp/stubs.sv"), script.index("tests/rtl/demo.sv")
+        )
+
+
+class ModuleKeyTests(unittest.TestCase):
+    """The two netlist naming schemes, and the join to a scope path."""
+
+    def test_module_base_of_a_paramod_key(self) -> None:
+        self.assertEqual(
+            _module_base("$paramod\\core\\W=s32'00000000000000000000000000100000"),
+            "core",
+        )
+
+    def test_module_base_of_a_read_slang_key(self) -> None:
+        self.assertEqual(_module_base("core$top.u_core"), "core")
+        self.assertEqual(_module_base("alu$top.u_core.g[0].u_alu_g"), "alu")
+        self.assertEqual(_module_base("top"), "top")
+
+    def test_module_key_prefers_the_instance_copy(self) -> None:
+        modules = {"top": {}, "alu$top.u0": {}, "alu$top.u1": {}}
+        self.assertEqual(module_key(modules, "alu", "top.u0"), "alu$top.u0")
+        self.assertEqual(module_key(modules, "alu", "top.u1"), "alu$top.u1")
+
+    def test_module_key_accepts_a_shared_module(self) -> None:
+        modules = {"top": {}, "sram_stub": {}}
+        self.assertEqual(module_key(modules, "sram_stub", "top.u_sram"), "sram_stub")
+        self.assertEqual(module_key(modules, "top", "top"), "top")
+
+    def test_module_key_uses_the_base_map_for_mangled_names(self) -> None:
+        modules = {"top": {}, "$paramod\\core\\W=s32'00001000": {}}
+        base_to_key = {"core": "$paramod\\core\\W=s32'00001000"}
+        self.assertEqual(
+            module_key(modules, "core", "top.u_core", base_to_key),
+            "$paramod\\core\\W=s32'00001000",
+        )
+        self.assertIsNone(module_key(modules, "absent", "top.u_x", base_to_key))
 
 
 class ElaborateMainWarningTests(unittest.TestCase):
@@ -1054,6 +1210,80 @@ endmodule
                 self.assertEqual(param.value, "8")
                 self.assertEqual(param.default, "4")
                 self.assertTrue(param.overridden)
+
+
+@unittest.skipUnless(
+    shutil.which("yosys") and shutil.which("slang-hier") and shutil.which("slang"),
+    "requires the nix dev shell (yosys/slang on PATH)",
+)
+class SvConstructAcceptanceTests(unittest.TestCase):
+    """A design using constructs `read_verilog` cannot parse elaborates.
+
+    The netlist pass falls back to `read_slang`, whose module names carry the
+    instance path. The scope tree, the ports and the boundary links must come
+    out the same shape `read_verilog` gives.
+    """
+
+    def test_assignment_pattern_and_streaming_operator(self) -> None:
+        manifest = Manifest.read(REPO / "tests" / "sv" / "sv_constructs.manifest.json")
+        design = elaborate(manifest, REPO, cache=None)
+        self.assertIn("read_slang", design.created_by or "")
+        names = {scope.name for scope in design.scopes}
+        self.assertEqual(
+            names, {"sv_constructs", "sv_constructs.u_leaf"}
+        )
+        top = design.scope("sv_constructs")
+        assert top is not None
+        self.assertEqual(
+            [p.name for p in top.ports], ["clk", "d", "q", "packed_out"]
+        )
+        leaf = design.scope("sv_constructs.u_leaf")
+        assert leaf is not None
+        self.assertEqual(leaf.module, "sv_leaf")
+        self.assertEqual([p.name for p in leaf.ports], ["a", "y"])
+        self.assertEqual(len(leaf.nets), 2)
+        self.assertEqual(
+            [(b.parent_scope, b.instance, b.port) for b in design.boundaries
+             if b.instance == "u_leaf"],
+            [
+                ("sv_constructs", "u_leaf", "a"),
+                ("sv_constructs", "u_leaf", "y"),
+            ],
+        )
+
+    def test_a_parsable_design_stays_on_read_verilog(self) -> None:
+        manifest = Manifest.read(REPO / "tests" / "rtl" / "demo.manifest.json")
+        design = elaborate(manifest, REPO, cache=None)
+        self.assertIn("read_verilog", design.created_by or "")
+
+    def test_unknown_module_become_an_inferred_black_box(self) -> None:
+        # sv-elab has no tolerance for an undeclared module. TREN infers a
+        # declaration from the instantiation so the rest stays explorable.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "mixed.sv").write_text(
+                "module mixed (input logic [7:0] d, output logic [7:0] q);\n"
+                "  assign q = {<<8{d}};\n"
+                "  vendor_ip u_ip (.a(d), .y());\n"
+                "endmodule\n"
+            )
+            manifest = Manifest(sources=("mixed.sv",), top="mixed")
+            warnings: list[str] = []
+            design = elaborate(
+                manifest, root, cache=None, warnings_out=warnings
+            )
+        box = design.scope("mixed.u_ip")
+        assert box is not None
+        self.assertTrue(box.blackbox)
+        self.assertTrue(box.unresolved)
+        # The box is read back from the cell, so a port with no connection
+        # ('.y()') does not appear; 'a' is the one that carries bits.
+        self.assertEqual([p.name for p in box.ports], ["a"])
+        self.assertEqual({p.direction for p in box.ports}, {"unknown"})
+        self.assertTrue(warnings)
+        # No cache means the stub lives in a temporary directory that is
+        # already gone, so the warning must not name a dead path.
+        self.assertNotIn("stub:", warnings[0])
 
 
 @unittest.skipUnless(

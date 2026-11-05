@@ -77,6 +77,10 @@ class IrCache:
         self._sweep(manifest, keep=p)
         return p
 
+    def stub_path(self, manifest: Manifest) -> Path:
+        """Where the inferred black-box file for these inputs lives."""
+        return self.directory / f"{cache_key(manifest, self.root)}.stubs.sv"
+
     def _sweep(self, manifest: Manifest, keep: Path) -> None:
         """Drop blobs for these same inputs written under another IR schema.
 
@@ -87,4 +91,8 @@ class IrCache:
         """
         for stale in self.directory.glob(f"{inputs_key(manifest, self.root)}*.json"):
             if stale != keep:
+                stale.unlink(missing_ok=True)
+        keep_stubs = self.stub_path(manifest)
+        for stale in self.directory.glob(f"{inputs_key(manifest, self.root)}*.stubs.sv"):
+            if stale != keep_stubs:
                 stale.unlink(missing_ok=True)

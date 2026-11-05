@@ -141,6 +141,7 @@ def load_target(
         root,
         cache=IrCache(cache, root=root) if cache is not None else None,
         refresh=refresh,
+        warnings_out=warnings_out,
     )
     return manifest, design
 

@@ -18,6 +18,8 @@ src/tren/            the package: CLI parsing, IR model, elaboration, TUI
 tests/               unit tests + the executable fixtures they drive
   rtl/               demo.sv (the drives) + ranges.sv (declared ranges) and
                      their tracked manifests
+  sv/                sv_constructs.sv - SystemVerilog that read_verilog
+                     cannot parse (the read_slang fallback fixture)
   fixtures/          the vendored demo-tree.json fixture IR (python -m
                      tren.tui, the no-backends drive)
   hls_examples/      Vitis HLS example blocks + committed rtl_output/ exports
@@ -57,14 +59,26 @@ prefix.
   yosys `write_json` for connectivity; `slang-hier --params` and/or
   `slang --ast-json` for scope tree + resolved params. `slang --ast-json`
   flags that matter: `--ast-json-source-info`, `--ast-json-detailed-types`.
+- **Netlist frontend** (verified, yosys 0.70): `read_slang` is built into the
+  packaged yosys and is povik's **sv-elab**, not YosysHQ's yosys-slang. It
+  parses what `read_verilog` cannot (package import, `'{default: ...}`,
+  `{<<8{...}}`). It needs `--keep-hierarchy` (it inlines everything by
+  default) and `--empty-blackboxes`, and it rejects
+  `--ignore-unknown-modules` and an instantiated module with no declaration.
+  `run_yosys` therefore tries `read_verilog` first and falls back to
+  `read_slang`; the manifest's `frontend` field (`auto`/`verilog`/`slang`)
+  overrides that. `read_slang --keep-hierarchy` names a module
+  `<module>$<instance path>`, so the IR join goes through `module_key`, not
+  `unmangle` alone. A module the source set does not declare is stubbed from
+  its instantiation (`stubs.py`) rather than left to fail.
 - **Yosys rules** (non-negotiable):
   - run `proc` - `write_json` rejects unprocessed designs;
   - never run `opt` - it prunes unobservable cells/nets out of the JSON;
   - never `flatten` - unflattened cells are the hierarchy;
   - bit IDs are **module-local and positional-only** across a boundary:
     match the k-th listed bit of a port, never the numbers;
-  - module names are mangled `$paramod\name\param=value` - un-mangle and join
-    with `slang-hier` names.
+  - `read_verilog` module names are mangled `$paramod\name\param=value`;
+    un-mangle and join with `slang-hier` names.
 - **UI framework**: textual (pinned 8.2.8) for the spike/MVP; ratatui 0.30 is
   the earmarked rewrite target and must remain a drop-in swap (IR and
   navigation logic framework-agnostic). Screen = tree | source | I/O; keys
@@ -74,7 +88,12 @@ prefix.
   reference.
 - **Black boxes are the normal case**: TREN always opens something. Port
   lists + `blackbox=1` come from yosys JSON already; user cuts toggle a scope
-  to opaque.
+  to opaque. A module the source set never declares is an error to sv-elab,
+  so `elaborate` infers a body-less declaration from the instantiation
+  (`stubs.py`), writes it beside the IR cache, warns, and drops it from the
+  netlist again before building the IR. The box then looks exactly like any
+  other unresolved module: ports from the cell, directions unknown. Never let
+  a stub's guessed direction reach a trace.
 
 ## 4. Toolchain
 
@@ -286,6 +305,33 @@ to commit messages.
 - yosys 0.70 JSON: `write_json` needs `proc`; `opt` is destructive; generate
   instances appear as `g[i].u_alu_g`-style cell names; body-less modules
   serialize `ports` + `blackbox=1`.
+- yosys 0.70 `read_slang` (sv-elab) with `--keep-hierarchy`: it inlines the
+  whole design into one module without the flag; with it, a module is named
+  `alu$top.u_core.u_alu0` (one per instance) and keeps cell names, generate
+  nets (`g[0].gr`) and `src` attributes; `--empty-blackboxes` keeps a
+  body-less module as one shared `sram_stub` with `blackbox=1` instead of a
+  clone per instance. Unknown modules are a hard error. Its netlist differs
+  from `read_verilog` only in the `$`-prefixed internal net names.
+- `read_slang --help` **still lists `--ignore-unknown-modules`**, but the
+  backend rejects it (verified yosys 0.70). The option is retired upstream
+  (sv-elab wiki "No unknown modules", 2026-07), so this is permanent, not a
+  packaging lag. A black box must be declared in the source set as one of:
+  a body-less module with `--empty-blackboxes`, a `(* blackbox *)` module, or
+  a module inside `` `celldefine ``. A definition already loaded into yosys
+  (`read_liberty -lib <file>`) is visible to `read_slang` too, and takes no
+  parameters. All three markers and the empty-body case were verified: the
+  module comes back shared, with `blackbox=1` and no cells.
+- Reading an instantiation back (`tren/stubs.py`), verified against sv-lang 12:
+  `UninstantiatedDef` in `slang --ast-json` is the authoritative list of
+  modules with no declaration. It carries the module name, the ports with
+  their self-determined types, and the parameter *values* in order - never the
+  parameter *names*, which only exist in the source text at the instance
+  position. An untyped connection appears as `Invalid` with the real
+  expression under `child` (`'{default: 4'h0}` keeps its width on
+  `defaultSetter`). A stub port can only be `input`: `inout` and `output`
+  reject an expression such as `.a({x, y})`. A wrong stub width **truncates
+  the connection with no warning**, and `'{...}` needs a ranged port (a bare
+  `logic` rejects it).
 - sv-lang 12 `--ast-json` keeps a **declared range** as the source writes it
   (`[7:1]`, `[0:7]`, `[15:8]`) on the type node of a `Port`, `Variable` or
   `Net` member, and resolves a parametrised bound per instance. yosys carries
