@@ -32,7 +32,7 @@ class VersionTests(unittest.TestCase):
         self.assertIn("MIT License", (ROOT / "LICENSE").read_text(encoding="utf-8"))
 
     def test_version_is_semver(self) -> None:
-        self.assertRegex(tren.__version__, r"^\d+\.\d+\.\d+$")
+        self.assertRegex(tren.__version__, r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 
     def test_readme_pins_the_release_tag(self) -> None:
         tag = f"v{tren.__version__}"

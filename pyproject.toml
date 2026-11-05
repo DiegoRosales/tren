@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tren"
 # Keep in step with src/tren/__init__.py:__version__ and the README tag.
-version = "0.0.1"
+version = "0.0.1-alpha"
 description = "TREN - TUI RTL Explorer & Navigator"
 readme = "README.md"
 license = { file = "LICENSE" }

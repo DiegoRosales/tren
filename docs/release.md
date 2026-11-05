@@ -3,7 +3,8 @@
 ## Version scheme
 
 TREN uses Semantic Versioning: `MAJOR.MINOR.PATCH`. Git tags add a `v`, for
-example `v0.0.1`.
+example `v0.0.1`. A pre-release tag adds a suffix, for example
+`v0.0.1-alpha`.
 
 While the major version is 0, a minor release may change the CLI, the key map,
 the IR cache layout or another user-visible interface. A patch release contains
@@ -87,7 +88,9 @@ tren --version
 ```
 
 The metadata command must report the tag without the leading `v`, for example
-`0.0.1`. `tren --version` must also report the Python version:
+`0.0.1`. A pre-release tag reports its PEP 440 form, so `v0.0.1-alpha` reports
+`0.0.1a0`. `tren --version` reads `__version__` and keeps the tag spelling.
+It must also report the Python version:
 
 ```text
 tren 0.0.1 (Python 3.14.8)

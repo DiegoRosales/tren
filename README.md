@@ -24,7 +24,7 @@ nix run github:DiegoRosales/tren -- open path/to/design.sv --top my_top
 Or install the current release with pip:
 
 ```sh
-pip install "tren @ git+https://github.com/DiegoRosales/tren@v0.0.1"
+pip install "tren @ git+https://github.com/DiegoRosales/tren@v0.0.1-alpha"
 tren open path/to/design.sv --top my_top
 ```
 
@@ -54,7 +54,7 @@ To install the source checkout in a virtual environment:
 ```sh
 git clone https://github.com/DiegoRosales/tren
 cd tren
-git checkout v0.0.1
+git checkout v0.0.1-alpha
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
