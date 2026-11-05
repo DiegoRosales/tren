@@ -261,6 +261,127 @@ class ParseVivadoTests(unittest.TestCase):
         # standalone compile units (Vitis HLS ships them next to the RTL)
         self.assertNotIn("fft_wrapper_glue.vh", manifest.sources)
 
+    def test_directory_scan_skips_simulation_models(self) -> None:
+        """The scan keeps the synthesis tree and drops every simulation
+        representation of the same design unit."""
+        bd = self.root / "bd" / "top"
+        (bd / "synth").mkdir(parents=True)
+        (bd / "sim").mkdir()
+        (bd / "synth" / "top.v").write_text("module top; endmodule\n")
+        (bd / "sim" / "top.v").write_text("module top; endmodule\n")
+
+        ip = bd / "ip" / "core"
+        (ip / "synth").mkdir(parents=True)
+        (ip / "sim").mkdir()
+        (ip / "synth" / "core_ip.v").write_text("module core_ip; endmodule\n")
+        (ip / "sim" / "core_ip.v").write_text("module core_ip; endmodule\n")
+        (ip / "core_ip_sim_netlist.v").write_text(
+            "module core_ip; endmodule\n"
+        )
+        (ip / "core_ip_stub.v").write_text("module core_ip; endmodule\n")
+
+        shared = bd / "ipshared" / "abc"
+        (shared / "hdl").mkdir(parents=True)
+        (shared / "simulation").mkdir()
+        (shared / "hdl" / "rtl.v").write_text("module rtl; endmodule\n")
+        (shared / "simulation" / "model.v").write_text(
+            "module model; endmodule\n"
+        )
+
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn("bd/top/synth/top.v", manifest.sources)
+        self.assertIn("bd/top/ip/core/synth/core_ip.v", manifest.sources)
+        self.assertIn("bd/top/ipshared/abc/hdl/rtl.v", manifest.sources)
+        for path in manifest.sources:
+            self.assertNotIn("/sim/", path)
+            self.assertNotIn("/simulation/", path)
+            self.assertFalse(path.endswith("_sim_netlist.v"), path)
+            self.assertFalse(path.endswith("_stub.v"), path)
+
+    def test_directory_scan_keeps_simulation_without_synth_counterpart(self) -> None:
+        """A sim model with no synthesis sibling is the only model."""
+        bd = self.root / "bd" / "top"
+        (bd / "sim").mkdir(parents=True)
+        (bd / "sim" / "orphan.v").write_text("module orphan; endmodule\n")
+
+        shared = bd / "ipshared" / "abc"
+        (shared / "simulation").mkdir(parents=True)
+        (shared / "simulation" / "only.v").write_text(
+            "module only; endmodule\n"
+        )
+
+        vhdl = bd / "ipshared" / "vhd"
+        (vhdl / "hdl").mkdir(parents=True)
+        (vhdl / "hdl" / "model.vhd").write_text("-- VHDL\n")
+        (vhdl / "simulation").mkdir()
+        (vhdl / "simulation" / "model.v").write_text(
+            "module model; endmodule\n"
+        )
+
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn("bd/top/sim/orphan.v", manifest.sources)
+        self.assertIn(
+            "bd/top/ipshared/abc/simulation/only.v", manifest.sources
+        )
+        self.assertIn(
+            "bd/top/ipshared/vhd/simulation/model.v", manifest.sources
+        )
+
+    def test_directory_scan_keeps_a_stub_outside_ip(self) -> None:
+        """A hand-written stub is a source; only the generated IP stubs go."""
+        (self.root / "rtl" / "my_stub.v").write_text(
+            "module my_stub; endmodule\n"
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn("rtl/my_stub.v", manifest.sources)
+
+    def test_fileset_sources_bypass_the_generated_filter(self) -> None:
+        """The FileSet is authoritative even for a name the scan skips."""
+        ip = self.root / "ip" / "core"
+        ip.mkdir(parents=True)
+        (ip / "keep_stub.v").write_text("module keep_stub; endmodule\n")
+        (ip / "keep_sim_netlist.v").write_text(
+            "module keep_sim_netlist; endmodule\n"
+        )
+        write_xpr(
+            self.root,
+            files=[
+                "$PPRDIR/rtl/core.v",
+                "$PPRDIR/ip/core/keep_stub.v",
+                "$PPRDIR/ip/core/keep_sim_netlist.v",
+            ],
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn("ip/core/keep_stub.v", manifest.sources)
+        self.assertIn("ip/core/keep_sim_netlist.v", manifest.sources)
+
+    def test_scan_does_not_skip_a_project_dir_named_sim(self) -> None:
+        """The project's own name must not look like a simulation tree."""
+        proj = self.root / "proj.sim"
+        (proj / "rtl").mkdir(parents=True)
+        (proj / "rtl" / "core.v").write_text("module core; endmodule\n")
+        write_xpr(proj, files=["$PPRDIR/rtl/core.v"])
+        manifest = import_manifest(proj, root=proj)
+        self.assertEqual(manifest.sources, ("rtl/core.v",))
+
+    def test_directory_scan_skips_generated_dirs_for_any_project_name(self) -> None:
+        """Generated dirs carry the project name, not the literal "project"."""
+        for name in (
+            "myproj.runs",
+            "myproj.cache",
+            "myproj.gen",
+            "myproj.hw",
+            "myproj.sim",
+            "myproj.ip_user_files",
+            ".Xil",
+            ".git",
+        ):
+            d = self.root / name / "sub"
+            d.mkdir(parents=True)
+            (d / "generated.v").write_text("module generated; endmodule\n")
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertEqual(manifest.sources, ("rtl/core.v",))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,9 +23,12 @@ What we read:
     set sitting next to the ``.xpr`` and is NOT in the FileSets (the FileSet
     lists just the thin ``bd_0_wrapper`` and the ``.bd``). To cover that, the
     importer completes the sources with a directory scan of Verilog files
-    under the project dir (skipping Vivado's generated/runs dirs), deduped
-    against the FileSet list. This is the card's rule of thumb: recorded /
-    on-disk reality covers more ground than the vendor XML.
+    under the project dir. The scan skips the generated run/cache dirs and
+    the per-IP simulation netlists and stubs. The synthesis tree wins over a
+    ``sim`` or ``simulation`` model; the model remains only when no
+    synthesis counterpart exists. The result is deduped against the FileSet
+    list. This is the card's rule of thumb: recorded / on-disk reality covers
+    more ground than the vendor XML.
 
   - ``set top_module`` in ``settings.tcl`` / recorded ``set_property`` — used
     as the top only when the FileSet has no TopModule and the user did not
@@ -46,18 +49,29 @@ from pathlib import Path
 
 _VERILOG_SUFFIXES = (".v", ".sv")  # .vh are `include`-files (pulled in by parents)
 _HEADER_SUFFIXES = (".vh", ".svh")  # FileSet entries typed as Verilog Headers
-_SKIP_DIRS = {
-    "project.cache",
-    "project.hw",
-    "project.ip_user_files",
-    "project.runs",
-    ".Xil",
-    ".git",
-}
-_SKIP_SUFFIXES = {
-    ".tcl", ".log", ".jou", ".xpr", ".xdc", ".dat", ".txt", ".xci",
-    ".xpe", ".bd", ".f", ".md", ".aux", ".bom", ".csv",
-}
+# Vivado writes several representations of each generated design unit. Only
+# the synthesis tree is the design: sim/ and simulation/ hold behavioral
+# models, and *_sim_netlist.* / *_stub.* repeat a module the wrapper already
+# declares (with a shared glbl that would be defined once per IP).
+_SIM_DIR = "sim"
+_SIMULATION_DIR = "simulation"
+_SYNTH_DIR = "synth"
+_HDL_DIR = "hdl"
+_GENERATED_DIR_SUFFIXES = (
+    ".cache",
+    ".gen",
+    ".hw",
+    ".ip_user_files",
+    ".runs",
+    ".sim",
+)
+_SKIP_DIRS = {".Xil", ".git"}
+_SKIP_NAME_SUFFIXES = (
+    "_sim_netlist.v",
+    "_sim_netlist.sv",
+    "_stub.v",
+    "_stub.sv",
+)
 
 _VARS = {
     "$PRUNDIR": "project.runs",
@@ -141,20 +155,80 @@ def _parse_xpr_file_lists(
     return sources, top
 
 
+def _skip_generated(rel: Path) -> bool:
+    """True when ``rel`` is a generated copy, not a design source.
+
+    ``rel`` is relative to the project directory, so the project's own name
+    cannot make a directory look generated. A file is generated when any
+    parent directory is a Vivado run/cache tree or ``.Xil``, or when it is an
+    IP stub or simulation netlist under ``ip/``. Simulation trees are not
+    skipped here: ``_prefer_synthesis`` keeps a model only when the synthesis
+    tree has no counterpart.
+    """
+    parts = rel.parts
+    if (
+        parts
+        and parts[-1].lower().endswith(_SKIP_NAME_SUFFIXES)
+        and "ip" in parts[:-1]
+    ):
+        return True
+    for part in parts[:-1]:
+        if part in _SKIP_DIRS:
+            return True
+        if part.endswith(_GENERATED_DIR_SUFFIXES):
+            return True
+    return False
+
+
+def _prefer_synthesis(files: list[Path]) -> list[Path]:
+    """Keep a simulation model only when it has no synthesis counterpart.
+
+    A ``sim`` file loses to a ``synth`` sibling with the same stem. A
+    ``simulation`` file loses to a sibling ``hdl`` directory with a Verilog
+    file. A project that generated only simulation output keeps the model and
+    still opens.
+    """
+    synth_stems: dict[Path, set[str]] = {}
+    kept: list[Path] = []
+    for p in files:
+        parent = p.parent
+        if parent.name == _SIM_DIR:
+            synth = parent.parent / _SYNTH_DIR
+            if synth.is_dir():
+                stems = synth_stems.get(synth)
+                if stems is None:
+                    stems = {
+                        f.stem
+                        for f in synth.iterdir()
+                        if f.suffix.lower() in _VERILOG_SUFFIXES
+                    }
+                    synth_stems[synth] = stems
+                if p.stem in stems:
+                    continue
+        elif parent.name == _SIMULATION_DIR:
+            hdl = parent.parent / _HDL_DIR
+            if hdl.is_dir() and any(
+                f.suffix.lower() in _VERILOG_SUFFIXES for f in hdl.iterdir()
+            ):
+                continue
+        kept.append(p)
+    return kept
+
+
 def _scan_verilog(project_dir: Path) -> list[Path]:
-    """Recursive .v/.sv/.vh scan of the project dir, skipping generated dirs."""
+    """Recursive .v/.sv scan of the project dir, skipping generated files."""
     found: list[Path] = []
     for p in project_dir.rglob("*"):
         if p.is_dir():
             continue
         if p.suffix.lower() not in _VERILOG_SUFFIXES:
             continue
-        if any(part in _SKIP_DIRS for part in p.parts):
+        if _skip_generated(p.relative_to(project_dir)):
             continue
         if p.name.startswith("_"):
             continue
         found.append(p)
-    return found
+    return _prefer_synthesis(found)
 
 
 def _recorded_top(project_dir: Path) -> str | None:

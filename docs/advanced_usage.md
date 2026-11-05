@@ -405,9 +405,14 @@ A `.vh` or `.svh` FileSet entry adds its directory to the incdirs. It is not a
 source. A `.bd` entry is a block design, not Verilog, so the importer drops it
 with a warning. Missing FileSet files also warn.
 
-The directory scan skips `project.runs`, `project.cache`, `project.gen`,
-`project.ip_user_files`, `.Xil`, and `.git`. It keeps one copy of each file
-name, the shallowest one, so generated duplicates do not appear twice.
+The directory scan skips the generated directories `<project>.runs`,
+`<project>.cache`, `<project>.gen`, `<project>.hw`, `<project>.sim`,
+`<project>.ip_user_files`, `.Xil`, and `.git`. It also skips the IP stubs
+(`ip/.../*_stub.{v,sv}`) and the IP simulation netlists
+(`ip/.../*_sim_netlist.{v,sv}`). A `sim/` file is kept only when the `synth/`
+tree has no file with the same name. A `simulation/` file is kept only when
+the directory has no Verilog `hdl/` sibling. The scan keeps one copy of each
+file name, the shallowest one, so generated duplicates do not appear twice.
 
 Pass `--top` when the project has no `TopModule` and no recorded top, or when
 you want to override them:
