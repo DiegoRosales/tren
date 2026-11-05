@@ -89,6 +89,10 @@ them). Builds the real IR from the *tracked demo RTL* and asserts:
 - deterministic: `elaborate` twice -> equal `Design`s;
 - cache: warm hit round-trips the same `Design`.
 
+The acceptance test creates a child with no module declaration. It checks that
+yosys's connected pin names form a black-box scope with unknown directions.
+The Pilot test checks that the unresolved scope uses the red hierarchy style.
+
 A second tracked fixture, `tests/rtl/ranges.sv`, holds the ranges the demo cannot
 carry - `[7:1]`, `[0:7]`, `[15:8]` - because the drives assert the demo's
 line numbers. Its acceptance test asserts the IR *and* the leaf text the

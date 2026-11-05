@@ -373,7 +373,13 @@ class UnknownDirectionAcceptanceTests(unittest.TestCase):
         assert scope is not None
         cell = {c.name: c for c in scope.cells}["u_ip"]
         self.assertEqual({pin.direction for pin in cell.pins}, {"unknown"})
-        self.assertEqual(scope.instances, ())
+        self.assertEqual(
+            [(i.name, i.module, i.blackbox) for i in scope.instances],
+            [("u_ip", "vendor_ip", True)],
+        )
+        missing = design.scope("unknown_direction.u_ip")
+        assert missing is not None
+        self.assertTrue(missing.unresolved)
         conn = {
             c.net: c for c in design.connectivity if c.scope == "unknown_direction"
         }
@@ -740,6 +746,46 @@ class DemoAcceptanceTests(unittest.TestCase):
             ),
             design.boundaries,
         )
+
+    def test_missing_module_becomes_blackbox_scope(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="tren-missing-module-") as td:
+            root = Path(td)
+            (root / "missing_module.sv").write_text(
+                "module top (input logic clk, input logic [7:0] addr, "
+                "output logic [31:0] rdata);\n"
+                "  ram_model u_ram(.clk(clk), .addr(addr), .rdata(rdata));\n"
+                "endmodule\n"
+            )
+            manifest = Manifest(
+                name="missing_module",
+                sources=("missing_module.sv",),
+                top="top",
+            )
+            design = elaborate(manifest, root, cache=None)
+        top = design.scope("top")
+        missing = design.scope("top.u_ram")
+        assert top is not None
+        assert missing is not None
+
+        self.assertEqual(
+            [(i.name, i.module, i.blackbox) for i in top.instances],
+            [("u_ram", "ram_model", True)],
+        )
+        self.assertTrue(missing.blackbox)
+        self.assertTrue(missing.unresolved)
+        self.assertEqual(
+            [(p.name, p.direction, p.width) for p in missing.ports],
+            [
+                ("addr", "unknown", 8),
+                ("clk", "unknown", 1),
+                ("rdata", "unknown", 32),
+            ],
+        )
+        self.assertIn("u_ram", {cell.name for cell in top.cells})
+        round_trip = Design.from_json(design.to_json())
+        round_trip_missing = round_trip.scope("top.u_ram")
+        assert round_trip_missing is not None
+        self.assertTrue(round_trip_missing.unresolved)
 
     def test_deterministic(self) -> None:
         a = elaborate(self.manifest, REPO, cache=None)

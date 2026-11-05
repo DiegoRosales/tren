@@ -45,8 +45,9 @@ the command and names the file and the key.
 Each `tui.hierarchy` colour key is `theme` (the default), `none` (leave that
 kind uncoloured), or a Textual colour name or hex value. `theme` takes the
 role from the active Textual theme: `text-primary` for instances,
-`foreground-lighten-1` for module definitions, `text-warning` for black boxes,
-`text-secondary` for input ports, `text-error` for inout ports,
+`foreground-lighten-1` for module definitions, `text-warning` for declared
+black boxes, `text-error` for unresolved module scopes, `text-secondary` for
+input ports, `text-error` for inout ports,
 `text-success` for output ports and `foreground-darken-2` for nets. A theme
 colour is lightened when needed to stay legible on the pane surfaces; an
 explicit colour is used as written. While hierarchy colouring is enabled, the

@@ -45,6 +45,7 @@ class DocumentationLinkTests(unittest.TestCase):
             "define",
             "generate",
             "parameter",
+            "unresolved-module",
             "vivado",
         ):
             with self.subTest(name=name):
@@ -59,6 +60,7 @@ class DocumentationLinkTests(unittest.TestCase):
             "define",
             "generate",
             "parameter",
+            "unresolved-module",
             "vivado",
         ):
             with self.subTest(name=name):
@@ -236,6 +238,28 @@ class ExampleElaborationTests(unittest.TestCase):
             },
         )
         self.assertIsNotNone(design.scope("alu_top.u_alu"))
+
+    def test_unresolved_module_example(self) -> None:
+        manifest, design = self._design(
+            EXAMPLES / "unresolved-module" / "memory_top.sv", "memory_top"
+        )
+        self.assertEqual(
+            manifest.sources,
+            ("docs/examples/unresolved-module/memory_top.sv",),
+        )
+        missing = design.scope("memory_top.u_memory")
+        assert missing is not None
+        self.assertTrue(missing.blackbox)
+        self.assertTrue(missing.unresolved)
+        self.assertEqual(
+            {port.name: (port.direction, port.width) for port in missing.ports},
+            {
+                "clk": ("unknown", 1),
+                "address": ("unknown", 8),
+                "write_data": ("unknown", 32),
+                "read_data": ("unknown", 32),
+            },
+        )
 
 
 if __name__ == "__main__":

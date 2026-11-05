@@ -10,7 +10,7 @@ tracing built in. When you need to find where a signal goes, you can follow the
 connections instead of opening files until the hierarchy makes sense.
 
 TREN is an early alpha. It uses yosys for connectivity and slang for
-elaboration details. It opens designs with missing modules as black boxes.
+elaboration details. It shows unresolved modules as red black boxes.
 
 ## Get started
 
@@ -170,6 +170,8 @@ a connection crosses a bus slice.
 
 A module without a body appears as a black box with its ports. Press `X` on a
 scope to cut it from a trace. Press `X` again to restore the scope.
+An instance with no module declaration appears as a red row. TREN shows its
+connected pin names and widths, but their directions are unknown.
 
 ### Settings
 

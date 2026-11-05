@@ -764,6 +764,38 @@ def build_design(
                 src=gen.get("src"),
             )
 
+    # --- unresolved module scopes: yosys cells slang did not report --------
+    # slang-hier omits an instance when its module declaration is absent.
+    # Yosys still keeps the cell and its connected port names in the netlist.
+    for path, base in tuple(module_of.items()):
+        key = base_to_key.get(base)
+        mod = netlist["modules"].get(key) or {} if key else {}
+        for name, cell in sorted((mod.get("cells") or {}).items()):
+            cell_type = cell.get("type", "")
+            if cell_type in netlist["modules"] or cell_type.startswith("$"):
+                continue
+            child_path = f"{path}.{name}"
+            if child_path in scopes:
+                continue
+            directions = cell_directions(cell, cell_type, netlist["modules"])
+            ports = tuple(
+                Port(
+                    name=port,
+                    direction=(directions or {}).get(port, "unknown"),
+                    width=len(bits),
+                )
+                for port, bits in (cell.get("connections") or {}).items()
+            )
+            scopes[child_path] = Scope(
+                name=child_path,
+                module=cell_type,
+                blackbox=True,
+                unresolved=True,
+                ports=ports,
+                src=(cell.get("attributes") or {}).get("src"),
+            )
+            module_of[child_path] = cell_type
+
     # --- instances: direct child scopes; src = instantiation site ----------
     # The instance's src is the *instantiation in the parent* (the yosys cell
     # src, e.g. tests/rtl/demo.sv:77.14-77.65), not the child module's declaration -

@@ -78,10 +78,13 @@ class ResolveRowColorTests(unittest.TestCase):
         for kind, role in THEME_ROLES.items():
             with self.subTest(kind=kind):
                 self.assertEqual(colors[kind], THEME_VARIABLES[role])
-
     def test_the_default_theme_keeps_the_kinds_distinct(self) -> None:
         colors = resolve_row_colors(THEME_VARIABLES)
-        self.assertEqual(len(set(colors.values())), len(colors), colors)
+        self.assertEqual(colors["unresolved"], THEME_VARIABLES["text-error"])
+        distinct = {
+            kind: color for kind, color in colors.items() if kind != "unresolved"
+        }
+        self.assertEqual(len(set(distinct.values())), len(distinct), colors)
 
     def test_an_explicit_colour_replaces_the_theme_role(self) -> None:
         colors = resolve_row_colors(

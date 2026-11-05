@@ -17,12 +17,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from tren.config import Config  # noqa: E402
 from tren.ir import (
     BitLink,
     Cell,
     CellPin,
     Design,
     Endpoint,
+    Instance,
     Net,
     NetConnectivity,
     Port,
@@ -368,6 +370,38 @@ class SearchWindowStartTests(unittest.TestCase):
     def test_even_window_window_rounds_down(self) -> None:
         # 200 // 2 = 100 rows above; the cursor sits just past the middle
         self.assertEqual(_window_start(299, 400, 200), 199)
+
+
+class UnresolvedHierarchyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unresolved_scope_is_visible_with_error_style(self) -> None:
+        top = Scope(
+            name="top",
+            module="top",
+            instances=(
+                Instance(name="u_ram", module="ram_model", blackbox=True),
+            ),
+        )
+        missing = Scope(
+            name="top.u_ram",
+            module="ram_model",
+            blackbox=True,
+            unresolved=True,
+        )
+        app = TrenApp(Design(top="top", scopes=(top, missing)), settings=Config())
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            node = next(
+                node
+                for node in app._visible()
+                if node.data
+                and node.data.get("scope") is not None
+                and node.data["scope"].unresolved
+            )
+
+        self.assertEqual(node.label.plain, "u_ram/!")
+        self.assertEqual(app._node_kind(node), "unresolved")
+        self.assertTrue(app._row_colors["unresolved"])
 
 
 if __name__ == "__main__":

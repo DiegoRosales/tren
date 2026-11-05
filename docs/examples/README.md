@@ -11,6 +11,7 @@ repository root.
 | `define/` | `tren open docs/examples/define/design.f --top define_top` | A filelist with a macro define. |
 | `generate/` | `tren open docs/examples/generate/design.f --top generate_top` | A filelist whose top-level parameter selects the generated lanes. |
 | `parameter/` | `tren open docs/examples/parameter/design.f --top param_top` | A filelist with a top-level parameter override. |
+| `unresolved-module/` | `tren open docs/examples/unresolved-module/memory_top.sv --top memory_top` | A memory instance with no module declaration. Its row is red, and its pin directions are unknown. |
 | `vivado/` | `tren open docs/examples/vivado/project.xpr` | A Vivado project with a DesignSrcs FileSet and a TopModule. |
 
 Every source example passes `--top` because the default top module name `top`
@@ -19,6 +20,10 @@ importer reads it from the `.xpr`. The define example sets `TOPW=16` with a
 `-D` line in its filelist. The generate example sets `LANES=4` with a `-G`
 line, which generates four lanes and the wide branch. The parameter example
 sets `WIDTH=16` with a `-G` line in its filelist.
+
+The unresolved-module example omits the `ram_model` declaration. TREN shows
+`u_memory/!` in red. Expand the row to see its connected pin names and widths.
+The pin directions read `unknown` because no declaration provides them.
 
 See [Quick start](../quick_start.md) for a walkthrough and
 [Advanced usage](../advanced_usage.md) for the cache, the multi-directory

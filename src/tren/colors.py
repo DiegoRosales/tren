@@ -22,6 +22,7 @@ ROW_KINDS = (
     "scope",
     "module",
     "blackbox",
+    "unresolved",
     "port_in",
     "port_inout",
     "port_out",
@@ -34,12 +35,13 @@ ROW_KINDS = (
 MIN_CONTRAST = 4.5
 
 # Textual generates a text-safe variant of each semantic colour. readable()
-# adapts it to the fixed dark pane surfaces the app paints on. Each kind uses
-# a different role so the rows stay distinguishable.
+# adapts it to the fixed dark pane surfaces the app paints on. Row kinds use
+# semantic roles so the rows stay distinguishable.
 THEME_ROLES = {
     "scope": "text-primary",
     "module": "foreground-lighten-1",
     "blackbox": "text-warning",
+    "unresolved": "text-error",
     "port_in": "text-secondary",
     "port_inout": "text-error",
     "port_out": "text-success",
@@ -138,6 +140,7 @@ def resolve_row_colors(
         "scope": scope,
         "module": module,
         "blackbox": blackbox,
+        "unresolved": THEME,
         "port_in": port,
         "port_inout": inout,
         "port_out": port,

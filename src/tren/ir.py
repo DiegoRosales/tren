@@ -170,9 +170,8 @@ class Cell:
     """An internal netlist cell of a scope (a yosys cell, not an instance).
 
     `pins` carries the connection directions, so a trace can step from a
-    cell to the nets on its other side: the inputs of a driver, or the
-    outputs of a load. Submodule instances are not cells: they are the
-    scope's `instances` and the trace crosses them by boundary.
+    cell to the nets on its other side. Resolved submodule cells are scope
+    instances. Unresolved cells stay here so traces keep their unknown pins.
     """
 
     name: str
@@ -187,6 +186,8 @@ class Scope:
     #            hand-written fixture is module-keyed instead (name == module)
     module: str | None = None  # base module name; None => generate block scope
     blackbox: bool = False
+    # No module declaration exists, so the UI marks this scope in red.
+    unresolved: bool = False
     params: tuple[Param, ...] = ()
     ports: tuple[Port, ...] = ()
     nets: tuple[Net, ...] = ()
@@ -275,7 +276,7 @@ class Design:
 # Schema identity (what makes a cached blob stale)
 # --------------------------------------------------------------------------
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 """Bump by hand when the *meaning* of an unchanged field changes.
 
 The structural fingerprint below catches added/renamed/retyped fields on its
@@ -405,6 +406,7 @@ def design_from_fixture(path: str | Path) -> Design:
                 name=name,
                 module=name,  # fixture is module-keyed: name == module
                 blackbox=bool(s.get("blackbox", False)),
+                unresolved=bool(s.get("unresolved", False)),
                 params=tuple(
                     Param(name=p["name"], value=p.get("value", ""), default=p.get("default"), kind=p.get("kind", "parameter"))
                     for p in s.get("params", [])

@@ -952,6 +952,8 @@ class TrenApp(App[None]):
             if inst is not None and inst.blackbox:
                 return "blackbox"
             scope = self._scope_data(node)
+            if scope is not None and scope.unresolved:
+                return "unresolved"
             if scope is not None and (
                 scope.blackbox or scope.name in self._user_cut
             ):
@@ -983,7 +985,9 @@ class TrenApp(App[None]):
     ) -> Tree.Node:
         base_label = label or f"{scope.name}/"
         row_kind = kind
-        if scope.blackbox:
+        if scope.unresolved:
+            row_kind = "unresolved"
+        elif scope.blackbox:
             row_kind = "blackbox"
         elif row_kind is None:
             row_kind = "module" if scope.module is None else "scope"
