@@ -63,6 +63,30 @@ def write_xpr(
     return xpr
 
 
+def write_component_xml(
+    dir_path: Path, file_sets: dict[str, list[str]]
+) -> Path:
+    """Write a minimal Vivado IP component XML with the given file sets."""
+    xml = dir_path / "component.xml"
+    sets = []
+    for name, files in file_sets.items():
+        entries = "".join(
+            f"<spirit:file><spirit:name>{path}</spirit:name></spirit:file>"
+            for path in files
+        )
+        sets.append(
+            f"<spirit:fileSet><spirit:name>{name}</spirit:name>"
+            f"{entries}</spirit:fileSet>"
+        )
+    xml.write_text(
+        "<spirit:component "
+        'xmlns:spirit="http://www.spiritconsortium.org/XMLSchema/SPIRIT/1685-2009">'
+        f"<spirit:fileSets>{''.join(sets)}</spirit:fileSets>"
+        "</spirit:component>\n"
+    )
+    return xml
+
+
 class ParseXprTests(unittest.TestCase):
     def setUp(self) -> None:
         self.td = tempfile.mkdtemp(prefix="tren-vivado-")
@@ -334,6 +358,167 @@ class ParseVivadoTests(unittest.TestCase):
         )
         manifest = import_manifest(self.root, root=self.root)
         self.assertIn("rtl/my_stub.v", manifest.sources)
+
+    def test_component_xml_drops_behavioral_only_source(self) -> None:
+        """A behavioral-only copy loses to the synthesis copy."""
+        hdl = self.root / "ipshared" / "21f8" / "hdl"
+        hdl.mkdir(parents=True)
+        (hdl / "axi_dwidth_converter_v2_1_vl_rfs.v").write_text(
+            "module axi_dwidth_converter_v2_1_37_top; endmodule\n"
+        )
+        (hdl / "axi_dwidth_converter_v2_1_vlsyn_rfs.v").write_text(
+            "module axi_dwidth_converter_v2_1_37_top; endmodule\n"
+        )
+        ip = self.root / "ip" / "core"
+        ip.mkdir(parents=True)
+        write_component_xml(
+            ip,
+            {
+                "xilinx_verilogbehavioralsimulation_view_fileset": [
+                    "../../ipshared/21f8/hdl/"
+                    "axi_dwidth_converter_v2_1_vl_rfs.v"
+                ],
+                "xilinx_verilogsynthesis_view_fileset": [
+                    "../../ipshared/21f8/hdl/"
+                    "axi_dwidth_converter_v2_1_vlsyn_rfs.v"
+                ],
+            },
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn(
+            "ipshared/21f8/hdl/axi_dwidth_converter_v2_1_vlsyn_rfs.v",
+            manifest.sources,
+        )
+        self.assertNotIn(
+            "ipshared/21f8/hdl/axi_dwidth_converter_v2_1_vl_rfs.v",
+            manifest.sources,
+        )
+
+    def test_component_xml_skips_bad_encoding(self) -> None:
+        """A non-component XML with a bad encoding does not abort the scan."""
+        (self.root / "bad.xml").write_text(
+            '<?xml version="1.0" encoding="bogus"?><component/>\n'
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn("rtl/core.v", manifest.sources)
+
+    def test_component_xml_keeps_behavioral_when_synthesis_is_vhdl(self) -> None:
+        """The behavioral model is the only Verilog model for a VHDL IP."""
+        hdl = self.root / "ipshared" / "42f3" / "hdl"
+        hdl.mkdir(parents=True)
+        (hdl / "blk_mem_gen_v8_4_vhsyn_rfs.vhd").write_text("-- VHDL\n")
+        sim = self.root / "ipshared" / "42f3" / "simulation"
+        sim.mkdir()
+        (sim / "blk_mem_gen_v8_4.v").write_text(
+            "module blk_mem_gen_v8_4; endmodule\n"
+        )
+        ip = self.root / "ip" / "core"
+        ip.mkdir(parents=True)
+        write_component_xml(
+            ip,
+            {
+                "xilinx_verilogbehavioralsimulation_xilinx_com_ip_"
+                "blk_mem_gen_8_4__ref_view_fileset": [
+                    "../../ipshared/42f3/simulation/blk_mem_gen_v8_4.v"
+                ],
+                "xilinx_verilogsynthesis_xilinx_com_ip_"
+                "blk_mem_gen_8_4__ref_view_fileset": [
+                    "../../ipshared/42f3/hdl/"
+                    "blk_mem_gen_v8_4_vhsyn_rfs.vhd"
+                ],
+            },
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn(
+            "ipshared/42f3/simulation/blk_mem_gen_v8_4.v",
+            manifest.sources,
+        )
+
+    def test_component_xml_drops_unpaired_behavioral_model(self) -> None:
+        """A behavioral set with no synthesis pair is simulation-only."""
+        vip = self.root / "ipshared" / "9a25" / "hdl"
+        vip.mkdir(parents=True)
+        (vip / "processing_system7_vip_v1_0_vl_rfs.sv").write_text(
+            "module processing_system7_vip; endmodule\n"
+        )
+        ip = self.root / "ip" / "core"
+        ip.mkdir(parents=True)
+        write_component_xml(
+            ip,
+            {
+                "xilinx_anylanguagebehavioralsimulation_xilinx_com_ip_"
+                "processing_system7_vip_1_0__ref_view_fileset": [
+                    "../../ipshared/9a25/hdl/"
+                    "processing_system7_vip_v1_0_vl_rfs.sv"
+                ],
+            },
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertNotIn(
+            "ipshared/9a25/hdl/processing_system7_vip_v1_0_vl_rfs.sv",
+            manifest.sources,
+        )
+
+    def test_component_xml_keeps_a_shared_synthesis_file(self) -> None:
+        """A file in both file sets is part of the design."""
+        common = self.root / "ipshared" / "common" / "hdl" / "common.v"
+        common.parent.mkdir(parents=True)
+        common.write_text("module common; endmodule\n")
+        ip = self.root / "ip" / "core"
+        ip.mkdir(parents=True)
+        write_component_xml(
+            ip,
+            {
+                "xilinx_verilogbehavioralsimulation_xilinx_com_ip_"
+                "common_1_0__ref_view_fileset": [
+                    "../../ipshared/common/hdl/common.v"
+                ],
+                "xilinx_verilogsynthesis_xilinx_com_ip_"
+                "common_1_0__ref_view_fileset": [
+                    "../../ipshared/common/hdl/common.v"
+                ],
+            },
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn("ipshared/common/hdl/common.v", manifest.sources)
+
+    def test_component_xml_anylanguage_behavioral_model(self) -> None:
+        """The any-language behavioral file set is simulation-only too."""
+        vip = self.root / "ipshared" / "9a25" / "hdl"
+        vip.mkdir(parents=True)
+        (vip / "processing_system7_vip_v1_0_vl_rfs.sv").write_text(
+            "module processing_system7_vip; endmodule\n"
+        )
+        ps = self.root / "ip" / "ps" / "hdl" / "verilog"
+        ps.mkdir(parents=True)
+        (ps / "processing_system7_v5_5_processing_system7.v").write_text(
+            "module processing_system7_v5_5_processing_system7; endmodule\n"
+        )
+        ip = self.root / "ip" / "core"
+        ip.mkdir(parents=True)
+        write_component_xml(
+            ip,
+            {
+                "xilinx_anylanguagebehavioralsimulation_xilinx_com_ip_"
+                "processing_system7_vip_1_0__ref_view_fileset": [
+                    "../../ipshared/9a25/hdl/"
+                    "processing_system7_vip_v1_0_vl_rfs.sv"
+                ],
+                "xilinx_anylanguagesynthesis_view_fileset": [
+                    "../../ip/ps/hdl/verilog/"
+                    "processing_system7_v5_5_processing_system7.v"
+                ],
+            },
+        )
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertIn(
+            "ip/ps/hdl/verilog/processing_system7_v5_5_processing_system7.v",
+            manifest.sources,
+        )
+        self.assertNotIn(
+            "ipshared/9a25/hdl/processing_system7_vip_v1_0_vl_rfs.sv",
+            manifest.sources,
+        )
 
     def test_fileset_sources_bypass_the_generated_filter(self) -> None:
         """The FileSet is authoritative even for a name the scan skips."""

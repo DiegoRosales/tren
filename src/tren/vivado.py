@@ -24,11 +24,14 @@ What we read:
     lists just the thin ``bd_0_wrapper`` and the ``.bd``). To cover that, the
     importer completes the sources with a directory scan of Verilog files
     under the project dir. The scan skips the generated run/cache dirs and
-    the per-IP simulation netlists and stubs. The synthesis tree wins over a
-    ``sim`` or ``simulation`` model; the model remains only when no
-    synthesis counterpart exists. The result is deduped against the FileSet
-    list. This is the card's rule of thumb: recorded / on-disk reality covers
-    more ground than the vendor XML.
+    the per-IP simulation netlists and stubs. It reads the IP component XMLs
+    (``<ip>.xml`` or ``component.xml``) and drops a file that is only in a
+    behavioral simulation file set. The synthesis file set is the authority.
+    A behavioral file remains when its synthesis pair has no Verilog file.
+    The synthesis tree also wins over a ``sim`` or ``simulation`` model; the
+    model remains only when no synthesis counterpart exists. The result is
+    deduped against the FileSet list. This is the card's rule of thumb:
+    recorded / on-disk reality covers more ground than the vendor XML.
 
   - ``set top_module`` in ``settings.tcl`` / recorded ``set_property`` — used
     as the top only when the FileSet has no TopModule and the user did not
@@ -71,6 +74,16 @@ _SKIP_NAME_SUFFIXES = (
     "_sim_netlist.sv",
     "_stub.v",
     "_stub.sv",
+)
+_PAIR_PREFIXES = (
+    ("xilinx_verilogbehavioralsimulation", "simulation"),
+    ("xilinx_verilogsimulationwrapper", "simulation"),
+    ("xilinx_anylanguagebehavioralsimulation", "simulation"),
+    ("xilinx_anylanguagesimulationwrapper", "simulation"),
+    ("xilinx_verilogsynthesis", "synthesis"),
+    ("xilinx_verilogsynthesiswrapper", "synthesis"),
+    ("xilinx_anylanguagesynthesis", "synthesis"),
+    ("xilinx_anylanguagesynthesiswrapper", "synthesis"),
 )
 
 _VARS = {
@@ -180,13 +193,99 @@ def _skip_generated(rel: Path) -> bool:
     return False
 
 
+def _local_name(tag: str) -> str:
+    """XML tag without its namespace prefix."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _child_text(element: ET.Element, name: str) -> str | None:
+    """Text of the first direct child with local name ``name``."""
+    for child in element:
+        if _local_name(child.tag) == name and child.text:
+            return child.text.strip()
+    return None
+
+
+def _component_file_sets(
+    project_dir: Path,
+) -> list[tuple[set[Path], set[Path]]]:
+    """Return (synthesis, simulation) file-set pairs from the component XMLs.
+
+    Each file-set name is paired with the same-name set of the other role.
+    A file that is in a behavioral set but not in its synthesis set is a
+    simulation model. A behavioral set with no synthesis file set at all is
+    also a simulation model. The scanner drops those models unless the paired
+    synthesis set exists but has no Verilog file, as for a VHDL-only IP.
+    """
+    pairs: dict[str, tuple[set[Path], set[Path]]] = {}
+    for xml_path in project_dir.rglob("*.xml"):
+        try:
+            rel = xml_path.relative_to(project_dir)
+        except ValueError:
+            continue
+        if _skip_generated(rel):
+            continue
+        try:
+            root = ET.parse(xml_path).getroot()
+        except (ET.ParseError, OSError, LookupError, ValueError):
+            continue
+        if _local_name(root.tag) != "component":
+            continue
+        for file_set in root.iter():
+            if _local_name(file_set.tag) != "fileSet":
+                continue
+            set_name = _child_text(file_set, "name")
+            if not set_name:
+                continue
+            name = set_name.lower()
+            role = None
+            key = ""
+            for prefix, prefix_role in sorted(
+                _PAIR_PREFIXES, key=lambda item: -len(item[0])
+            ):
+                if name.startswith(prefix):
+                    role = prefix_role
+                    key = name[len(prefix):]
+                    break
+            if role is None:
+                continue
+            synthesis, simulation = pairs.setdefault(key, (set(), set()))
+            target = synthesis if role == "synthesis" else simulation
+            for file_el in file_set:
+                if _local_name(file_el.tag) != "file":
+                    continue
+                file_name = _child_text(file_el, "name")
+                if not file_name:
+                    continue
+                target.add((xml_path.parent / file_name).resolve())
+    return list(pairs.values())
+
+
+def _drop_behavioral_only(files: list[Path], project_dir: Path) -> list[Path]:
+    """Drop files the IP component XML marks as simulation-only.
+
+    A behavioral file survives when its synthesis pair has no Verilog file.
+    That keeps the only readable model for a VHDL-only IP.
+    """
+    drop: set[Path] = set()
+    for synthesis, simulation in _component_file_sets(project_dir):
+        if not synthesis:
+            drop |= simulation
+        elif any(p.suffix.lower() in _VERILOG_SUFFIXES for p in synthesis):
+            drop |= simulation - synthesis
+    if not drop:
+        return files
+    return [p for p in files if p.resolve() not in drop]
+
+
 def _prefer_synthesis(files: list[Path]) -> list[Path]:
     """Keep a simulation model only when it has no synthesis counterpart.
 
-    A ``sim`` file loses to a ``synth`` sibling with the same stem. A
-    ``simulation`` file loses to a sibling ``hdl`` directory with a Verilog
-    file. A project that generated only simulation output keeps the model and
-    still opens.
+    The component XML is the primary rule. This fallback covers a project
+    without component XML, or a file outside the IP file sets. A ``sim`` file
+    loses to a ``synth`` sibling with the same stem. A ``simulation`` file
+    loses to a sibling ``hdl`` directory with a Verilog file. A project that
+    generated only simulation output keeps the model and still opens.
     """
     synth_stems: dict[Path, set[str]] = {}
     kept: list[Path] = []
@@ -216,7 +315,12 @@ def _prefer_synthesis(files: list[Path]) -> list[Path]:
 
 
 def _scan_verilog(project_dir: Path) -> list[Path]:
-    """Recursive .v/.sv scan of the project dir, skipping generated files."""
+    """Recursive .v/.sv scan of the project dir, skipping generated files.
+
+    The IP component XMLs decide which sibling files are simulation-only.
+    The directory rules then handle the generated trees those XMLs do not
+    cover.
+    """
     found: list[Path] = []
     for p in project_dir.rglob("*"):
         if p.is_dir():
@@ -228,6 +332,7 @@ def _scan_verilog(project_dir: Path) -> list[Path]:
         if p.name.startswith("_"):
             continue
         found.append(p)
+    found = _drop_behavioral_only(found, project_dir)
     return _prefer_synthesis(found)
 
 

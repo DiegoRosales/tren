@@ -405,14 +405,25 @@ A `.vh` or `.svh` FileSet entry adds its directory to the incdirs. It is not a
 source. A `.bd` entry is a block design, not Verilog, so the importer drops it
 with a warning. Missing FileSet files also warn.
 
-The directory scan skips the generated directories `<project>.runs`,
-`<project>.cache`, `<project>.gen`, `<project>.hw`, `<project>.sim`,
-`<project>.ip_user_files`, `.Xil`, and `.git`. It also skips the IP stubs
-(`ip/.../*_stub.{v,sv}`) and the IP simulation netlists
-(`ip/.../*_sim_netlist.{v,sv}`). A `sim/` file is kept only when the `synth/`
-tree has no file with the same name. A `simulation/` file is kept only when
-the directory has no Verilog `hdl/` sibling. The scan keeps one copy of each
-file name, the shallowest one, so generated duplicates do not appear twice.
+The scan also reads the IP component XMLs (`<ip>.xml` or `component.xml`)
+under the project. A file in a behavioral simulation file set but not in its
+synthesis file set is a simulation model; the scan drops it. It keeps the
+behavioral file when the synthesis pair has no Verilog file, as for an IP
+whose synthesis side is VHDL. A file in both file sets stays. The synthesis
+pair is matched by the rest of the file-set name.
+
+For files outside the component XML file sets, the directory scan skips the
+generated directories `<project>.runs`, `<project>.cache`, `<project>.gen`,
+`<project>.hw`, `<project>.sim`, `<project>.ip_user_files`, `.Xil`, and
+`.git`. It also skips the IP stubs (`ip/.../*_stub.{v,sv}`) and the IP
+simulation netlists (`ip/.../*_sim_netlist.{v,sv}`). A `sim/` file is kept
+only when the `synth/` tree has no file with the same name. A `simulation/`
+file is kept only when the directory has no Verilog `hdl/` sibling. The
+component XML overrides these directory rules. It drops a behavioral file
+when the synthesis pair has a Verilog file, or when the behavioral file has no
+synthesis pair. It keeps the file when the synthesis pair has no Verilog file.
+The scan keeps one copy of each file name, the shallowest one, so generated
+duplicates do not appear twice.
 
 Pass `--top` when the project has no `TopModule` and no recorded top, or when
 you want to override them:

@@ -423,6 +423,28 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(_tool_diagnostics(err), "oops")
 
 
+class RunWarningTests(unittest.TestCase):
+    """The tools use exit 3 for warnings, not only for errors."""
+
+    def _run_with(self, returncode: int, stderr: str) -> str:
+        import tren.elaborate as elab
+
+        proc = subprocess.CompletedProcess(
+            ["slang-hier"], returncode, stdout="node\n", stderr=stderr
+        )
+        with mock.patch.object(elab.subprocess, "run", return_value=proc):
+            return elab._run(["slang-hier"], Path("."))
+
+    def test_warning_only_exit_is_success(self) -> None:
+        self.assertEqual(
+            self._run_with(3, "warning: unused\n"), "node\n"
+        )
+
+    def test_error_exit_is_failure(self) -> None:
+        with self.assertRaises(subprocess.CalledProcessError):
+            self._run_with(3, "demo.sv:1: error: bad\n")
+
+
 class BuildDesignUnitTests(unittest.TestCase):
     """build_design against tiny inline inputs (no subprocesses)."""
 

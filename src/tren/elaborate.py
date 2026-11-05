@@ -89,9 +89,18 @@ _SLANG_READ_UNSUPPORTED = frozenset({"--ignore-unknown-modules"})
 
 def _run(cmd: list[str], cwd: Path) -> str:
     proc = subprocess.run(
-        cmd, cwd=str(cwd), check=True, capture_output=True, text=True
+        cmd, cwd=str(cwd), capture_output=True, text=True
     )
-    return proc.stdout
+    if proc.returncode == 0:
+        return proc.stdout
+    # slang uses exit 3 for warnings as well as errors. A warning-only run
+    # still produced the hierarchy or AST the caller reads.
+    stderr = (proc.stderr or "").lower()
+    if proc.returncode == 3 and "error:" not in stderr:
+        return proc.stdout
+    raise subprocess.CalledProcessError(
+        proc.returncode, cmd, output=proc.stdout, stderr=proc.stderr
+    )
 
 
 def _tool_diagnostics(proc: subprocess.CalledProcessError, limit: int = 40) -> str:
