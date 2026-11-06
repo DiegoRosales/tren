@@ -7,15 +7,17 @@ Commands:
                 emit a design manifest for a .f filelist, a .sv file, a
                 directory of sources, or an explicit -f list (tren.importer)
     elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
+                [--error-log PATH]
                 elaborate a manifest into the TREN IR (tren.elaborate)
     open [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...
                 [--root DIR] [--cache DIR] [--refresh] [--out PATH]
+                [--error-log PATH]
                 import the target (or the -f list) unless it is a manifest,
                 elaborate it and open the TUI (tren.bringup)
     config [show|export] [--out PATH]
                 show the effective settings with their origins, or export a
                 complete TOML template (tren.config)
-    stub <manifest> [--root DIR] [--out PATH]
+    stub <manifest> [--root DIR] [--out PATH] [--error-log PATH]
                 write the black-box declarations inferred for modules the
                 source set does not declare (tren.stubs)
 
@@ -203,15 +205,17 @@ commands:
                 emit a design manifest for a .f filelist, a .sv file, a
                 directory of sources, or an explicit -f list
   elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
+                [--error-log PATH]
                 elaborate a manifest into the TREN IR
   open [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...
                 [--root DIR] [--cache DIR] [--refresh] [--out PATH]
+                [--error-log PATH]
                 import the target (or the -f list) unless it is a manifest,
                 elaborate it and open the TUI
   config [show|export] [--out PATH]
                 show the effective settings with their origins, or export a
                 complete TOML template
-  stub <manifest> [--root DIR] [--out PATH]
+  stub <manifest> [--root DIR] [--out PATH] [--error-log PATH]
                 write the black-box declarations inferred for modules the
                 source set does not declare
 

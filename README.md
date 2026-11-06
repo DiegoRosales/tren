@@ -94,6 +94,12 @@ Use `-D NAME[=VALUE]` to define a macro. Use `-G NAME=VALUE` to override a
 top-level parameter. Both options can be repeated. For filelists and other
 options, see the [command reference](docs/command_reference.md).
 
+For a Vivado project, TREN also reads the RTL includes. It ignores comments
+and checks every preprocessor branch. If an include is not in the project and
+`XILINX_VIVADO` is set, TREN finds it in the Vivado install and passes its
+directory to slang. Without the variable it warns and continues. A guarded
+include does not warn, because its branch may be inactive.
+
 TREN reads plain Verilog and SystemVerilog. When a design uses something
 yosys's own parser cannot handle - a package, an assignment pattern, a
 streaming operator - TREN quietly switches to yosys's slang frontend, and the
@@ -106,6 +112,12 @@ design anyway. Everything around the missing block stays explorable; the
 placeholder's port directions are unknown, because guessing one would quietly
 drop a driver from a trace. `tren stub` prints exactly what TREN assumed, so
 you can check it, or use it as the starting point for a real declaration.
+
+When the backends fail, `tren open`, `tren elaborate`, and `tren stub` keep
+the terminal report short, but write the whole story to `tren_error.log` in
+the current directory: every line of tool output, the command that produced
+it, and the warnings from the import. Pass `--error-log PATH` to put that
+file somewhere else.
 
 ### The screen
 

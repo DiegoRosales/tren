@@ -5,11 +5,13 @@ Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s te
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -18,7 +20,11 @@ from tren.importer import (  # noqa: E402
     detect_format,
     import_manifest,
 )
-from tren.vivado import _parse_xpr_file_lists, parse_vivado  # noqa: E402
+from tren.vivado import (  # noqa: E402
+    _included_files,
+    _parse_xpr_file_lists,
+    parse_vivado,
+)
 
 
 def write_xpr(
@@ -195,6 +201,162 @@ class ParseVivadoTests(unittest.TestCase):
         (self.root / "top_root.v").write_text("module top_root; endmodule\n")
         manifest = import_manifest(self.root, root=self.root)
         self.assertIn(".", manifest.incdirs)
+
+    def test_xilinx_include_dir_added_when_env_set(self) -> None:
+        """An include missing from the filelist comes from XILINX_VIVADO."""
+        (self.root / "rtl" / "top.sv").write_text(
+            '`include "vivado_interfaces.svh"\nmodule top; endmodule\n'
+        )
+        xilinx = self.root / "xilinx" / "Vivado"
+        header = (
+            xilinx.parent
+            / "data"
+            / "rsb"
+            / "busdef"
+            / "vivado_interfaces.svh"
+        )
+        header.parent.mkdir(parents=True)
+        header.write_text("// header\n")
+        write_xpr(self.root, files=["$PPRDIR/rtl/top.sv"])
+        with mock.patch.dict(os.environ, {"XILINX_VIVADO": str(xilinx)}):
+            manifest = import_manifest(self.root, root=self.root)
+        self.assertIn(
+            os.path.relpath(header.parent, self.root), manifest.incdirs
+        )
+
+    def test_missing_xilinx_include_warns_without_env(self) -> None:
+        """Without XILINX_VIVADO the importer warns and lets slang fail."""
+        (self.root / "rtl" / "top.sv").write_text(
+            '`include "vivado_interfaces.svh"\nmodule top; endmodule\n'
+        )
+        write_xpr(self.root, files=["$PPRDIR/rtl/top.sv"])
+        warnings: list[str] = []
+        with mock.patch.dict(os.environ, {"XILINX_VIVADO": ""}):
+            manifest = import_manifest(
+                self.root, root=self.root, warnings_out=warnings
+            )
+        self.assertTrue(
+            any(
+                "vivado_interfaces.svh" in warning
+                and "XILINX_VIVADO" in warning
+                for warning in warnings
+            ),
+            warnings,
+        )
+        self.assertNotIn("xilinx", " ".join(manifest.incdirs))
+
+    def test_xilinx_include_not_found_warns(self) -> None:
+        """A set variable only helps when the include is really there."""
+        (self.root / "rtl" / "top.sv").write_text(
+            '`include "vivado_interfaces.svh"\nmodule top; endmodule\n'
+        )
+        xilinx = self.root / "xilinx" / "Vivado"
+        xilinx.mkdir(parents=True)
+        write_xpr(self.root, files=["$PPRDIR/rtl/top.sv"])
+        warnings: list[str] = []
+        with mock.patch.dict(os.environ, {"XILINX_VIVADO": str(xilinx)}):
+            import_manifest(self.root, root=self.root, warnings_out=warnings)
+        self.assertTrue(
+            any("not found under XILINX_VIVADO" in warning for warning in warnings),
+            warnings,
+        )
+
+    def test_include_in_filelist_needs_no_xilinx_dir(self) -> None:
+        """A header already in the filelist wins over the Xilinx install."""
+        (self.root / "rtl" / "vivado_interfaces.svh").write_text("// local\n")
+        (self.root / "rtl" / "top.sv").write_text(
+            '`include "vivado_interfaces.svh"\nmodule top; endmodule\n'
+        )
+        xilinx = self.root / "xilinx" / "Vivado"
+        header = (
+            xilinx.parent
+            / "data"
+            / "rsb"
+            / "busdef"
+            / "vivado_interfaces.svh"
+        )
+        header.parent.mkdir(parents=True)
+        header.write_text("// xilinx\n")
+        write_xpr(
+            self.root,
+            files=[
+                "$PPRDIR/rtl/vivado_interfaces.svh",
+                "$PPRDIR/rtl/top.sv",
+            ],
+        )
+        with mock.patch.dict(os.environ, {"XILINX_VIVADO": str(xilinx)}):
+            manifest = import_manifest(self.root, root=self.root)
+        self.assertIn("rtl", manifest.incdirs)
+        self.assertNotIn(
+            os.path.relpath(header.parent, self.root), manifest.incdirs
+        )
+
+    def test_path_qualified_xilinx_include_gets_the_resolving_dir(self) -> None:
+        """The incdir must resolve ``inc/foo.svh``, not just hold the file."""
+        (self.root / "rtl" / "top.sv").write_text(
+            '`include "inc/vivado_interfaces.svh"\nmodule top; endmodule\n'
+        )
+        xilinx = self.root / "xilinx" / "Vivado"
+        header = xilinx / "data" / "inc" / "vivado_interfaces.svh"
+        header.parent.mkdir(parents=True)
+        header.write_text("// header\n")
+        write_xpr(self.root, files=["$PPRDIR/rtl/top.sv"])
+        with mock.patch.dict(os.environ, {"XILINX_VIVADO": str(xilinx)}):
+            manifest = import_manifest(self.root, root=self.root)
+        incdir = os.path.relpath(xilinx / "data", self.root)
+        self.assertIn(incdir, manifest.incdirs)
+        self.assertTrue(
+            (self.root / incdir / "inc" / "vivado_interfaces.svh").is_file()
+        )
+
+    def test_xilinx_include_found_in_a_deep_install_dir(self) -> None:
+        """The fallback walk finds a header outside the known dirs."""
+        (self.root / "rtl" / "top.sv").write_text(
+            '`include "vivado_interfaces.svh"\nmodule top; endmodule\n'
+        )
+        xilinx = self.root / "xilinx" / "Vivado"
+        header = xilinx / "data" / "extra" / "deep" / "vivado_interfaces.svh"
+        header.parent.mkdir(parents=True)
+        header.write_text("// header\n")
+        write_xpr(self.root, files=["$PPRDIR/rtl/top.sv"])
+        with mock.patch.dict(os.environ, {"XILINX_VIVADO": str(xilinx)}):
+            manifest = import_manifest(self.root, root=self.root)
+        self.assertIn(
+            os.path.relpath(header.parent, self.root), manifest.incdirs
+        )
+
+    def test_comments_are_ignored_and_guarded_includes_do_not_warn(self) -> None:
+        """A commented include is not a directive; a guarded one may be off."""
+        (self.root / "rtl" / "top.sv").write_text(
+            '// `include "old.svh"\n'
+            '/* `include "gone.svh" */\n'
+            "`ifdef SIMULATION\n"
+            '`include "sim_only.svh"\n'
+            "`endif\n"
+            '`include "active.svh"\n'
+            "module top; endmodule\n"
+        )
+        write_xpr(self.root, files=["$PPRDIR/rtl/top.sv"])
+        warnings: list[str] = []
+        with mock.patch.dict(os.environ, {"XILINX_VIVADO": ""}):
+            import_manifest(self.root, root=self.root, warnings_out=warnings)
+        text = "\n".join(warnings)
+        self.assertNotIn("old.svh", text)
+        self.assertNotIn("gone.svh", text)
+        self.assertNotIn("sim_only.svh", text)
+        self.assertIn("active.svh", text)
+
+    def test_include_scan_keeps_a_string_that_holds_a_slash_slash(self) -> None:
+        """A ``//`` inside a string does not swallow the next include."""
+        path = self.root / "rtl" / "urls.sv"
+        path.write_text(
+            'localparam string URL = "http://example";\n'
+            '`include "after.svh"\n'
+            "module urls; endmodule\n"
+        )
+        names, unguarded = _included_files([path])
+        self.assertEqual(names, {"after.svh"})
+        self.assertEqual(unguarded, {"after.svh"})
 
     def test_manifest_from_directory_with_xpr(self) -> None:
         self.assertEqual(detect_format(self.root), "vivado")

@@ -405,6 +405,14 @@ A `.vh` or `.svh` FileSet entry adds its directory to the incdirs. It is not a
 source. A `.bd` entry is a block design, not Verilog, so the importer drops it
 with a warning. Missing FileSet files also warn.
 
+The importer scans the RTL sources for `` `include `` names. It ignores
+comments. If an include is not in the filelist and `XILINX_VIVADO` is set,
+the importer finds the header in the Vivado install and adds its directory to
+the incdirs. It resolves includes in every preprocessor branch. Without the
+variable it warns and lets slang report the missing include. It warns about a
+missing include only when the include is outside a conditional, because a
+guarded include may be inactive.
+
 The scan also reads the IP component XMLs (`<ip>.xml` or `component.xml`)
 under the project. A file in a behavioral simulation file set but not in its
 synthesis file set is a simulation model; the scan drops it. It keeps the

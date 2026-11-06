@@ -270,6 +270,7 @@ class WarningTests(unittest.TestCase):
             failure = subprocess.CalledProcessError(
                 1, ["yosys"], stderr="ERROR: bad design\n"
             )
+            log_path = root / "tren_error.log"
             with mock.patch(
                 "tren.bringup.load_config", return_value=_loaded(Config())
             ), mock.patch("tren.bringup.load_target") as load:
@@ -279,10 +280,18 @@ class WarningTests(unittest.TestCase):
                 load.side_effect = fake_load
                 err = io.StringIO()
                 with redirect_stderr(err):
-                    code = main([str(root)])
+                    code = main([
+                        str(root),
+                        "--error-log", str(log_path),
+                    ])
             self.assertEqual(code, 1)
             self.assertIn("missing include", err.getvalue())
             self.assertIn("yosys failed", err.getvalue())
+            self.assertIn("full log:", err.getvalue())
+            log = log_path.read_text(encoding="utf-8")
+            self.assertIn("ERROR: bad design", log)
+            self.assertIn("missing include", log)
+            self.assertIn("yosys", log)
 
     def test_missing_target_reports_without_a_traceback(self) -> None:
         err = io.StringIO()

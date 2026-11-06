@@ -32,6 +32,12 @@ What we read:
     model remains only when no synthesis counterpart exists. The result is
     deduped against the FileSet list. This is the card's rule of thumb:
     recorded / on-disk reality covers more ground than the vendor XML.
+    When a source includes a header the filelist does not cover, the importer
+    finds the header under ``XILINX_VIVADO`` and adds its directory to the
+    incdirs. Without the variable it warns and lets slang fail. The scan
+    ignores comments and resolves every preprocessor branch. It warns about a
+    missing include only when the include is outside a conditional, because a
+    guarded include may be inactive.
 
   - ``set top_module`` in ``settings.tcl`` / recorded ``set_property`` — used
     as the top only when the FileSet has no TopModule and the user did not
@@ -84,6 +90,10 @@ _PAIR_PREFIXES = (
     ("xilinx_verilogsynthesiswrapper", "synthesis"),
     ("xilinx_anylanguagesynthesis", "synthesis"),
     ("xilinx_anylanguagesynthesiswrapper", "synthesis"),
+)
+_INCLUDE_OR_GUARD_RE = re.compile(
+    r'`include\s+["<](?P<include>[^">\n]+)[">]'
+    r"|`(?P<guard>ifdef|ifndef|elsif|else|endif)\b"
 )
 
 _VARS = {
@@ -336,6 +346,198 @@ def _scan_verilog(project_dir: Path) -> list[Path]:
     return _prefer_synthesis(found)
 
 
+def _strip_comments(text: str) -> str:
+    """Remove ``//`` and ``/* */`` comments, keeping string literals."""
+    out: list[str] = []
+    i = 0
+    end = len(text)
+    while i < end:
+        char = text[i]
+        if char == '"':
+            out.append(char)
+            i += 1
+            while i < end:
+                char = text[i]
+                out.append(char)
+                i += 1
+                if char == "\\" and i < end:
+                    out.append(text[i])
+                    i += 1
+                elif char == '"':
+                    break
+            continue
+        if char == "/" and i + 1 < end and text[i + 1] == "/":
+            i += 2
+            while i < end and text[i] != "\n":
+                i += 1
+            continue
+        if char == "/" and i + 1 < end and text[i + 1] == "*":
+            i += 2
+            while i < end:
+                if text[i] == "*" and i + 1 < end and text[i + 1] == "/":
+                    i += 2
+                    break
+                if text[i] == "\n":
+                    out.append("\n")
+                i += 1
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
+def _included_files(sources: list[Path]) -> tuple[set[str], set[str]]:
+    """The ``include`` names used by the RTL sources.
+
+    Return ``(names, unguarded)``. ``names`` holds every include, including
+    one in a preprocessor conditional. ``unguarded`` holds only the includes
+    outside a conditional. A guarded include may be inactive, so the caller
+    does not warn about a missing one.
+    """
+    names: set[str] = set()
+    unguarded: set[str] = set()
+    for source in sources:
+        try:
+            text = _strip_comments(source.read_text(errors="replace"))
+        except OSError:
+            continue
+        depth = 0
+        for line in text.splitlines():
+            for match in _INCLUDE_OR_GUARD_RE.finditer(line):
+                include = match.group("include")
+                if include is not None:
+                    names.add(include)
+                    if depth == 0:
+                        unguarded.add(include)
+                    continue
+                guard = match.group("guard")
+                if guard in ("ifdef", "ifndef"):
+                    depth += 1
+                elif guard == "endif":
+                    depth = max(0, depth - 1)
+    return names, unguarded
+
+
+def _include_is_available(
+    include: str, incdirs: list[Path], sources: list[Path]
+) -> bool:
+    """True when the filelist or a source directory already resolves the include."""
+    if Path(include).is_absolute() and Path(include).is_file():
+        return True
+    for directory in incdirs:
+        if (Path(directory) / include).is_file():
+            return True
+    for source in sources:
+        if (source.parent / include).is_file():
+            return True
+    return False
+
+
+def _known_xilinx_incdir(include: str, vivado: Path) -> Path | None:
+    """Return a known install directory that resolves ``include``, or None."""
+    relative = Path(include)
+    if relative.is_absolute():
+        return None
+    for base in (
+        vivado,
+        vivado / "data" / "rsb" / "busdef",
+        vivado / "data",
+        vivado.parent,
+        vivado.parent / "data" / "rsb" / "busdef",
+        vivado.parent / "data",
+    ):
+        if (base / relative).is_file():
+            return base
+    return None
+
+
+def _drop_parts(path: Path, count: int) -> Path:
+    """Remove ``count`` trailing path parts."""
+    for _ in range(count):
+        path = path.parent
+    return path
+
+
+def _search_xilinx_tree(includes: list[str], vivado: Path) -> dict[str, Path]:
+    """Find the includes in one walk of the Vivado data trees.
+
+    Return a map from include name to the directory that resolves it. The
+    walk is a fallback for a header outside the known directories.
+    """
+    pending = {include: tuple(Path(include).parts) for include in includes}
+    found: dict[str, Path] = {}
+    for root in (vivado / "data", vivado.parent / "data"):
+        if not root.is_dir():
+            continue
+        for candidate in root.rglob("*"):
+            if not candidate.is_file():
+                continue
+            matched = [
+                include
+                for include, parts in pending.items()
+                if candidate.parts[-len(parts):] == parts
+            ]
+            for include in matched:
+                found[include] = _drop_parts(
+                    candidate, len(pending[include])
+                )
+                del pending[include]
+            if not pending:
+                return found
+    return found
+
+
+def _add_xilinx_incdirs(
+    sources: list[Path], incdirs: list[Path], warnings: list[str]
+) -> None:
+    """Add the Vivado install directory for an include the filelist lacks.
+
+    The generated BD SV wrapper includes ``vivado_interfaces.svh`` from the
+    Vivado install, not from the project. When ``XILINX_VIVADO`` is set, the
+    importer finds the header and adds its directory to the incdirs. Without
+    the variable it warns and lets slang report the failure. The scan resolves
+    includes in every preprocessor branch. It warns about a missing include
+    only when the include is outside a conditional, because a guarded include
+    may be inactive.
+    """
+    includes, unguarded = _included_files(sources)
+    if not includes:
+        return
+    vivado_env = os.environ.get("XILINX_VIVADO")
+    vivado = Path(vivado_env) if vivado_env else None
+    pending: list[str] = []
+    for include in sorted(includes):
+        if _include_is_available(include, incdirs, sources):
+            continue
+        if vivado is not None:
+            base = _known_xilinx_incdir(include, vivado)
+            if base is not None:
+                incdirs.append(base)
+                continue
+        pending.append(include)
+    if not pending:
+        return
+    found = _search_xilinx_tree(pending, vivado) if vivado is not None else {}
+    for include in pending:
+        base = found.get(include)
+        if base is not None:
+            incdirs.append(base)
+            continue
+        if include not in unguarded:
+            continue
+        if vivado is None:
+            warnings.append(
+                f"include '{include}' is not in the filelist; set "
+                "XILINX_VIVADO to let TREN find it in the Vivado install; "
+                "slang may fail"
+            )
+        else:
+            warnings.append(
+                f"include '{include}' is not in the filelist and was not "
+                f"found under XILINX_VIVADO ({vivado}); slang may fail"
+            )
+
+
 def _recorded_top(project_dir: Path) -> str | None:
     """top module from settings.tcl / vivado.jou if clearly spelled out."""
     for name in ("settings.tcl", "vivado.jou", "vivado.log"):
@@ -382,6 +584,7 @@ def parse_vivado(
     listed, xpr_top = _parse_xpr_file_lists(xpr, warnings, incdirs_out=incdirs)
     scanned = _scan_verilog(project_dir)
     sources = _dedupe_by_basename([*listed, *scanned])
+    _add_xilinx_incdirs(sources, incdirs, warnings)
 
     recorded = _recorded_top(project_dir)
     if len(scanned) > len(set(listed)):

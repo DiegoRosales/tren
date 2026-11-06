@@ -37,12 +37,14 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from .bits import cell_directions, unmangle
 from .cache import IrCache
@@ -1114,6 +1116,105 @@ def tool_failure_message(exc: subprocess.CalledProcessError) -> str:
     )
 
 
+def _command_text(cmd: object) -> str:
+    """One command line with shell quoting; accepts a string or argument list."""
+    if isinstance(cmd, (list, tuple)):
+        return shlex.join(str(part) for part in cmd)
+    return str(cmd)
+
+
+def _cli_command(prog: str, argv: Sequence[str] | None) -> str:
+    """The ``tren`` command line that led to the failure."""
+    if argv is None:
+        return shlex.join(str(part) for part in sys.argv)
+    return shlex.join([*prog.split(), *(str(part) for part in argv)])
+
+
+def error_log_text(
+    exc: subprocess.CalledProcessError,
+    *,
+    root: str | Path | None = None,
+    warnings: Sequence[str] = (),
+    command: str | None = None,
+) -> str:
+    """Full failure text for a log file: command, warnings and output."""
+    cmd = exc.cmd
+    tool = "backend"
+    if isinstance(cmd, (list, tuple)) and cmd:
+        tool = str(cmd[0]).split("/")[-1]
+    lines = [
+        "TREN error log",
+        f"written: {datetime.now().astimezone().isoformat(timespec='seconds')}",
+    ]
+    if command:
+        lines.append(f"command: {command}")
+    if root is not None:
+        lines.append(f"backend cwd: {Path(root).resolve()}")
+    lines.extend(
+        [
+            "",
+            f"backend: {tool}",
+            f"exit code: {exc.returncode}",
+            f"backend command: {_command_text(cmd)}",
+        ]
+    )
+    if warnings:
+        lines.extend(["", "warnings:"])
+        lines.extend(f"  {warning}" for warning in warnings)
+    stderr = (exc.stderr or "").rstrip("\n")
+    stdout = (exc.stdout or "").rstrip("\n")
+    lines.extend(["", "stderr:", stderr or "(no output)"])
+    if stdout:
+        lines.extend(["", "stdout:", stdout])
+    return "\n".join(lines) + "\n"
+
+
+def write_error_log(
+    exc: subprocess.CalledProcessError,
+    *,
+    root: str | Path | None = None,
+    warnings: Sequence[str] = (),
+    path: str | Path = "tren_error.log",
+    command: str | None = None,
+) -> Path | None:
+    """Write the full failure to ``path``. Return the path, or None on failure."""
+    target = Path(path)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            error_log_text(exc, root=root, warnings=warnings, command=command),
+            encoding="utf-8",
+        )
+    except (OSError, UnicodeError):
+        return None
+    return target.resolve()
+
+
+def report_failure(
+    exc: subprocess.CalledProcessError,
+    *,
+    root: str | Path | None = None,
+    warnings: Sequence[str] = (),
+    path: str | Path = "tren_error.log",
+    prog: str = "tren",
+    argv: Sequence[str] | None = None,
+) -> Path | None:
+    """Print the trimmed failure and write the full log. Return the log path."""
+    print(tool_failure_message(exc), file=sys.stderr)
+    log_path = write_error_log(
+        exc,
+        root=root,
+        warnings=warnings,
+        path=path,
+        command=_cli_command(prog, argv),
+    )
+    if log_path is None:
+        print("  warning: could not write the error log", file=sys.stderr)
+    else:
+        print(f"full log: {log_path}", file=sys.stderr)
+    return log_path
+
+
 def design_summary(design: Design) -> list[str]:
     """The lines ``tren elaborate`` prints after a successful build."""
     n_scopes = len(design.scopes)
@@ -1143,6 +1244,10 @@ def main(argv: list[str] | None = None) -> int:
         help="cache directory (default: the cache.dir setting)",
     )
     parser.add_argument("--refresh", action="store_true", help="rebuild even on a cache hit")
+    parser.add_argument(
+        "--error-log", type=Path, default=Path("tren_error.log"),
+        help="write the full backend failure to this file (default: tren_error.log)",
+    )
     parser.add_argument(
         "--frontend", choices=FRONTENDS, default=None,
         help=(
@@ -1195,7 +1300,14 @@ def main(argv: list[str] | None = None) -> int:
     except subprocess.CalledProcessError as exc:
         for warning in warnings:
             print(f"  warning: {warning}", file=sys.stderr)
-        print(tool_failure_message(exc), file=sys.stderr)
+        report_failure(
+            exc,
+            root=args.root,
+            warnings=warnings,
+            path=args.error_log,
+            prog="tren elaborate",
+            argv=argv,
+        )
         return 1
 
     for warning in warnings:

@@ -350,6 +350,10 @@ def main(argv: list[str] | None = None) -> int:
         "--out", type=Path, default=None,
         help="write the stub file here instead of standard output",
     )
+    parser.add_argument(
+        "--error-log", type=Path, default=Path("tren_error.log"),
+        help="write the full backend failure to this file (default: tren_error.log)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -364,9 +368,15 @@ def main(argv: list[str] | None = None) -> int:
             run_slang_ast(manifest, args.root, ast_path)
             ast = json.loads(Path(ast_path).read_text())
     except subprocess.CalledProcessError as exc:
-        from .elaborate import tool_failure_message
+        from .elaborate import report_failure
 
-        print(tool_failure_message(exc), file=sys.stderr)
+        report_failure(
+            exc,
+            root=args.root,
+            path=args.error_log,
+            prog="tren stub",
+            argv=argv,
+        )
         return 1
 
     stubs = infer(ast, args.root)

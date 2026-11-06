@@ -20,7 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .config import Config, ConfigError, load_config
-from .elaborate import IrCache, design_summary, elaborate, tool_failure_message
+from .elaborate import IrCache, design_summary, elaborate, report_failure
 from .importer import import_manifest, import_sources, parse_define, parse_param
 from .ir import Design
 from .manifest import Manifest
@@ -199,6 +199,10 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
         ),
     )
     parser.add_argument(
+        "--error-log", type=Path, default=Path("tren_error.log"),
+        help="write the full backend failure to this file (default: tren_error.log)",
+    )
+    parser.add_argument(
         "--name", default=None,
         help="design name (default: target name, or the root directory name with -f)",
     )
@@ -258,7 +262,14 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
         )
     except subprocess.CalledProcessError as exc:
         _print_warnings(warnings)
-        print(tool_failure_message(exc), file=sys.stderr)
+        report_failure(
+            exc,
+            root=args.root,
+            warnings=warnings,
+            path=args.error_log,
+            prog=prog,
+            argv=argv,
+        )
         return 1
     except (OSError, ValueError) as exc:
         _print_warnings(warnings)

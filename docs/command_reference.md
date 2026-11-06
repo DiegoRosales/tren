@@ -43,7 +43,8 @@ keys.
 ```text
 tren open [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...
                    [--root DIR] [--cache DIR] [--refresh] [--out PATH]
-                   [--name NAME] [--top TOP] [--format auto|f|vivado]
+                   [--error-log PATH] [--name NAME] [--top TOP]
+                   [--format auto|f|vivado]
 ```
 
 `<target>` is a manifest JSON, a `.f` filelist, a single `.sv` or `.v` file,
@@ -62,6 +63,7 @@ and is skipped; the command stops when every listed file is missing.
 | `--cache DIR` | `cache.dir` | IR cache directory. A relative path resolves from the current directory. |
 | `--refresh` | off | Rebuild the IR even when the cache has an entry. |
 | `--out PATH` | none | Write the imported manifest. An existing directory receives `PATH/manifest.json`. |
+| `--error-log PATH` | `tren_error.log` | On a backend failure, write the full stdout and stderr, the backend command, the TREN command, and the warnings to this file. |
 | `--name NAME` | target name, or the Vivado project name | Design name in the manifest. |
 | `--top TOP` | `top`, or the Vivado `TopModule` | Top module. |
 | `--format FORMAT` | `auto` | Importer: `auto`, `f`, or `vivado`. It does not apply with `-f`. |
@@ -124,6 +126,7 @@ The plain importer has these target rules:
 
 ```text
 tren elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
+                           [--error-log PATH]
                            [--frontend auto|verilog|slang]
 ```
 
@@ -132,6 +135,7 @@ tren elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
 | `--root DIR` | current directory | Anchor for the manifest's relative source paths. |
 | `--cache DIR` | `cache.dir` | IR cache directory. |
 | `--refresh` | off | Rebuild the IR even when the cache has an entry. |
+| `--error-log PATH` | `tren_error.log` | On a backend failure, write the full stdout and stderr, the backend command, the TREN command, and the warnings to this file. |
 | `--frontend` | the manifest's `frontend` | yosys frontend for the netlist pass. `auto` runs `read_verilog`, then `read_slang` when the design uses a construct `read_verilog` cannot parse. `verilog` and `slang` never fall back. |
 
 The command runs yosys, `slang-hier`, and `slang --ast-json`, then prints the
@@ -142,13 +146,14 @@ the intermediate steps.
 ## `tren stub`
 
 ```text
-tren stub <manifest> [--root DIR] [--out PATH]
+tren stub <manifest> [--root DIR] [--out PATH] [--error-log PATH]
 ```
 
 | Option | Default | Effect |
 |---|---|---|
 | `--root DIR` | current directory | Anchor for the manifest's relative source paths. |
 | `--out PATH` | standard output | Write the stub file here instead of standard output. |
+| `--error-log PATH` | `tren_error.log` | On a backend failure, write the full stdout and stderr, the backend command, the TREN command, and the warnings to this file. |
 
 The command reads the instantiations of modules that the source set does not
 declare, and writes one body-less `(* blackbox *)` module per missing module.
@@ -187,14 +192,19 @@ origin in `show`; the export writes only values. See
 | 1 | A backend tool failed. An uncaught importer error also exits 1. |
 | 2 | TREN rejected a command, an argument, or a configuration value. |
 
-`tren open` and `tren elaborate` print the last 40 lines of the failing
-tool's stderr, prefixed with `...` when trimmed, and the full command line.
-They do not print a Python traceback for a backend failure.
+`tren open`, `tren elaborate`, and `tren stub` print the last 40 lines of
+the failing tool's stderr, prefixed with `...` when trimmed, and the full
+command line. They do not print a Python traceback for a backend failure.
+They also write the full stdout and stderr, the backend command, the TREN
+command, and the warnings to `tren_error.log` in the current directory. Use
+`--error-log PATH` to choose another file. A failed log write prints a
+warning and does not hide the backend error.
 
 ## Environment variables
 
 | Variable | Effect |
 |---|---|
+| `XILINX_VIVADO` | Vivado install root. The Vivado importer searches it for an RTL include that the filelist does not cover. |
 | `TREN_EDITOR` | Editor command for `e` and `E`. It wins over the configuration file, `EDITOR`, and `VISUAL`. |
 | `EDITOR` | Editor command when `TREN_EDITOR` is unset. |
 | `VISUAL` | Editor command when `TREN_EDITOR` and `EDITOR` are unset. |

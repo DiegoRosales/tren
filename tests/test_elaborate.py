@@ -38,12 +38,15 @@ from tren.elaborate import (  # noqa: E402
     _type_string,
     build_design,
     elaborate,
+    error_log_text,
     main as elaborate_main,
     module_key,
     parse_hier_line,
+    report_failure,
     run_slang_ast,
     run_slang_hier,
     run_yosys,
+    write_error_log,
 )
 from tren.ir import (  # noqa: E402
     BoundaryLink,
@@ -421,6 +424,69 @@ class DiagnosticTests(unittest.TestCase):
     def test_diagnostics_handles_empty_stderr(self) -> None:
         err = subprocess.CalledProcessError(1, ["yosys"], output="oops")
         self.assertEqual(_tool_diagnostics(err), "oops")
+
+    def test_error_log_keeps_full_stderr_and_command(self) -> None:
+        err = subprocess.CalledProcessError(
+            3,
+            ["slang-hier", "--params"],
+            stderr="\n".join(f"line {i}" for i in range(100)),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "tren_error.log"
+            written = write_error_log(
+                err,
+                root=td,
+                warnings=["missing include"],
+                path=path,
+                command="tren open design.xpr",
+            )
+            self.assertEqual(written, path.resolve())
+            text = path.read_text(encoding="utf-8")
+        self.assertIn("line 0", text)
+        self.assertIn("line 99", text)
+        self.assertIn("backend: slang-hier", text)
+        self.assertIn("backend cwd:", text)
+        self.assertIn("slang-hier --params", text)
+        self.assertIn("missing include", text)
+        self.assertIn("tren open design.xpr", text)
+
+    def test_error_log_text_keeps_stdout_and_stderr(self) -> None:
+        err = subprocess.CalledProcessError(
+            1, ["yosys"], output="partial", stderr="boom"
+        )
+        text = error_log_text(err)
+        self.assertIn("backend: yosys", text)
+        self.assertIn("stderr:\nboom", text)
+        self.assertIn("stdout:\npartial", text)
+
+    def test_error_log_text_marks_empty_stderr(self) -> None:
+        err = subprocess.CalledProcessError(1, ["yosys"], output="oops")
+        text = error_log_text(err)
+        self.assertIn("stderr:\n(no output)", text)
+        self.assertIn("stdout:\noops", text)
+
+    def test_error_log_returns_none_on_write_failure(self) -> None:
+        err = subprocess.CalledProcessError(1, ["yosys"], stderr="boom")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td)
+            self.assertIsNone(write_error_log(err, path=target))
+            self.assertTrue(target.is_dir())
+
+    def test_report_failure_prints_the_log_path(self) -> None:
+        err = subprocess.CalledProcessError(1, ["yosys"], stderr="boom")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "tren_error.log"
+            err_output = io.StringIO()
+            with redirect_stderr(err_output):
+                written = report_failure(
+                    err,
+                    path=path,
+                    prog="tren open",
+                    argv=["design.xpr"],
+                )
+            self.assertEqual(written, path.resolve())
+            self.assertIn("full log:", err_output.getvalue())
+            self.assertIn("tren open design.xpr", path.read_text())
 
 
 class RunWarningTests(unittest.TestCase):
