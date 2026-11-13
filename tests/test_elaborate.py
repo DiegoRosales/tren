@@ -869,6 +869,42 @@ class AstDeclWalkTests(unittest.TestCase):
             parse_src(decls["t"]["ports"]["data"]["src"]), ("rtl/t.sv", 4, 4)
         )
 
+    def test_a_source_file_that_is_not_utf8_still_reads(self) -> None:
+        # Vivado ships IP sources with a Windows-1252 quote in a comment.
+        # The declared-default scan must not stop on that byte.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "rtl").mkdir()
+            (root / "rtl" / "t.sv").write_bytes(
+                b"module t #(parameter int W = 8); // don\x92t\nendmodule\n"
+            )
+            design = {
+                "design": {
+                    "members": [
+                        {
+                            "kind": "Instance",
+                            "name": "t",
+                            "body": {
+                                "kind": "InstanceBody",
+                                "name": "t",
+                                "members": [
+                                    {
+                                        "kind": "Parameter",
+                                        "name": "W",
+                                        "source_file": "rtl/t.sv",
+                                        "source_line": 1,
+                                        "source_column": 26,
+                                        "value": "8",
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                }
+            }
+            decls, _ = _parse_ast_decls(design, root=root)
+        self.assertEqual(decls["t"]["params"]["W"]["default"], "8")
+
 
 class BitKeyTests(unittest.TestCase):
     """Yosys JSON uses non-integer tokens for constant / don't-care bits."""

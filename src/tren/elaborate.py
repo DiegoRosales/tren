@@ -509,7 +509,9 @@ def _parse_ast_decls(
                 p = Path(file)
                 if not p.is_absolute() and root is not None:
                     p = root / file
-                src_cache[file] = p.read_text().splitlines()
+                src_cache[file] = p.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
             except OSError:
                 src_cache[file] = []
         return src_cache[file]

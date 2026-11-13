@@ -151,7 +151,9 @@ def _pattern_width(node: dict) -> int | None:
 @lru_cache(maxsize=32)
 def _source_lines(path: Path) -> tuple[str, ...] | None:
     try:
-        return tuple(path.read_text().splitlines())
+        return tuple(
+            path.read_text(encoding="utf-8", errors="replace").splitlines()
+        )
     except OSError:
         return None
 

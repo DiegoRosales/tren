@@ -12,6 +12,7 @@ Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s te
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -341,6 +342,23 @@ class GutterWidthTests(unittest.TestCase):
 
     def test_an_empty_file_still_gets_one_column(self) -> None:
         self.assertEqual(_gutter_width(0), 1)
+
+
+class SourceFileDecodeTests(unittest.TestCase):
+    """The source pane reads files that are not UTF-8.
+
+    Vivado ships IP sources with a Windows-1252 quote in a comment. A
+    decode error there must not stop the pane.
+    """
+
+    def test_a_windows_1252_byte_does_not_stop_the_pane(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "ip.v").write_bytes(b"// don\x92t edit\nwire x;\n")
+            app = TrenApp(Design(top="top"), root=root)
+            self.assertEqual(
+                app._file_lines("ip.v"), ["// don\ufffdt edit", "wire x;"]
+            )
 
 
 class SearchWindowStartTests(unittest.TestCase):

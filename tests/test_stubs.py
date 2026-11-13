@@ -176,6 +176,32 @@ class StubInferenceTests(unittest.TestCase):
             stub = infer(ast, root)["vendor_ip"]
             self.assertEqual(stub.params, ("W", "MODE"))
 
+    def test_parameter_names_survive_a_non_utf8_source(self) -> None:
+        # Vivado ships IP sources with a Windows-1252 quote in a comment.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "top.sv").write_bytes(
+                b"module top;\n"
+                b"  // don\x92t remove\n"
+                b"  vendor_ip #(\n"
+                b"    .W(8)\n"
+                b"  ) u_ip (.a());\n"
+                b"endmodule\n"
+            )
+            ast = _ast(
+                _instance(
+                    "vendor_ip",
+                    ports=[{"name": "a", "expr": {"kind": "EmptyArgument", "type": {"kind": "VoidType"}}}],
+                    params=[{"kind": "Invalid"}],
+                )
+            )
+            node = ast["design"]["members"][0]
+            node["source_file"] = str(root / "top.sv")
+            node["source_line"] = 5
+            node["source_column"] = 5  # 'u_ip' on line 5
+            stub = infer(ast, root)["vendor_ip"]
+            self.assertEqual(stub.params, ("W",))
+
     def test_parameter_names_allow_whitespace_before_the_paren(self) -> None:
         # '#' and '(' may be separated by whitespace in SystemVerilog.
         with tempfile.TemporaryDirectory() as td:

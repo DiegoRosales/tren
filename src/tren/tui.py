@@ -1195,7 +1195,9 @@ class TrenApp(App[None]):
             if not p.is_absolute():
                 p = self.root / file
             try:
-                self._file_cache[file] = p.read_text().splitlines()
+                self._file_cache[file] = p.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
             except OSError:
                 self._file_cache[file] = []
         return self._file_cache[file]
