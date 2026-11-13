@@ -5,19 +5,22 @@ emits the design manifest (sources / top) the elaborator consumes.
 
 What we read:
 
-  - ``project.xpr`` — the XML project. Useful bits:
-      * ``<FileSet Type="DesignSrcs">`` ``<File Path=...>`` — the design
+  - the ``.xpr`` XML project. Vivado names it after the project
+    (``foo.xpr``); a generated project is called ``project.xpr``. Useful
+    bits:
+      * ``<FileSet Type="DesignSrcs">`` ``<File Path=...>`` -- the design
         sources (Vivado quotes every added file),
-      * ``<Config><Option Name="TopModule">`` in that FileSet — the
+      * ``<Config><Option Name="TopModule">`` in that FileSet -- the
         synthesis top,
       * the ``$PRUNDIR/$PPRDIR/$PSRCDIR/$PGENDIR/$PCACHEDIR/
-        $PIPUSERFILESDIR`` variable scheme, which we resolve against the
-        project directory (Vivado's own conventional layout).
-    Block-design ``.bd`` entries are not Verilog — dropped with a warning.
+        $PIPUSERFILESDIR`` variable scheme. Vivado names each directory
+        after the project (``foo.xpr`` owns ``foo.srcs``), so the importer
+        resolves the variables against the ``.xpr`` stem.
+    Block-design ``.bd`` entries are not Verilog -- dropped with a warning.
     Runs, options and XPM libraries are not our concern; unknown entries are
     ignored (degrade gracefully with warnings).
 
-  - ``vivado.jou`` — the recorded command line. Batch-generated projects
+  - ``vivado.jou`` -- the recorded command line. Batch-generated projects
     (e.g. a Vitis HLS export, `impl/verilog/`) record only
     ``source run_<tool>.tcl``; the *actual* RTL is the HLS-generated module
     set sitting next to the ``.xpr`` and is NOT in the FileSets (the FileSet
@@ -39,7 +42,7 @@ What we read:
     missing include only when the include is outside a conditional, because a
     guarded include may be inactive.
 
-  - ``set top_module`` in ``settings.tcl`` / recorded ``set_property`` — used
+  - ``set top_module`` in ``settings.tcl`` / recorded ``set_property`` -- used
     as the top only when the FileSet has no TopModule and the user did not
     pass ``--top``.
 
@@ -96,13 +99,12 @@ _INCLUDE_OR_GUARD_RE = re.compile(
     r"|`(?P<guard>ifdef|ifndef|elsif|else|endif)\b"
 )
 
-_VARS = {
-    "$PRUNDIR": "project.runs",
-    "$PPRDIR": ".",
-    "$PSRCDIR": "project.srcs",
-    "$PGENDIR": "project.gen",
-    "$PCACHEDIR": "project.cache",
-    "$PIPUSERFILESDIR": "project.ip_user_files",
+_PROJECT_DIR_SUFFIXES = {
+    "$PSRCDIR": ".srcs",
+    "$PGENDIR": ".gen",
+    "$PRUNDIR": ".runs",
+    "$PCACHEDIR": ".cache",
+    "$PIPUSERFILESDIR": ".ip_user_files",
 }
 
 
@@ -119,14 +121,74 @@ def _project_dir(xpr: Path) -> Path:
     return xpr.resolve().parent
 
 
-def _resolve(path: str, project_dir: Path) -> Path:
-    """Expand Vivado's $VAR scheme against the project directory."""
-    for var, rel in _VARS.items():
+def find_project_xpr(
+    target: Path, warnings_out: list[str] | None = None
+) -> Path | None:
+    """The project file a target names, or None.
+
+    A file target is itself when it has the ``.xpr`` suffix. A directory
+    target with one ``.xpr`` file uses it. With more than one, the importer
+    uses ``project.xpr`` first, then ``<dir name>.xpr``, and reports the
+    candidates. An ambiguous directory is an error: pass one file directly.
+    """
+    if target.is_file():
+        return target if target.suffix.lower() == ".xpr" else None
+    if not target.is_dir():
+        return None
+    candidates = sorted(p for p in target.glob("*.xpr") if p.is_file())
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    chosen = next(
+        (
+            p
+            for p in (target / "project.xpr", target / f"{target.name}.xpr")
+            if p in candidates
+        ),
+        None,
+    )
+    names = ", ".join(p.name for p in candidates)
+    if chosen is None:
+        raise ValueError(
+            f"multiple .xpr files under {target}: {names}; pass one explicitly"
+        )
+    if warnings_out is not None:
+        warnings_out.append(
+            f"multiple .xpr files under {target}: {names}; using {chosen.name}"
+        )
+    return chosen
+
+
+def _project_vars(project_dir: Path, xpr: Path) -> dict[str, Path]:
+    """Resolve Vivado's ``$PxxxDIR`` variables for one project.
+
+    Vivado names each directory after the project: ``foo.xpr`` owns
+    ``foo.srcs``, ``foo.gen`` and the rest. A renamed ``.xpr`` keeps the
+    directory names it was created with, so fall back to the only directory
+    that carries the suffix when the stem-named one is absent.
+    """
+    variables = {"$PPRDIR": project_dir}
+    for var, suffix in _PROJECT_DIR_SUFFIXES.items():
+        base = project_dir / f"{xpr.stem}{suffix}"
+        if not base.is_dir():
+            matches = sorted(
+                p for p in project_dir.glob(f"*{suffix}") if p.is_dir()
+            )
+            if len(matches) == 1:
+                base = matches[0]
+        variables[var] = base
+    return variables
+
+
+def _resolve(path: str, variables: dict[str, Path]) -> Path:
+    """Expand Vivado's $VAR scheme for one project."""
+    for var, base in variables.items():
         if path.startswith(var):
             tail = path[len(var) :].lstrip("/\\")
-            return project_dir / rel / tail
+            return base / tail if tail else base
     p = Path(path)
-    return p if p.is_absolute() else project_dir / p
+    return p if p.is_absolute() else variables["$PPRDIR"] / p
 
 
 def _parse_xpr_file_lists(
@@ -142,9 +204,12 @@ def _parse_xpr_file_lists(
     try:
         root = ET.parse(xpr).getroot()
     except ET.ParseError as exc:
-        raise ValueError(f"not a parseable Vivado project.xpr: {exc}") from exc
+        raise ValueError(
+            f"not a parseable Vivado project file: {xpr}: {exc}"
+        ) from exc
 
     project_dir = _project_dir(xpr)
+    variables = _project_vars(project_dir, xpr)
     sources: list[Path] = []
     top: str | None = None
     for fileset in root.iter("FileSet"):
@@ -159,7 +224,7 @@ def _parse_xpr_file_lists(
             raw = (f.get("Path") or "").strip()
             if not raw:
                 continue
-            resolved = _resolve(raw, project_dir)
+            resolved = _resolve(raw, variables)
             if resolved.suffix.lower() in _HEADER_SUFFIXES:
                 if incdirs_out is not None:
                     incdirs_out.append(resolved.parent)
@@ -571,13 +636,16 @@ def parse_vivado(
     name: str | None = None,
     top: str | None = None,
 ) -> VivadoProject:
-    """Parse a Vivado workspace (dir containing project.xpr, or the .xpr)."""
+    """Parse a Vivado workspace (a dir holding an .xpr, or the .xpr)."""
     target = Path(target)
-    xpr = target if target.suffix == ".xpr" else target / "project.xpr"
-    if not xpr.is_file():
-        raise FileNotFoundError(f"no Vivado project.xpr under {target}")
-
     warnings: list[str] = []
+    xpr = find_project_xpr(target, warnings)
+    if xpr is None:
+        raise FileNotFoundError(
+            f"no Vivado project .xpr under {target} "
+            "(expected project.xpr or <dir name>.xpr)"
+        )
+
     incdirs: list[Path] = []
     project_dir = _project_dir(xpr)
 

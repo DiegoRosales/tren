@@ -377,29 +377,37 @@ nothing invented in a trace.
 
 ## Use a Vivado project
 
-The Vivado importer reads the `project.xpr` FileSets and the `TopModule`
-option. It also scans the project directory for `*.v` and `*.sv` files,
-because a batch or HLS project can carry its RTL outside the FileSet list.
+The Vivado importer reads the `.xpr` FileSets and the `TopModule` option. It
+also scans the project directory for `*.v` and `*.sv` files, because a batch
+or HLS project can carry its RTL outside the FileSet list.
 
 ```sh
 tren open docs/examples/vivado/project.xpr
 tren open docs/examples/vivado
 ```
 
-Both forms select the Vivado importer. The second form uses the
-`project.xpr` inside the directory. Neither form needs `--top`, because the
+Both forms select the Vivado importer. The second form finds the `.xpr`
+inside the directory. With more than one `.xpr` file it uses `project.xpr`
+first, then `<dir name>.xpr`, and reports the candidates. Pass the `.xpr`
+file directly to choose another one. Neither form needs `--top`, because the
 project records `alu_top` in its `TopModule`.
 
-The importer understands the Vivado path variables:
+The importer understands the Vivado path variables. Vivado names each
+directory after the project, so `<project>` is the `.xpr` stem:
 
 | Variable | Directory under the project |
 |---|---|
 | `$PPRDIR` | `.` |
-| `$PSRCDIR` | `project.srcs` |
-| `$PGENDIR` | `project.gen` |
-| `$PRUNDIR` | `project.runs` |
-| `$PCACHEDIR` | `project.cache` |
-| `$PIPUSERFILESDIR` | `project.ip_user_files` |
+| `$PSRCDIR` | `<project>.srcs` |
+| `$PGENDIR` | `<project>.gen` |
+| `$PRUNDIR` | `<project>.runs` |
+| `$PCACHEDIR` | `<project>.cache` |
+| `$PIPUSERFILESDIR` | `<project>.ip_user_files` |
+
+A generated project is called `project.xpr`, so its directories are
+`project.srcs` and the rest. A renamed `.xpr` keeps the directory names it
+was created with; the importer falls back to the only directory with the
+suffix when the stem-named one is absent.
 
 A `.vh` or `.svh` FileSet entry adds its directory to the incdirs. It is not a
 source. A `.bd` entry is a block design, not Verilog, so the importer drops it

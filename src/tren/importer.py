@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 
 from .manifest import Manifest
-from .vivado import parse_vivado, to_manifest_layout
+from .vivado import find_project_xpr, parse_vivado, to_manifest_layout
 
 _SOURCE_SUFFIXES = (".sv", ".v")
 _FORMATS = ("auto", "f", "vivado")
@@ -66,10 +66,7 @@ IMPORT_SLANG_FLAGS: tuple[str, ...] = (
 
 def detect_format(target: str | Path) -> str:
     """Pick an importer for a target: Vivado .xpr, else the plain filelist."""
-    target = Path(target)
-    if target.is_dir() and (target / "project.xpr").is_file():
-        return "vivado"
-    if target.is_file() and target.suffix == ".xpr":
+    if find_project_xpr(Path(target)) is not None:
         return "vivado"
     return "f"
 
@@ -347,8 +344,9 @@ def import_manifest(
 
     ``root`` (default: the invocation cwd) is the anchor every stored path is
     relative to -- the same anchor the elaborator resolves against. ``fmt``
-    selects the importer: ``auto`` detects a Vivado ``project.xpr``,
-    otherwise the plain filelist/dir importer is used. ``defines`` and
+    selects the importer: ``auto`` detects a Vivado ``.xpr``
+    (``project.xpr`` or ``<dir name>.xpr``), otherwise the plain
+    filelist/dir importer is used. ``defines`` and
     ``params`` are preprocessor defines and top-level parameter overrides;
     a CLI value wins over a filelist value.
     """
@@ -495,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--format", choices=_FORMATS, default="auto",
-        help="importer: auto detects a Vivado project.xpr, else plain filelist "
+        help="importer: auto detects a Vivado .xpr, else plain filelist "
         "(default: auto)",
     )
     args = parser.parse_args(argv)

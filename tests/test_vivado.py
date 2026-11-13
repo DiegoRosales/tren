@@ -154,6 +154,38 @@ class ParseXprTests(unittest.TestCase):
         sources, _ = _parse_xpr_file_lists(xpr, warnings)
         self.assertEqual(len(sources), 2)
 
+    def test_psrcdir_follows_the_project_name(self) -> None:
+        """A normal project owns ``<name>.srcs``, not ``project.srcs``."""
+        src = self.root / "demo.srcs" / "sources_1" / "new"
+        src.mkdir(parents=True)
+        (src / "core.v").write_text("module core; endmodule\n")
+        xpr = write_xpr(
+            self.root, files=["$PSRCDIR/sources_1/new/core.v"]
+        ).rename(self.root / "demo.xpr")
+        warnings: list[str] = []
+        sources, _ = _parse_xpr_file_lists(xpr, warnings)
+        self.assertEqual(
+            [p.resolve() for p in sources],
+            [(src / "core.v").resolve()],
+        )
+        self.assertEqual(warnings, [])
+
+    def test_psrcdir_falls_back_to_a_renamed_srcs_dir(self) -> None:
+        """A renamed .xpr keeps the directory names it was created with."""
+        src = self.root / "old.srcs" / "sources_1"
+        src.mkdir(parents=True)
+        (src / "core.v").write_text("module core; endmodule\n")
+        xpr = write_xpr(
+            self.root, files=["$PSRCDIR/sources_1/core.v"]
+        ).rename(self.root / "demo.xpr")
+        warnings: list[str] = []
+        sources, _ = _parse_xpr_file_lists(xpr, warnings)
+        self.assertEqual(
+            [p.resolve() for p in sources],
+            [(src / "core.v").resolve()],
+        )
+        self.assertEqual(warnings, [])
+
 
 class ParseVivadoTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -383,6 +415,80 @@ class ParseVivadoTests(unittest.TestCase):
         self.assertEqual(manifest.top, "bd_0_wrapper")
         self.assertIn("rtl/core.v", manifest.sources)
 
+    def test_directory_with_named_xpr(self) -> None:
+        """Vivado names the project file after the project."""
+        xpr = write_xpr(self.root, files=["$PPRDIR/rtl/core.v"])
+        xpr.rename(self.root / "demo.xpr")
+        self.assertEqual(detect_format(self.root), "vivado")
+        manifest = import_manifest(self.root, root=self.root)
+        self.assertEqual(manifest.top, "bd_0_wrapper")
+        self.assertIn("rtl/core.v", manifest.sources)
+
+    def _named_project(self, name: str) -> Path:
+        project = self.root / name
+        (project / "rtl").mkdir(parents=True)
+        (project / "rtl" / "core.v").write_text("module core; endmodule\n")
+        return project
+
+    def test_multiple_xpr_prefers_project_xpr(self) -> None:
+        """With several .xpr files, project.xpr is the first choice."""
+        project = self._named_project("demo")
+        text = write_xpr(
+            project, files=["$PPRDIR/rtl/core.v"]
+        ).read_text()
+        (project / "demo.xpr").write_text(text)
+        proj = parse_vivado(project)
+        message = "\n".join(proj.warnings)
+        self.assertIn("project.xpr", message)
+        self.assertIn("demo.xpr", message)
+        self.assertIn("using project.xpr", message)
+
+    def test_multiple_xpr_prefers_the_dir_named_file(self) -> None:
+        """Without project.xpr, the directory-named file wins."""
+        project = self._named_project("demo")
+        xpr = write_xpr(project, files=["$PPRDIR/rtl/core.v"])
+        text = xpr.read_text()
+        xpr.unlink()
+        (project / "demo.xpr").write_text(text)
+        (project / "other.xpr").write_text(text)
+        proj = parse_vivado(project)
+        message = "\n".join(proj.warnings)
+        self.assertIn("demo.xpr", message)
+        self.assertIn("other.xpr", message)
+        self.assertIn("using demo.xpr", message)
+
+    def test_multiple_xpr_without_a_preferred_name_raises(self) -> None:
+        """An ambiguous directory names the options and asks for one."""
+        project = self._named_project("demo")
+        text = write_xpr(
+            project, files=["$PPRDIR/rtl/core.v"]
+        ).read_text()
+        (project / "alpha.xpr").write_text(text)
+        (project / "beta.xpr").write_text(text)
+        (project / "project.xpr").unlink()
+        with self.assertRaises(ValueError) as ctx:
+            import_manifest(project, root=self.root)
+        message = str(ctx.exception)
+        self.assertIn("alpha.xpr", message)
+        self.assertIn("beta.xpr", message)
+        self.assertIn("pass one explicitly", message)
+
+    def test_direct_xpr_file_bypasses_the_choice(self) -> None:
+        """A named .xpr file needs no ambiguity handling."""
+        project = self._named_project("demo")
+        text = write_xpr(
+            project, files=["$PPRDIR/rtl/core.v"]
+        ).read_text()
+        (project / "demo.xpr").write_text(text)
+        other = project / "other.xpr"
+        other.write_text(text)
+        warnings: list[str] = []
+        manifest = import_manifest(
+            other, root=self.root, warnings_out=warnings
+        )
+        self.assertEqual(manifest.sources, ("demo/rtl/core.v",))
+        self.assertFalse(any(".xpr" in w for w in warnings), warnings)
+
     def test_manifest_carries_slang_tolerance_flags(self) -> None:
         """A Vivado import is openable: Vivado-legal constructs that slang
         rejects by default stay accepted without a hand-written manifest."""
@@ -443,7 +549,7 @@ class ParseVivadoTests(unittest.TestCase):
         (self.root / "fft_wrapper_glue.vh").write_text("/* include-only */\n")
         manifest = import_manifest(self.root, root=self.root)
         self.assertIn("fft_wrapper.v", manifest.sources)
-        # .vh are `include`-files pulled in by their parent .v — never
+        # .vh are `include`-files pulled in by their parent .v -- never
         # standalone compile units (Vitis HLS ships them next to the RTL)
         self.assertNotIn("fft_wrapper_glue.vh", manifest.sources)
 

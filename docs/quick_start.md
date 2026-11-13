@@ -76,7 +76,8 @@ The `.xpr` suffix selects the Vivado importer. The importer reads the
 as the top module, so the command does not need `--top`. The project has two
 sources under `project.srcs/sources_1/new/`.
 
-A directory that contains `project.xpr` works too:
+A directory that contains an `.xpr` works too. If it holds more than one,
+the importer uses `project.xpr` first, then `<dir name>.xpr`:
 
 ```sh
 tren open docs/examples/vivado

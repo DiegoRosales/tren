@@ -235,7 +235,8 @@ hand-made fixtures:
   1763 boundaries) elaborate end-to-end with no Xilinx install;
 - the Vivado import was validated against the reference Vitis HLS 2025.2
   workspace (`project.xpr` -> 50-source manifest, `.vh` include-files
-  excluded, `ipshared` duplicates collapsed).
+  excluded, `ipshared` duplicates collapsed), and against a normal Vivado
+  workspace (`<name>.xpr` -> `<name>.srcs` FileSet paths resolved).
 
 These reference workspaces live outside CI, so layer 6 is a manual gate
 documented in the Makefile; the HLS workload is also what surfaced the yosys

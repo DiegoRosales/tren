@@ -119,8 +119,9 @@ The plain importer has these target rules:
 - A directory with one `.f` file uses that filelist. A directory with more
   than one `.f` file stops with an error.
 - A directory without a `.f` file is scanned for `*.sv` and `*.v` files.
-- A directory that contains `project.xpr`, or a `.xpr` file, selects the
-  Vivado importer.
+- A directory that contains an `.xpr` file, or a target that is an `.xpr`
+  file, selects the Vivado importer. With more than one `.xpr` file, the
+  importer uses `project.xpr` first, then `<dir name>.xpr`.
 
 ## `tren elaborate`
 
