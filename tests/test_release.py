@@ -123,10 +123,10 @@ class VersionTests(unittest.TestCase):
             ):
                 with mock.patch(
                     "tren.__main__._tool_lines",
-                    side_effect=[
-                        ["yosys: Yosys test (/bin/yosys)"],
-                        ["slang: slang version test (/bin/slang)"],
-                    ],
+                    return_value=["yosys: Yosys test (/bin/yosys)"],
+                ), mock.patch(
+                    "tren.__main__._slang_lines",
+                    return_value=["slang: slang version test (/bin/slang)"],
                 ):
                     with redirect_stdout(out):
                         code = cli.main(["--version-debug"])
@@ -168,6 +168,36 @@ class VersionTests(unittest.TestCase):
         self.assertIn("warning: slang not found on PATH", text)
         self.assertIn("yosys: not found", text)
         self.assertIn("slang: not found", text)
+
+    def test_version_debug_warns_about_shader_slang(self) -> None:
+        out = io.StringIO()
+        warning = (
+            "slang at /nix/store/x-shader-slang/bin/slang is the Shader "
+            "Slang compiler, not the SystemVerilog slang TREN needs"
+        )
+        with mock.patch(
+            "tren.__main__._source_root", return_value=None
+        ), mock.patch(
+            "tren.__main__._installed_version", return_value="test-1.0"
+        ), mock.patch(
+            "tren.__main__.slang_path",
+            return_value=Path("/nix/store/x-shader-slang/bin/slang"),
+        ), mock.patch(
+            "tren.__main__.slang_warning", return_value=warning
+        ), mock.patch(
+            "tren.__main__._tool_lines",
+            return_value=["yosys: Yosys test (/bin/yosys)"],
+        ):
+            with redirect_stdout(out):
+                code = cli.main(["--version-debug"])
+        text = out.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn(f"warning: {warning}", text)
+        self.assertIn(
+            "slang: not SystemVerilog slang "
+            "(/nix/store/x-shader-slang/bin/slang)",
+            text,
+        )
 
     def test_version_debug_reports_a_dirty_source_tree(self) -> None:
         out = io.StringIO()

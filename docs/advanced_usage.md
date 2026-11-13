@@ -350,7 +350,10 @@ tren elaborate tests/sv/sv_constructs.manifest.json
 `read_slang` keeps the hierarchy only with `--keep-hierarchy`, which the
 elaborator passes. It names each module after its instance path, so the IR
 join uses the path, and the scope tree looks the same as for a
-`read_verilog` design.
+`read_verilog` design. The elaborator also passes `--ignore-timing` and
+`--ignore-initial`. Vivado IP ships simulation models with delays and
+initial blocks, and sv-elab rejects both by default. TREN reads structure,
+so it drops them.
 
 sv-elab also stops at an instantiated module that has no declaration, and the
 option that used to tolerate one is retired upstream. TREN does not stop with

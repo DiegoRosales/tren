@@ -380,6 +380,13 @@ def _stub(args: Any, argv: list[str] | None) -> int:
         return 2
     log.note(f"manifest: {args.manifest}")
 
+    from .tools import slang_warning
+
+    warning = slang_warning()
+    if warning is not None:
+        print(f"  warning: {warning}", file=sys.stderr)
+        log.note(f"warning: {warning}")
+
     try:
         with tempfile.TemporaryDirectory(prefix="tren-stub-") as td:
             ast_path = str(Path(td) / "ast.json")
@@ -394,6 +401,10 @@ def _stub(args: Any, argv: list[str] | None) -> int:
             argv=argv,
         )
         return 1
+    except OSError as exc:
+        print(f"tren: {exc}", file=sys.stderr)
+        log.note(f"error: {exc}")
+        return 2
 
     stubs = infer(ast, args.root)
     if not stubs:

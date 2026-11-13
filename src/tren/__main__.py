@@ -53,6 +53,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .tools import slang_path, slang_warning
 
 _SOURCE_PACKAGE = Path("src") / "tren"
 
@@ -139,6 +140,18 @@ def _tool_lines(name: str, version_flag: str) -> list[str]:
     return [f"{name}: {version} ({path})"]
 
 
+def _slang_lines() -> list[str]:
+    """The slang line, or a warning when the wrong program owns the name."""
+    path = slang_path()
+    warning = slang_warning(path)
+    if warning is not None:
+        return [
+            f"warning: {warning}",
+            f"slang: not SystemVerilog slang ({path})",
+        ]
+    return _tool_lines("slang", "--version")
+
+
 def _version_line(sha: str | None) -> str:
     details = [f"Python {platform.python_version()}"]
     if sha:
@@ -171,7 +184,7 @@ def _version_debug() -> str:
     lines.append(f"textual: {_installed_version('textual')}")
     lines.append(f"rich: {_installed_version('rich')}")
     lines.extend(_tool_lines("yosys", "-V"))
-    lines.extend(_tool_lines("slang", "--version"))
+    lines.extend(_slang_lines())
 
     from .config import discover_files
 

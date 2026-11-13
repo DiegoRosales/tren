@@ -61,19 +61,24 @@
       # tren reaches the interpreter, never in what it depends on.
       pyproject = pyproject-nix.lib.project.loadPyproject { projectRoot = ./.; };
 
-      # tren built as a store path, dependencies resolved the nix way. The
-      # console scripts get yosys and slang on PATH, so `nix run` and
-      # `nix shell` work without entering a dev shell.
+      # tren built as a store path, dependencies resolved the nix way.
+      # `backends` is the list of tools the console script puts on PATH.
+      # `.#tren` passes none, so a caller can supply its own yosys and
+      # slang (for example from another flake). `.#tren-yosys` passes the
+      # nixpkgs pair and works without a dev shell.
       trenPackage =
-        pkgs:
+        pkgs: backends:
         pkgs.python3.pkgs.buildPythonPackage (
           (pyproject.renderers.buildPythonPackage { python = pkgs.python3; })
-          // {
+          // pkgs.lib.optionalAttrs (backends != []) {
+            # Keep the packaged backends as a fallback, after PATH. A caller
+            # that puts another yosys or slang on PATH must win; a wrapper
+            # that prepends would shadow it with the nixpkgs build.
             makeWrapperArgs = [
-              "--prefix"
+              "--suffix"
               "PATH"
               ":"
-              (pkgs.lib.makeBinPath [ pkgs.yosys pkgs.sv-lang ])
+              (pkgs.lib.makeBinPath backends)
             ];
           }
         );
@@ -87,7 +92,7 @@
         pkgs.python3.withPackages (
           pyproject.renderers.withPackages {
             python = pkgs.python3;
-            extraPackages = _ps: [ (trenPackage pkgs) ];
+            extraPackages = _ps: [ (trenPackage pkgs []) ];
           }
         );
 
@@ -159,8 +164,12 @@
     in
     {
       # `nix build` / `nix run .#tren` - the same store path .#tren shells in.
+      # `.#tren` carries no backends; put yosys and slang on PATH yourself.
+      # `.#tren-yosys` carries the nixpkgs pair, and `default` points at it
+      # so the README `nix run` one-liner works on a bare machine.
       packages = forAllSystems (pkgs: rec {
-        tren = trenPackage pkgs;
+        tren = trenPackage pkgs [];
+        tren-yosys = trenPackage pkgs [ pkgs.yosys pkgs.sv-lang ];
         default = tren;
       });
 

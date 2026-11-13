@@ -274,6 +274,10 @@ class FrontendSelectionTests(unittest.TestCase):
         script = scripts[1]
         self.assertIn("--keep-hierarchy", script)
         self.assertIn("--empty-blackboxes", script)
+        # TREN reads structure: Vivado simulation models carry delays and
+        # initial blocks, and sv-elab rejects both by default.
+        self.assertIn("--ignore-timing", script)
+        self.assertIn("--ignore-initial", script)
         # sv-elab hard-errors on this flag; it must not reach read_slang
         self.assertNotIn("--ignore-unknown-modules", script)
         # a read_verilog-only flag must not reach it either
@@ -522,6 +526,20 @@ class RunWarningTests(unittest.TestCase):
     def test_error_exit_is_failure(self) -> None:
         with self.assertRaises(subprocess.CalledProcessError):
             self._run_with(3, "demo.sv:1: error: bad\n")
+
+
+class SlangCheckWarningTests(unittest.TestCase):
+    def test_elaborate_warns_before_it_runs_a_backend(self) -> None:
+        manifest = Manifest(sources=("tests/rtl/demo.sv",), top="top")
+        warnings: list[str] = []
+        with mock.patch(
+            "tren.elaborate.slang_warning", return_value="wrong slang"
+        ), mock.patch(
+            "tren.elaborate.run_slang_hier", side_effect=OSError("missing")
+        ):
+            with self.assertRaises(OSError):
+                elaborate(manifest, REPO, cache=None, warnings_out=warnings)
+        self.assertEqual(warnings, ["wrong slang"])
 
 
 class BuildDesignUnitTests(unittest.TestCase):

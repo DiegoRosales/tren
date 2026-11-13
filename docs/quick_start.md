@@ -6,7 +6,9 @@ and the module I/O. This page opens three of the small designs under
 
 ## Requirements
 
-TREN needs Python 3.11 or newer, `yosys` 0.70 and `slang` 12.0 on `PATH`.
+TREN needs Python 3.11 or newer, `yosys` 0.70 and MikePopoloski's
+SystemVerilog `slang` 12.0 on `PATH`. Other programs also carry the name
+`slang`; `tren --version-debug` warns when `PATH` resolves the wrong one.
 The [README](../README.md) lists the supported install methods. Check that
 the command is available:
 

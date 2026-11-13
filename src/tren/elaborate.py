@@ -65,6 +65,7 @@ from .ir import (
 )
 from .manifest import FRONTENDS, Manifest
 from .stubs import Stub, infer as infer_stubs, render as render_stubs, summary as stub_summary
+from .tools import slang_warning
 
 # --------------------------------------------------------------------------
 # CLI wrappers
@@ -190,10 +191,21 @@ def _slang_read_args(manifest: Manifest, read_flags: tuple[str, ...]) -> list[st
     instance. The two together give the same scope shape ``read_verilog``
     gives, with module names spelled ``<module>$<instance path>``.
 
+    TREN reads structure, not a synthesis result. Vivado IP ships simulation
+    models with delays and initial blocks, and sv-elab rejects both unless
+    told to ignore them. ``--ignore-timing`` drops the delays.
+    ``--ignore-initial`` drops the initial blocks, which also removes
+    simulation-only system tasks such as ``$value$plusargs``.
+
     The caller appends the stub file and the manifest sources, so every
     option stays ahead of every file name.
     """
-    args = ["--keep-hierarchy", "--empty-blackboxes"]
+    args = [
+        "--keep-hierarchy",
+        "--empty-blackboxes",
+        "--ignore-timing",
+        "--ignore-initial",
+    ]
     for flag in read_flags:
         if flag not in _SLANG_READ_UNSUPPORTED:
             args.append(flag)
@@ -1081,6 +1093,9 @@ def elaborate(
     warnings_out: list[str] | None = None,
 ) -> Design:
     root = Path(root)
+    warning = slang_warning()
+    if warning is not None and warnings_out is not None:
+        warnings_out.append(warning)
     if cache is not None and not refresh:
         hit = cache.get(manifest)
         if hit is not None:
@@ -1343,6 +1358,14 @@ def _elaborate(args: argparse.Namespace, argv: list[str] | None) -> int:
             argv=argv,
         )
         return 1
+    except OSError as exc:
+        # A missing backend (for example slang-hier beside a slang that is
+        # not the SystemVerilog one) must not lose the warnings that explain
+        # why.
+        _report_warnings(warnings)
+        print(f"tren: {exc}", file=sys.stderr)
+        log.note(f"error: {exc}")
+        return 2
 
     _report_warnings(warnings)
     for line in design_summary(design):

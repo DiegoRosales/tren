@@ -32,7 +32,9 @@ Use these options as the first argument. They do not open the TUI.
 | `--debug-config-origins` | Print only the values that a TOML file set, grouped by file, and exit 0. |
 
 `--version-debug` reports the yosys and slang versions and paths from `PATH`.
-It prints a warning when either tool is missing.
+It prints a warning when either tool is missing, and when `slang` is not the
+SystemVerilog compiler (for example the Shader Slang program that kitty puts
+on `PATH`). Elaboration prints the same warning before it runs a backend.
 
 `--version-debug` does not read the configuration files. Use `--debug-config`
 for the values. See [Configuration](configuration.md) for the configuration
