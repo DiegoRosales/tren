@@ -116,8 +116,9 @@ you can check it, or use it as the starting point for a real declaration.
 When the backends fail, `tren open`, `tren elaborate`, and `tren stub` keep
 the terminal report short, but write the whole story to `tren_error.log` in
 the current directory: every line of tool output, the command that produced
-it, and the warnings from the import. Pass `--error-log PATH` to put that
-file somewhere else.
+it, and the warnings from the import. The command they show you is quoted
+the way a shell wants it, so you can copy it straight back into the terminal.
+Pass `--error-log PATH` to put that file somewhere else.
 
 ### The screen
 

@@ -195,7 +195,8 @@ origin in `show`; the export writes only values. See
 
 `tren open`, `tren elaborate`, and `tren stub` print the last 40 lines of
 the failing tool's stderr, prefixed with `...` when trimmed, and the full
-command line. They do not print a Python traceback for a backend failure.
+command line. The command line is shell-quoted, so the user can paste it and
+run it again. They do not print a Python traceback for a backend failure.
 They also write the full stdout and stderr, the backend command, the TREN
 command, and the warnings to `tren_error.log` in the current directory. Use
 `--error-log PATH` to choose another file. A failed log write prints a

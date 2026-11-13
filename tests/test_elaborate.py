@@ -9,6 +9,7 @@ Run:  nix develop . -c bash -c "PYTHONPATH=src python -m unittest discover -s te
 from __future__ import annotations
 
 import io
+import shlex
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,7 @@ from tren.elaborate import (  # noqa: E402
     run_slang_ast,
     run_slang_hier,
     run_yosys,
+    tool_failure_message,
     write_error_log,
 )
 from tren.ir import (  # noqa: E402
@@ -424,6 +426,17 @@ class DiagnosticTests(unittest.TestCase):
     def test_diagnostics_handles_empty_stderr(self) -> None:
         err = subprocess.CalledProcessError(1, ["yosys"], output="oops")
         self.assertEqual(_tool_diagnostics(err), "oops")
+
+    def test_failure_message_quotes_the_yosys_script(self) -> None:
+        script = "read_verilog -sv a.sv; hierarchy -top top; proc; write_json n.json"
+        err = subprocess.CalledProcessError(
+            1, ["yosys", "-Q", "-p", script], stderr="syntax error"
+        )
+        message = tool_failure_message(err)
+        command = message.split("full command: ", 1)[1]
+        self.assertEqual(shlex.split(command), ["yosys", "-Q", "-p", script])
+        self.assertIn("syntax error", message)
+        self.assertIn("yosys failed (exit 1)", message)
 
     def test_error_log_keeps_full_stderr_and_command(self) -> None:
         err = subprocess.CalledProcessError(

@@ -1106,21 +1106,26 @@ def elaborate(
     return design
 
 
-def tool_failure_message(exc: subprocess.CalledProcessError) -> str:
-    """One backend failure as stderr-ready text (no Python traceback)."""
-    tool = (exc.cmd[0] if isinstance(exc.cmd, list) and exc.cmd else "backend").split("/")[-1]
-    return (
-        f"elaborate: {tool} failed (exit {exc.returncode})\n"
-        f"{_tool_diagnostics(exc)}\n"
-        f"full command: {' '.join(str(a) for a in exc.cmd)}"
-    )
-
-
 def _command_text(cmd: object) -> str:
     """One command line with shell quoting; accepts a string or argument list."""
     if isinstance(cmd, (list, tuple)):
         return shlex.join(str(part) for part in cmd)
     return str(cmd)
+
+
+def tool_failure_message(exc: subprocess.CalledProcessError) -> str:
+    """One backend failure as stderr-ready text (no Python traceback).
+
+    The command line is shell-quoted, so the user can paste it and run it
+    again. A yosys ``-p`` script is one argument with semicolons in it, and
+    an unquoted copy of that argument is not a valid command.
+    """
+    tool = (exc.cmd[0] if isinstance(exc.cmd, list) and exc.cmd else "backend").split("/")[-1]
+    return (
+        f"elaborate: {tool} failed (exit {exc.returncode})\n"
+        f"{_tool_diagnostics(exc)}\n"
+        f"full command: {_command_text(exc.cmd)}"
+    )
 
 
 def _cli_command(prog: str, argv: Sequence[str] | None) -> str:
