@@ -43,8 +43,8 @@ keys.
 ```text
 tren open [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...
                    [--root DIR] [--cache DIR] [--refresh] [--out PATH]
-                   [--error-log PATH] [--name NAME] [--top TOP]
-                   [--format auto|f|vivado]
+                   [--error-log PATH] [--log PATH | --nolog] [--name NAME]
+                   [--top TOP] [--format auto|f|vivado]
 ```
 
 `<target>` is a manifest JSON, a `.f` filelist, a single `.sv` or `.v` file,
@@ -64,6 +64,8 @@ and is skipped; the command stops when every listed file is missing.
 | `--refresh` | off | Rebuild the IR even when the cache has an entry. |
 | `--out PATH` | none | Write the imported manifest. An existing directory receives `PATH/manifest.json`. |
 | `--error-log PATH` | `tren_error.log` | On a backend failure, write the full stdout and stderr, the backend command, the TREN command, and the warnings to this file. |
+| `--log PATH` | `tren.log` | Write the run log here. The log holds the backend commands, their full output, and the steps TREN took. |
+| `--nolog` | off | Write no run log. Give it or `--log`, not both. |
 | `--name NAME` | target name, or the Vivado project name | Design name in the manifest. |
 | `--top TOP` | `top`, or the Vivado `TopModule` | Top module. |
 | `--format FORMAT` | `auto` | Importer: `auto`, `f`, or `vivado`. It does not apply with `-f`. |
@@ -127,7 +129,7 @@ The plain importer has these target rules:
 
 ```text
 tren elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
-                           [--error-log PATH]
+                           [--error-log PATH] [--log PATH | --nolog]
                            [--frontend auto|verilog|slang]
 ```
 
@@ -137,6 +139,8 @@ tren elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
 | `--cache DIR` | `cache.dir` | IR cache directory. |
 | `--refresh` | off | Rebuild the IR even when the cache has an entry. |
 | `--error-log PATH` | `tren_error.log` | On a backend failure, write the full stdout and stderr, the backend command, the TREN command, and the warnings to this file. |
+| `--log PATH` | `tren.log` | Write the run log here. The log holds the backend commands, their full output, and the steps TREN took. |
+| `--nolog` | off | Write no run log. Give it or `--log`, not both. |
 | `--frontend` | the manifest's `frontend` | yosys frontend for the netlist pass. `auto` runs `read_verilog`, then `read_slang` when the design uses a construct `read_verilog` cannot parse. `verilog` and `slang` never fall back. |
 
 The command runs yosys, `slang-hier`, and `slang --ast-json`, then prints the
@@ -148,6 +152,7 @@ the intermediate steps.
 
 ```text
 tren stub <manifest> [--root DIR] [--out PATH] [--error-log PATH]
+                      [--log PATH | --nolog]
 ```
 
 | Option | Default | Effect |
@@ -155,6 +160,8 @@ tren stub <manifest> [--root DIR] [--out PATH] [--error-log PATH]
 | `--root DIR` | current directory | Anchor for the manifest's relative source paths. |
 | `--out PATH` | standard output | Write the stub file here instead of standard output. |
 | `--error-log PATH` | `tren_error.log` | On a backend failure, write the full stdout and stderr, the backend command, the TREN command, and the warnings to this file. |
+| `--log PATH` | `tren.log` | Write the run log here. The log holds the backend commands, their full output, and the steps TREN took. |
+| `--nolog` | off | Write no run log. Give it or `--log`, not both. |
 
 The command reads the instantiations of modules that the source set does not
 declare, and writes one body-less `(* blackbox *)` module per missing module.
@@ -201,6 +208,25 @@ They also write the full stdout and stderr, the backend command, the TREN
 command, and the warnings to `tren_error.log` in the current directory. Use
 `--error-log PATH` to choose another file. A failed log write prints a
 warning and does not hide the backend error.
+
+## Run log
+
+`tren open`, `tren elaborate`, and `tren stub` write `tren.log` in the
+current directory. The file holds one run:
+
+- the header: the time, the TREN command line and the working directory;
+- one entry per TREN step: the manifest, the cache hit or miss, the netlist
+  frontend, the inferred black boxes, and the design summary;
+- one block per backend process: the shell-quoted command, the working
+  directory, the exit code, and the full stdout and stderr.
+
+The log is per run: each run replaces the file. Use `--log PATH` to
+write it elsewhere, or `--nolog` to write no log. Both options work before
+or after the command (`tren --nolog open ...` and `tren open --nolog ...`).
+A log that cannot be written prints a warning and leaves the run unlogged;
+it never stops the elaboration. Backend output can be large on a real
+design, so the log is the place to look when the terminal report is not
+enough.
 
 ## Environment variables
 

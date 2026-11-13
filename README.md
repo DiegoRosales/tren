@@ -120,6 +120,12 @@ it, and the warnings from the import. The command they show you is quoted
 the way a shell wants it, so you can copy it straight back into the terminal.
 Pass `--error-log PATH` to put that file somewhere else.
 
+TREN also writes `tren.log` on every backend run, so you can see what it
+did behind a quiet terminal: the yosys and slang command lines, their full
+output, and the steps around them, from the import and the cache hit or miss
+down to the modules it had to invent. The file is replaced on each run.
+`--nolog` turns it off, and `--log PATH` writes it somewhere else.
+
 ### The screen
 
 The screen has three panes: the hierarchy tree, the focused RTL source, and

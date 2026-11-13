@@ -26,6 +26,10 @@ The cache key contains three inputs:
 An edit to a source, a change to the manifest, or a new IR shape invalidates
 the entry. A corrupt entry is ignored and rebuilt.
 
+Read `tren.log` to see which way the cache answered. The file records a
+`cache hit` or `cache miss` line with the blob path, then each backend
+command that ran. See [Run log](command_reference.md#run-log).
+
 Select another cache directory with `--cache`:
 
 ```sh

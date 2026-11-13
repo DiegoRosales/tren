@@ -283,6 +283,7 @@ class WarningTests(unittest.TestCase):
                     code = main([
                         str(root),
                         "--error-log", str(log_path),
+                        "--nolog",
                     ])
             self.assertEqual(code, 1)
             self.assertIn("missing include", err.getvalue())
@@ -298,7 +299,7 @@ class WarningTests(unittest.TestCase):
         with mock.patch(
             "tren.bringup.load_config", return_value=_loaded(Config())
         ), redirect_stderr(err), redirect_stdout(io.StringIO()):
-            code = main(["/nonexistent/tren-target"])
+            code = main(["/nonexistent/tren-target", "--nolog"])
         self.assertEqual(code, 2)
         self.assertIn("tren: no such file or directory", err.getvalue())
 
@@ -309,6 +310,34 @@ class SubcommandTests(unittest.TestCase):
             code = cli.main(["open", "rtl", "--top", "foo"])
         self.assertEqual(code, 0)
         run.assert_called_once_with(["rtl", "--top", "foo"], prog="tren open")
+
+    def test_leading_nolog_reaches_the_command(self) -> None:
+        with mock.patch("tren.bringup.main", return_value=0) as run:
+            code = cli.main(["--nolog", "open", "rtl"])
+        self.assertEqual(code, 0)
+        run.assert_called_once_with(["--nolog", "rtl"], prog="tren open")
+
+    def test_leading_log_option_reaches_the_command(self) -> None:
+        with mock.patch("tren.elaborate.main", return_value=0) as run:
+            code = cli.main(["--log", "run.log", "elaborate", "m.json"])
+        self.assertEqual(code, 0)
+        run.assert_called_once_with(["--log", "run.log", "m.json"])
+
+    def test_leading_log_equals_form_reaches_the_command(self) -> None:
+        with mock.patch("tren.stubs.main", return_value=0) as run:
+            code = cli.main(["--log=run.log", "stub", "m.json"])
+        self.assertEqual(code, 0)
+        run.assert_called_once_with(["--log=run.log", "m.json"])
+
+    def test_leading_log_without_a_path_is_rejected(self) -> None:
+        err = io.StringIO()
+        with mock.patch("tren.bringup.main", return_value=0) as run, redirect_stderr(
+            err
+        ):
+            code = cli.main(["--log"])
+        self.assertEqual(code, 2)
+        run.assert_not_called()
+        self.assertIn("--log needs a path", err.getvalue())
 
     def test_a_target_alone_is_not_a_command(self) -> None:
         err = io.StringIO()
@@ -345,7 +374,7 @@ class LaunchTests(unittest.TestCase):
         ), mock.patch("tren.bringup.run_tui") as launch, redirect_stdout(
             io.StringIO()
         ):
-            code = main(["a.sv"])
+            code = main(["a.sv", "--nolog"])
         self.assertEqual(code, 0)
         launch.assert_called_once()
         self.assertIs(launch.call_args.args[0], design)
@@ -361,7 +390,7 @@ class LaunchTests(unittest.TestCase):
         ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
             io.StringIO()
         ):
-            code = main(["-f", "a.sv", "-f", "b.sv", "--top", "top"])
+            code = main(["-f", "a.sv", "-f", "b.sv", "--top", "top", "--nolog"])
         self.assertEqual(code, 0)
         self.assertEqual(load.call_args.args[0], None)
         self.assertEqual(load.call_args.kwargs["files"], ["a.sv", "b.sv"])
@@ -376,7 +405,7 @@ class LaunchTests(unittest.TestCase):
         ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
             io.StringIO()
         ):
-            code = main(["-f", "a.sv", "-G", "WIDTH=16", "-G", "DEPTH=4"])
+            code = main(["-f", "a.sv", "-G", "WIDTH=16", "-G", "DEPTH=4", "--nolog"])
         self.assertEqual(code, 0)
         self.assertEqual(
             load.call_args.kwargs["params"],
@@ -393,7 +422,7 @@ class LaunchTests(unittest.TestCase):
         ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
             io.StringIO()
         ):
-            code = main(["-f", "a.sv", "-D", "SYNTHESIS", "-D", "WIDTH=16"])
+            code = main(["-f", "a.sv", "-D", "SYNTHESIS", "-D", "WIDTH=16", "--nolog"])
         self.assertEqual(code, 0)
         self.assertEqual(
             load.call_args.kwargs["defines"],
@@ -446,7 +475,7 @@ class LaunchTests(unittest.TestCase):
         ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
             io.StringIO()
         ):
-            code = main(["a.sv"])
+            code = main(["a.sv", "--nolog"])
         self.assertEqual(code, 0)
         self.assertEqual(load.call_args.kwargs["cache"], Path("config-cache"))
 
@@ -461,7 +490,7 @@ class LaunchTests(unittest.TestCase):
         ) as load, mock.patch("tren.bringup.run_tui"), redirect_stdout(
             io.StringIO()
         ):
-            code = main(["a.sv", "--cache", "cli-cache"])
+            code = main(["a.sv", "--cache", "cli-cache", "--nolog"])
         self.assertEqual(code, 0)
         self.assertEqual(load.call_args.kwargs["cache"], Path("cli-cache"))
 

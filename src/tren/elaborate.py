@@ -37,7 +37,6 @@ import argparse
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -46,6 +45,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from . import log
 from .bits import cell_directions, unmangle
 from .cache import IrCache
 from .config import ConfigError, load_config
@@ -93,6 +93,15 @@ def _run(cmd: list[str], cwd: Path) -> str:
     proc = subprocess.run(
         cmd, cwd=str(cwd), capture_output=True, text=True
     )
+    logger = log.active()
+    if logger is not None:
+        logger.backend(
+            cmd,
+            cwd=cwd,
+            returncode=proc.returncode,
+            stdout=proc.stdout or "",
+            stderr=proc.stderr or "",
+        )
     if proc.returncode == 0:
         return proc.stdout
     # slang uses exit 3 for warnings as well as errors. A warning-only run
@@ -1075,13 +1084,21 @@ def elaborate(
     if cache is not None and not refresh:
         hit = cache.get(manifest)
         if hit is not None:
+            log.note(f"cache hit: {cache.path(manifest)}")
             return hit
+        log.note(f"cache miss: {cache.path(manifest)}")
+    log.note(
+        f"elaborate {manifest.name}: top={manifest.top}, "
+        f"{len(manifest.sources)} source(s)"
+    )
     hier_nodes = run_slang_hier(manifest, root)
     with tempfile.TemporaryDirectory(prefix="tren-elab-") as td:
         ast_path = str(Path(td) / "ast.json")
         run_slang_ast(manifest, root, ast_path)
         ast = json.loads(Path(ast_path).read_text())
         stubs = infer_stubs(ast, root)
+        if stubs:
+            log.note(f"inferred black boxes: {', '.join(sorted(stubs))}")
         netlist_path = str(Path(td) / "netlist.json")
         used = run_yosys(
             manifest,
@@ -1091,6 +1108,7 @@ def elaborate(
             _stub_writer(stubs, Path(td), manifest, root, cache, warnings_out),
         )
         netlist = json.loads(Path(netlist_path).read_text())
+    log.note(f"netlist frontend: read_{used}")
     if used == "slang":
         _drop_stub_modules(netlist, frozenset(stubs))
     design = build_design(
@@ -1102,15 +1120,9 @@ def elaborate(
         frontend=f"read_{used}",
     )
     if cache is not None:
-        cache.put(manifest, design)
+        path = cache.put(manifest, design)
+        log.note(f"cache write: {path}")
     return design
-
-
-def _command_text(cmd: object) -> str:
-    """One command line with shell quoting; accepts a string or argument list."""
-    if isinstance(cmd, (list, tuple)):
-        return shlex.join(str(part) for part in cmd)
-    return str(cmd)
 
 
 def tool_failure_message(exc: subprocess.CalledProcessError) -> str:
@@ -1124,15 +1136,8 @@ def tool_failure_message(exc: subprocess.CalledProcessError) -> str:
     return (
         f"elaborate: {tool} failed (exit {exc.returncode})\n"
         f"{_tool_diagnostics(exc)}\n"
-        f"full command: {_command_text(exc.cmd)}"
+        f"full command: {log.command_text(exc.cmd)}"
     )
-
-
-def _cli_command(prog: str, argv: Sequence[str] | None) -> str:
-    """The ``tren`` command line that led to the failure."""
-    if argv is None:
-        return shlex.join(str(part) for part in sys.argv)
-    return shlex.join([*prog.split(), *(str(part) for part in argv)])
 
 
 def error_log_text(
@@ -1160,7 +1165,7 @@ def error_log_text(
             "",
             f"backend: {tool}",
             f"exit code: {exc.returncode}",
-            f"backend command: {_command_text(cmd)}",
+            f"backend command: {log.command_text(cmd)}",
         ]
     )
     if warnings:
@@ -1206,12 +1211,13 @@ def report_failure(
 ) -> Path | None:
     """Print the trimmed failure and write the full log. Return the log path."""
     print(tool_failure_message(exc), file=sys.stderr)
+    log.note(f"failure: exit {exc.returncode}")
     log_path = write_error_log(
         exc,
         root=root,
         warnings=warnings,
         path=path,
-        command=_cli_command(prog, argv),
+        command=log.cli_command(prog, argv),
     )
     if log_path is None:
         print("  warning: could not write the error log", file=sys.stderr)
@@ -1240,6 +1246,17 @@ def design_summary(design: Design) -> list[str]:
     ]
 
 
+def _report_warnings(warnings: Sequence[str]) -> None:
+    """Print each warning and put it in the run log."""
+    for warning in warnings:
+        _warn(warning)
+
+
+def _warn(message: str) -> None:
+    print(f"  warning: {message}", file=sys.stderr)
+    log.note(f"warning: {message}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path, help="manifest JSON (sources relative to --root)")
@@ -1253,6 +1270,7 @@ def main(argv: list[str] | None = None) -> int:
         "--error-log", type=Path, default=Path("tren_error.log"),
         help="write the full backend failure to this file (default: tren_error.log)",
     )
+    log.add_arguments(parser)
     parser.add_argument(
         "--frontend", choices=FRONTENDS, default=None,
         help=(
@@ -1262,10 +1280,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    logger = log.from_args(args, command=log.cli_command("tren elaborate", argv))
+    log.set_active(logger)
+    try:
+        return _elaborate(args, argv)
+    finally:
+        log.set_active(None)
+        if logger is not None:
+            logger.close()
+
+
+def _elaborate(args: argparse.Namespace, argv: list[str] | None) -> int:
     try:
         settings = load_config().config
     except ConfigError as exc:
         print(f"tren: {exc}", file=sys.stderr)
+        log.note(f"error: {exc}")
         return 2
     cache = args.cache if args.cache is not None else Path(settings.cache_dir)
 
@@ -1274,20 +1304,20 @@ def main(argv: list[str] | None = None) -> int:
         manifest = Manifest.read(args.manifest)
     except (OSError, ValueError) as exc:
         print(f"tren: {exc}", file=sys.stderr)
+        log.note(f"error: {exc}")
         return 2
+    log.note(f"manifest: {args.manifest}")
     duplicate_params = manifest.duplicate_params()
     duplicate_defines = manifest.duplicate_defines()
     for name, value in duplicate_defines.items():
-        print(
-            f"  warning: macro {name} is defined more than once; "
-            f"using the last value {value}",
-            file=sys.stderr,
+        _warn(
+            f"macro {name} is defined more than once; "
+            f"using the last value {value}"
         )
     for name, value in duplicate_params.items():
-        print(
-            f"  warning: parameter {name} is defined more than once; "
-            f"using the last value {value}",
-            file=sys.stderr,
+        _warn(
+            f"parameter {name} is defined more than once; "
+            f"using the last value {value}"
         )
     if duplicate_params:
         manifest = replace(manifest, params=tuple(manifest.params_map().items()))
@@ -1303,8 +1333,7 @@ def main(argv: list[str] | None = None) -> int:
             warnings_out=warnings,
         )
     except subprocess.CalledProcessError as exc:
-        for warning in warnings:
-            print(f"  warning: {warning}", file=sys.stderr)
+        _report_warnings(warnings)
         report_failure(
             exc,
             root=args.root,
@@ -1315,10 +1344,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    for warning in warnings:
-        print(f"  warning: {warning}", file=sys.stderr)
+    _report_warnings(warnings)
     for line in design_summary(design):
         print(line)
+        log.note(line)
     return 0
 
 

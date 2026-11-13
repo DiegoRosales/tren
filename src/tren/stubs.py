@@ -326,12 +326,8 @@ def main(argv: list[str] | None = None) -> int:
     for reading what TREN assumes about a module it cannot see.
     """
     import argparse
-    import subprocess
-    import sys
-    import tempfile
 
-    from .elaborate import run_slang_ast
-    from .manifest import Manifest
+    from . import log
 
     parser = argparse.ArgumentParser(
         prog="tren stub",
@@ -354,13 +350,35 @@ def main(argv: list[str] | None = None) -> int:
         "--error-log", type=Path, default=Path("tren_error.log"),
         help="write the full backend failure to this file (default: tren_error.log)",
     )
+    log.add_arguments(parser)
     args = parser.parse_args(argv)
+
+    logger = log.from_args(args, command=log.cli_command("tren stub", argv))
+    log.set_active(logger)
+    try:
+        return _stub(args, argv)
+    finally:
+        log.set_active(None)
+        if logger is not None:
+            logger.close()
+
+
+def _stub(args: Any, argv: list[str] | None) -> int:
+    import subprocess
+    import sys
+    import tempfile
+
+    from . import log
+    from .elaborate import report_failure, run_slang_ast
+    from .manifest import Manifest
 
     try:
         manifest = Manifest.read(args.manifest)
     except (OSError, ValueError) as exc:
         print(f"tren: {exc}", file=sys.stderr)
+        log.note(f"error: {exc}")
         return 2
+    log.note(f"manifest: {args.manifest}")
 
     try:
         with tempfile.TemporaryDirectory(prefix="tren-stub-") as td:
@@ -368,8 +386,6 @@ def main(argv: list[str] | None = None) -> int:
             run_slang_ast(manifest, args.root, ast_path)
             ast = json.loads(Path(ast_path).read_text())
     except subprocess.CalledProcessError as exc:
-        from .elaborate import report_failure
-
         report_failure(
             exc,
             root=args.root,
@@ -385,7 +401,9 @@ def main(argv: list[str] | None = None) -> int:
             "tren stub: every instantiated module has a declaration",
             file=sys.stderr,
         )
+        log.note("no inferred black boxes")
         return 0
+    log.note(f"inferred black boxes: {', '.join(sorted(stubs))}")
     text = render(stubs, source=manifest.name)
     if args.out is None:
         sys.stdout.write(text)
@@ -393,8 +411,10 @@ def main(argv: list[str] | None = None) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text)
         print(f"tren stub: wrote {args.out}", file=sys.stderr)
+        log.note(f"stub file: {args.out}")
     warning = summary(stubs)
     if warning:
         for line in warning.splitlines():
             print(f"  {line}", file=sys.stderr)
+            log.note(line)
     return 0

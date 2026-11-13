@@ -394,7 +394,7 @@ class ElaborateMainWarningTests(unittest.TestCase):
             ), mock.patch(
                 "tren.elaborate.elaborate", return_value=Design(top="top")
             ) as build, redirect_stderr(err), redirect_stdout(io.StringIO()):
-                code = elaborate_main([str(path)])
+                code = elaborate_main([str(path), "--nolog"])
         self.assertEqual(code, 0)
         self.assertIn("macro W is defined more than once", err.getvalue())
         self.assertIn("parameter P is defined more than once", err.getvalue())

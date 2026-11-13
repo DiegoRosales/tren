@@ -335,6 +335,7 @@ class StubCommandTests(unittest.TestCase):
                 str(REPO / "tests" / "sv" / "missing_rtl.manifest.json"),
                 "--root", str(REPO),
                 "--out", str(out),
+                "--nolog",
             ])
             self.assertEqual(code, 0)
             text = out.read_text()
@@ -344,6 +345,7 @@ class StubCommandTests(unittest.TestCase):
         code = stub_main([
             str(REPO / "tests" / "rtl" / "demo.manifest.json"),
             "--root", str(REPO),
+            "--nolog",
         ])
         self.assertEqual(code, 0)
 

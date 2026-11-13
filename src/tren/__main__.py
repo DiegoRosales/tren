@@ -7,17 +7,19 @@ Commands:
                 emit a design manifest for a .f filelist, a .sv file, a
                 directory of sources, or an explicit -f list (tren.importer)
     elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
-                [--error-log PATH]
+                [--error-log PATH] [--frontend auto|verilog|slang]
+                [--log PATH | --nolog]
                 elaborate a manifest into the TREN IR (tren.elaborate)
     open [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...
                 [--root DIR] [--cache DIR] [--refresh] [--out PATH]
-                [--error-log PATH]
+                [--error-log PATH] [--log PATH | --nolog]
                 import the target (or the -f list) unless it is a manifest,
                 elaborate it and open the TUI (tren.bringup)
     config [show|export] [--out PATH]
                 show the effective settings with their origins, or export a
                 complete TOML template (tren.config)
     stub <manifest> [--root DIR] [--out PATH] [--error-log PATH]
+                [--log PATH | --nolog]
                 write the black-box declarations inferred for modules the
                 source set does not declare (tren.stubs)
 
@@ -27,6 +29,9 @@ Options:
     --version-debug
                 print the version plus interpreter, platform, package,
                 dependency, external tool and configuration paths
+    --log PATH  run log for open, elaborate and stub (default: tren.log);
+                also accepted after the command
+    --nolog     write no run log; also accepted after the command
 
 Debug flags:
 
@@ -198,6 +203,9 @@ options:
   --version-debug
                 show the version plus interpreter, platform, package,
                 dependency, external tool and configuration paths
+  --log PATH    run log for open, elaborate and stub (default: tren.log);
+                also accepted after the command
+  --nolog       write no run log; also accepted after the command
 
 commands:
   import [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...
@@ -205,17 +213,18 @@ commands:
                 emit a design manifest for a .f filelist, a .sv file, a
                 directory of sources, or an explicit -f list
   elaborate <manifest> [--root DIR] [--cache DIR] [--refresh]
-                [--error-log PATH]
+                [--error-log PATH] [--log PATH | --nolog]
                 elaborate a manifest into the TREN IR
   open [<target>] [-f PATH]... [-D NAME[=VALUE]]... [-G NAME=VALUE]...
                 [--root DIR] [--cache DIR] [--refresh] [--out PATH]
-                [--error-log PATH]
+                [--error-log PATH] [--log PATH | --nolog]
                 import the target (or the -f list) unless it is a manifest,
                 elaborate it and open the TUI
   config [show|export] [--out PATH]
                 show the effective settings with their origins, or export a
                 complete TOML template
   stub <manifest> [--root DIR] [--out PATH] [--error-log PATH]
+                [--log PATH | --nolog]
                 write the black-box declarations inferred for modules the
                 source set does not declare
 
@@ -229,8 +238,39 @@ Run 'tren open --help' for the full option list.
 """
 
 
+def _leading_log_options(argv: list[str]) -> tuple[list[str], list[str]]:
+    """Split a leading ``--log``/``--nolog`` from argv.
+
+    The commands parse the same options after the command name. Accepting
+    them before it too lets ``tren --nolog open ...`` work, because the run
+    log belongs to the run and not to one subcommand.
+    """
+    options: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "--nolog":
+            options.append(token)
+            index += 1
+        elif token.startswith("--log="):
+            options.append(token)
+            index += 1
+        elif token == "--log":
+            if index + 1 >= len(argv) or argv[index + 1].startswith("--"):
+                break  # a missing value; the command parser reports it
+            options.extend(argv[index:index + 2])
+            index += 2
+        else:
+            break
+    return options, argv[index:]
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    log_options, argv = _leading_log_options(argv)
+    if argv and argv[0] == "--log":
+        print("tren: --log needs a path", file=sys.stderr)
+        return 2
     if not argv or argv[0] in ("-h", "--help"):
         print(_USAGE)
         return 0
@@ -264,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         sys.stdout.write(text)
         return 0
-    cmd, rest = argv[0], argv[1:]
+    cmd, rest = argv[0], log_options + argv[1:]
     if cmd == "import":
         from .importer import main as import_main
         return import_main(rest)

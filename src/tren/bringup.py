@@ -19,6 +19,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+from . import log
 from .config import Config, ConfigError, load_config
 from .elaborate import IrCache, design_summary, elaborate, report_failure
 from .importer import import_manifest, import_sources, parse_define, parse_param
@@ -160,6 +161,7 @@ def run_tui(
 def _print_warnings(warnings: list[str]) -> None:
     for warning in warnings:
         print(f"  warning: {warning}", file=sys.stderr)
+        log.note(f"warning: {warning}")
 
 
 def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
@@ -202,6 +204,7 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
         "--error-log", type=Path, default=Path("tren_error.log"),
         help="write the full backend failure to this file (default: tren_error.log)",
     )
+    log.add_arguments(parser)
     parser.add_argument(
         "--name", default=None,
         help="design name (default: target name, or the root directory name with -f)",
@@ -236,10 +239,28 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
+    logger = log.from_args(args, command=log.cli_command(prog, argv))
+    log.set_active(logger)
+    try:
+        return _open(args, argv, prog, defines, params)
+    finally:
+        log.set_active(None)
+        if logger is not None:
+            logger.close()
+
+
+def _open(
+    args: argparse.Namespace,
+    argv: list[str] | None,
+    prog: str,
+    defines: list[tuple[str, str]],
+    params: list[tuple[str, str]],
+) -> int:
     try:
         settings = load_config().config
     except ConfigError as exc:
         print(f"tren: {exc}", file=sys.stderr)
+        log.note(f"error: {exc}")
         return 2
     cache = args.cache if args.cache is not None else Path(settings.cache_dir)
 
@@ -274,6 +295,7 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
     except (OSError, ValueError) as exc:
         _print_warnings(warnings)
         print(f"tren: {exc}", file=sys.stderr)
+        log.note(f"error: {exc}")
         return 2
 
     if imported:
@@ -281,12 +303,20 @@ def main(argv: list[str] | None = None, *, prog: str = "tren open") -> int:
             f"imported {len(manifest.sources)} source(s) for {manifest.name} "
             f"(top={manifest.top})"
         )
+        log.note(
+            f"import: {len(manifest.sources)} source(s) for {manifest.name} "
+            f"(top={manifest.top})"
+        )
         if args.out is not None:
             print(f"  manifest: {_manifest_out_path(args.out)}")
+            log.note(f"manifest written: {_manifest_out_path(args.out)}")
     _print_warnings(warnings)
     for line in design_summary(design):
         print(line)
+        log.note(line)
+    log.note("opening the TUI")
     run_tui(design, Path(args.root), settings)
+    log.note("TUI closed")
     return 0
 
 
